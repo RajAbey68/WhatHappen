@@ -33,7 +33,7 @@ ENV/
 # Sensitive Data - NEVER COMMIT
 *.txt
 *.csv
-*.json
+# *.json  # Commented out - we need package.json for deployment
 temp_whatsapp_export.txt
 whatsapp_analysis_report.html
 test_report.html
