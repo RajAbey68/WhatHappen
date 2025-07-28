@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parse as csvParse } from 'csv-parse/sync'
 import * as natural from 'natural'
-import { FirebaseService, FirebaseMessage, FirebaseChatAnalysis } from '@/lib/firebase-service'
 import { v4 as uuidv4 } from 'uuid'
 const Sentiment = require('sentiment')
+
+// Firebase integration temporarily disabled due to compatibility issues
+// Will be re-enabled once Node.js/Firebase compatibility is resolved
 
 // Conditional imports to avoid build-time issues
 let mammoth: any = null
@@ -139,54 +141,6 @@ export async function POST(request: NextRequest) {
         acc[item.word] = item.count
         return acc
       }, {})
-    }
-
-    // Store in Firebase if environment is configured
-    try {
-      if (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) {
-        // Prepare messages for Firebase storage
-        const firebaseMessages: FirebaseMessage[] = messages.map(msg => ({
-          timestamp: msg.timestamp,
-          sender: msg.sender,
-          message: msg.message,
-          messageType: msg.messageType,
-          sentiment: msg.sentiment,
-          chatId,
-          fileId
-        }))
-
-        // Store messages in Firebase
-        await FirebaseService.storeMessages(firebaseMessages)
-
-        // Store chat analysis
-        const chatAnalysis: FirebaseChatAnalysis = {
-          fileId,
-          fileName: file.name,
-          fileSize: file.size,
-          processedAt: new Date(),
-          totalMessages: messages.length,
-          participants: analysis.participants.map(name => ({ name })),
-          analysis,
-          sentimentAnalysis: result.sentimentAnalysis,
-          timeAnalysis: result.timeAnalysis,
-          wordFrequency: result.wordFrequency
-        }
-
-        await FirebaseService.storeChatAnalysis(chatAnalysis)
-
-        // Store file metadata
-        await FirebaseService.storeFileMetadata(fileId, {
-          fileName: file.name,
-          fileSize: file.size,
-          originalType: file.type,
-          processedAt: new Date()
-        })
-
-        console.log(`Successfully stored ${messages.length} messages and analysis in Firebase`)
-      }
-    } catch (firebaseError) {
-      console.warn('Firebase storage failed, continuing with local processing:', firebaseError)
-      // Don't fail the entire request if Firebase is unavailable
     }
 
     return NextResponse.json({

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { FirebaseService } from '@/lib/firebase-service'
+
+// Firebase integration temporarily disabled due to compatibility issues
 
 let openai: OpenAI | null = null
 
@@ -56,29 +57,9 @@ export async function POST(request: NextRequest) {
     // Extract searchType from body for backward compatibility
     const searchType = body.searchType || options?.searchType || 'semantic'
 
-    // Try to get data from Firebase first, then fall back to passed chatData
-    let searchData = chatData
-    if (chatData?.fileId && process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) {
-      try {
-        const firebaseMessages = await FirebaseService.getMessagesByChatId(chatData.chatId)
-        const firebaseAnalysis = await FirebaseService.getChatAnalysis(chatData.fileId)
-        
-        if (firebaseMessages.length > 0 && firebaseAnalysis) {
-          searchData = {
-            ...chatData,
-            messages: firebaseMessages,
-            analysis: firebaseAnalysis.analysis
-          }
-          console.log(`Using Firebase data: ${firebaseMessages.length} messages`)
-        }
-      } catch (firebaseError) {
-        console.warn('Failed to retrieve from Firebase, using passed data:', firebaseError)
-      }
-    }
-
     // Enhanced financial analysis based on memory
     if (searchType === 'financial' || isFinancialQuery(query)) {
-      const financialAnalysis = await performFinancialAnalysis(query, searchData)
+      const financialAnalysis = await performFinancialAnalysis(query, chatData)
       return NextResponse.json({
         success: true,
         type: 'financial_analysis',
@@ -91,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     // Semantic search using AI
     if (searchType === 'semantic') {
-      const semanticResults = await performSemanticSearch(query, searchData, options)
+      const semanticResults = await performSemanticSearch(query, chatData, options)
       return NextResponse.json({
         success: true,
         type: 'semantic_search',
@@ -104,7 +85,7 @@ export async function POST(request: NextRequest) {
 
     // Keyword search
     if (searchType === 'keyword') {
-      const keywordResults = performKeywordSearch(query, searchData, options)
+      const keywordResults = performKeywordSearch(query, chatData, options)
       return NextResponse.json({
         success: true,
         type: 'keyword_search',
@@ -117,7 +98,7 @@ export async function POST(request: NextRequest) {
 
     // Sentiment analysis
     if (searchType === 'sentiment') {
-      const sentimentResults = await performSentimentAnalysis(query, searchData)
+      const sentimentResults = await performSentimentAnalysis(query, chatData)
       return NextResponse.json({
         success: true,
         type: 'sentiment_analysis',
