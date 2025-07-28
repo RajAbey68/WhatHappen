@@ -24,6 +24,7 @@ interface UploadedFile {
 export function FileUpload({ onFileProcessed }: FileUploadProps) {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const [aggregatedData, setAggregatedData] = useState<any>(null)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map(file => ({
@@ -42,13 +43,17 @@ export function FileUpload({ onFileProcessed }: FileUploadProps) {
       'text/plain': ['.txt'],
       'application/zip': ['.zip'],
       'application/x-zip-compressed': ['.zip'],
-      'application/json': ['.json']
+      'application/json': ['.json'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/pdf': ['.pdf'],
+      'text/csv': ['.csv']
     },
     multiple: true
   })
 
   const processFiles = async (files: UploadedFile[]) => {
     setIsProcessing(true)
+    const processedResults: any[] = []
     
     for (const uploadedFile of files) {
       try {
@@ -81,28 +86,26 @@ export function FileUpload({ onFileProcessed }: FileUploadProps) {
 
         clearInterval(progressInterval)
 
-        if (!response.ok) {
-          throw new Error(`Upload failed: ${response.statusText}`)
-        }
-
         const result = await response.json()
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || result.details || `Upload failed: ${response.statusText}`)
+        }
 
         setUploadedFiles(prev => 
           prev.map(f => 
             f.file === uploadedFile.file 
-              ? { ...f, status: 'completed', progress: 100, data: result }
+              ? { ...f, status: 'completed', progress: 100, data: result.data }
               : f
           )
         )
+
+        processedResults.push(result.data)
 
         toast({
           title: "✨ File processed successfully",
           description: `${uploadedFile.file.name} has been analyzed with AI insights.`,
         })
-
-        if (onFileProcessed) {
-          onFileProcessed(result)
-        }
 
       } catch (error) {
         setUploadedFiles(prev => 
@@ -120,13 +123,156 @@ export function FileUpload({ onFileProcessed }: FileUploadProps) {
 
         toast({
           title: "Upload failed",
-          description: `Failed to process ${uploadedFile.file.name}`,
+          description: `Failed to process ${uploadedFile.file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
           variant: "destructive",
         })
       }
     }
 
+    // If multiple files were processed, aggregate the data
+    if (processedResults.length > 1) {
+      const aggregated = aggregateMultipleFiles(processedResults)
+      setAggregatedData(aggregated)
+      
+      toast({
+        title: "✨ Multi-file analysis complete",
+        description: `Successfully processed and aggregated ${processedResults.length} files.`,
+      })
+
+      if (onFileProcessed) {
+        onFileProcessed(aggregated)
+      }
+    } else if (processedResults.length === 1) {
+      if (onFileProcessed) {
+        onFileProcessed(processedResults[0])
+      }
+    }
+
     setIsProcessing(false)
+  }
+
+  const aggregateMultipleFiles = (results: any[]) => {
+    const aggregated = {
+      fileIds: results.map(r => r.fileId),
+      chatIds: results.map(r => r.chatId),
+      fileName: `Aggregated Analysis (${results.length} files)`,
+      fileSize: results.reduce((sum, r) => sum + r.fileSize, 0),
+      processedAt: new Date().toISOString(),
+      totalMessages: results.reduce((sum, r) => sum + r.totalMessages, 0),
+      participants: [] as Array<{ name: string }>,
+      messages: [] as any[],
+      analysis: {
+        totalMessages: 0,
+        participants: [] as string[],
+        dateRange: { start: null as Date | null, end: null as Date | null },
+        messagesByParticipant: {} as Record<string, number>,
+        averageSentiment: 0,
+        topWords: [] as Array<{ word: string; count: number }>,
+        dailyMessageCounts: [] as any[],
+        hourlyDistribution: {} as Record<string, number>,
+        mediaMessages: 0,
+        textMessages: 0,
+        averageMessageLength: 0
+      },
+      sentimentAnalysis: {
+        byParticipant: {} as Record<string, number>,
+        average: 0
+      },
+      timeAnalysis: {
+        dailyDistribution: {} as Record<string, number>,
+        hourlyDistribution: {} as Record<string, number>
+      },
+      wordFrequency: {} as Record<string, number>
+    }
+
+    // Aggregate participants
+    const allParticipants = new Set<string>()
+    results.forEach(result => {
+      result.participants.forEach((p: any) => {
+        allParticipants.add(p.name)
+      })
+    })
+    aggregated.participants = Array.from(allParticipants).map(name => ({ name }))
+
+    // Aggregate messages (limited to first 100 from each file)
+    results.forEach(result => {
+      aggregated.messages.push(...result.messages.slice(0, 50)) // 50 from each file
+    })
+
+    // Aggregate analysis data
+    let totalSentiment = 0
+    let sentimentCount = 0
+    const combinedWordFreq: any = {}
+    const combinedMessagesByParticipant: any = {}
+    const combinedHourlyDist: any = {}
+    let allDates: Date[] = []
+
+    results.forEach(result => {
+      // Total messages
+      aggregated.analysis.totalMessages += result.totalMessages
+
+      // Participants and messages by participant
+      Object.entries(result.analysis.messagesByParticipant || {}).forEach(([name, count]) => {
+        combinedMessagesByParticipant[name] = (combinedMessagesByParticipant[name] || 0) + (count as number)
+      })
+
+      // Sentiment
+      if (result.analysis.averageSentiment) {
+        totalSentiment += result.analysis.averageSentiment * result.totalMessages
+        sentimentCount += result.totalMessages
+      }
+
+      // Word frequency
+      Object.entries(result.wordFrequency || {}).forEach(([word, count]) => {
+        combinedWordFreq[word] = (combinedWordFreq[word] || 0) + (count as number)
+      })
+
+      // Hourly distribution
+      Object.entries(result.timeAnalysis.hourlyDistribution || {}).forEach(([hour, count]) => {
+        combinedHourlyDist[hour] = (combinedHourlyDist[hour] || 0) + (count as number)
+      })
+
+      // Media and text messages
+      aggregated.analysis.mediaMessages += result.analysis.mediaMessages || 0
+      aggregated.analysis.textMessages += result.analysis.textMessages || 0
+
+      // Date range
+      if (result.analysis.dateRange) {
+        allDates.push(new Date(result.analysis.dateRange.start))
+        allDates.push(new Date(result.analysis.dateRange.end))
+      }
+    })
+
+    // Finalize aggregated data
+    aggregated.analysis.participants = Array.from(allParticipants)
+    aggregated.analysis.messagesByParticipant = combinedMessagesByParticipant
+    aggregated.analysis.averageSentiment = sentimentCount > 0 ? totalSentiment / sentimentCount : 0
+    aggregated.analysis.hourlyDistribution = combinedHourlyDist
+    
+    // Top words (top 20 from combined frequency)
+    aggregated.analysis.topWords = Object.entries(combinedWordFreq)
+      .sort(([,a], [,b]) => (b as number) - (a as number))
+      .slice(0, 20)
+      .map(([word, count]) => ({ word, count: count as number }))
+
+    aggregated.wordFrequency = combinedWordFreq
+    aggregated.timeAnalysis.hourlyDistribution = combinedHourlyDist
+
+    // Date range
+    if (allDates.length > 0) {
+      allDates.sort((a, b) => a.getTime() - b.getTime())
+      aggregated.analysis.dateRange = {
+        start: allDates[0],
+        end: allDates[allDates.length - 1]
+      }
+    }
+
+    // Average message length
+    aggregated.analysis.averageMessageLength = aggregated.analysis.textMessages > 0 
+      ? aggregated.analysis.totalMessages / aggregated.analysis.textMessages 
+      : 0
+
+    return aggregated
   }
 
   const removeFile = (fileToRemove: File) => {

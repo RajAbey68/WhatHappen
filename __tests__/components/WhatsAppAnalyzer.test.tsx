@@ -3,6 +3,21 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import WhatsAppAnalyzer from '../../app/page'
 
+// Mock Lucide React icons
+jest.mock('lucide-react', () => ({
+  Moon: (props: any) => <div data-testid="moon-icon" {...props} />,
+  Sun: (props: any) => <div data-testid="sun-icon" {...props} />,
+  Upload: (props: any) => <div data-testid="upload-icon" {...props} />,
+  BarChart3: (props: any) => <div data-testid="chart-icon" {...props} />,
+  MessageCircle: (props: any) => <div data-testid="message-icon" {...props} />,
+  Database: (props: any) => <div data-testid="database-icon" {...props} />,
+  Settings: (props: any) => <div data-testid="settings-icon" {...props} />,
+  FileText: (props: any) => <div data-testid="file-icon" {...props} />,
+  Zap: (props: any) => <div data-testid="zap-icon" {...props} />,
+  TrendingUp: (props: any) => <div data-testid="trending-icon" {...props} />,
+  Brain: (props: any) => <div data-testid="brain-icon" {...props} />
+}))
+
 // Mock the UI components using relative paths
 jest.mock('../../components/ui/button', () => ({
   Button: ({ children, onClick, ...props }: any) => (
@@ -62,7 +77,7 @@ describe('WhatsAppAnalyzer Component', () => {
 
     test('should render main title', () => {
       render(<WhatsAppAnalyzer />)
-      const title = screen.getByText(/WhatsApp Analyzer/i)
+      const title = screen.getAllByText(/WhatsApp Analyzer/i)[0]
       expect(title).toBeInTheDocument()
     })
 
@@ -96,7 +111,7 @@ describe('WhatsAppAnalyzer Component', () => {
       
       expect(screen.getByTestId('tab-trigger-upload')).toBeInTheDocument()
       expect(screen.getByTestId('tab-trigger-dashboard')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-chat')).toBeInTheDocument()
+      expect(screen.getByTestId('tab-trigger-ai-chat')).toBeInTheDocument()
       expect(screen.getByTestId('tab-trigger-database')).toBeInTheDocument()
       expect(screen.getByTestId('tab-trigger-settings')).toBeInTheDocument()
     })
@@ -106,7 +121,7 @@ describe('WhatsAppAnalyzer Component', () => {
       
       expect(screen.getByTestId('tab-content-upload')).toBeInTheDocument()
       expect(screen.getByTestId('tab-content-dashboard')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-content-chat')).toBeInTheDocument()
+      expect(screen.getByTestId('tab-content-ai-chat')).toBeInTheDocument()
       expect(screen.getByTestId('tab-content-database')).toBeInTheDocument()
       expect(screen.getByTestId('tab-content-settings')).toBeInTheDocument()
     })
@@ -117,13 +132,13 @@ describe('WhatsAppAnalyzer Component', () => {
       render(<WhatsAppAnalyzer />)
       
       expect(screen.getByText('Drop your WhatsApp chat file here')).toBeInTheDocument()
-      expect(screen.getByText('Choose File')).toBeInTheDocument()
+      expect(screen.getByText('Browse Files')).toBeInTheDocument()
     })
 
     test('should render supported file types text', () => {
       render(<WhatsAppAnalyzer />)
       
-      expect(screen.getByText(/Supports TXT, ZIP, and JSON files/)).toBeInTheDocument()
+      expect(screen.getByText(/Supports .txt and .zip files up to 50MB/)).toBeInTheDocument()
     })
   })
 
@@ -131,7 +146,7 @@ describe('WhatsAppAnalyzer Component', () => {
     test('should render dashboard placeholder content', () => {
       render(<WhatsAppAnalyzer />)
       
-      expect(screen.getByText('Upload a chat file to see analytics and insights')).toBeInTheDocument()
+      expect(screen.getByText('Upload a chat file to see your analytics dashboard')).toBeInTheDocument()
     })
 
     test('should render chat placeholder content', () => {
@@ -143,13 +158,13 @@ describe('WhatsAppAnalyzer Component', () => {
     test('should render database placeholder content', () => {
       render(<WhatsAppAnalyzer />)
       
-      expect(screen.getByText('View and search your processed chat data')).toBeInTheDocument()
+      expect(screen.getByText('Manage your stored chat data and analysis results')).toBeInTheDocument()
     })
 
     test('should render settings placeholder content', () => {
       render(<WhatsAppAnalyzer />)
       
-      expect(screen.getByText('Configure your analysis preferences')).toBeInTheDocument()
+      expect(screen.getByText('Customize your analysis preferences and privacy settings')).toBeInTheDocument()
     })
   })
 
@@ -204,8 +219,8 @@ describe('WhatsAppAnalyzer Component', () => {
     test('should render with proper styling classes', () => {
       render(<WhatsAppAnalyzer />)
       
-      const title = screen.getByText('WhatsApp Analyzer')
-      expect(title.classList.contains('animate-pulse')).toBe(true)
+      const title = screen.getAllByText('WhatsApp Analyzer').find(el => el.tagName === 'H1')
+      expect(title?.classList.contains('animate-pulse')).toBe(true)
     })
 
     test('should render badges with hover effects', () => {

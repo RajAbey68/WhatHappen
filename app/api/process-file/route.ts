@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parse as csvParse } from 'csv-parse/sync'
 import * as natural from 'natural'
+import { FirebaseService, FirebaseMessage, FirebaseChatAnalysis } from '@/lib/firebase-service'
+import { v4 as uuidv4 } from 'uuid'
 const Sentiment = require('sentiment')
 
 // Conditional imports to avoid build-time issues
@@ -63,7 +65,10 @@ export async function POST(request: NextRequest) {
 
     if (!file) {
       return NextResponse.json(
-        { error: 'No file provided' },
+        { 
+          success: false,
+          error: 'No file provided' 
+        },
         { status: 400 }
       )
     }
@@ -104,22 +109,99 @@ export async function POST(request: NextRequest) {
     // Perform analysis
     const analysis = analyzeChat(messages)
 
-    // Prepare response
+    // Generate unique IDs for tracking
+    const fileId = uuidv4()
+    const chatId = uuidv4()
+
+    // Prepare standardized response format
     const result = {
+      fileId,
+      chatId,
       fileName: file.name,
       fileSize: file.size,
       processedAt: new Date().toISOString(),
-      analysis,
+      totalMessages: messages.length,
+      participants: analysis.participants.map(name => ({ name })),
       messages: messages.slice(0, 100), // Return first 100 messages for preview
-      totalMessages: messages.length
+      analysis,
+      sentimentAnalysis: {
+        byParticipant: analysis.messagesByParticipant,
+        average: analysis.averageSentiment
+      },
+      timeAnalysis: {
+        dailyDistribution: analysis.dailyMessageCounts.reduce((acc: any, item: any) => {
+          acc[item.date] = item.count
+          return acc
+        }, {}),
+        hourlyDistribution: analysis.hourlyDistribution
+      },
+      wordFrequency: analysis.topWords.reduce((acc: any, item: any) => {
+        acc[item.word] = item.count
+        return acc
+      }, {})
     }
 
-    return NextResponse.json(result)
+    // Store in Firebase if environment is configured
+    try {
+      if (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) {
+        // Prepare messages for Firebase storage
+        const firebaseMessages: FirebaseMessage[] = messages.map(msg => ({
+          timestamp: msg.timestamp,
+          sender: msg.sender,
+          message: msg.message,
+          messageType: msg.messageType,
+          sentiment: msg.sentiment,
+          chatId,
+          fileId
+        }))
+
+        // Store messages in Firebase
+        await FirebaseService.storeMessages(firebaseMessages)
+
+        // Store chat analysis
+        const chatAnalysis: FirebaseChatAnalysis = {
+          fileId,
+          fileName: file.name,
+          fileSize: file.size,
+          processedAt: new Date(),
+          totalMessages: messages.length,
+          participants: analysis.participants.map(name => ({ name })),
+          analysis,
+          sentimentAnalysis: result.sentimentAnalysis,
+          timeAnalysis: result.timeAnalysis,
+          wordFrequency: result.wordFrequency
+        }
+
+        await FirebaseService.storeChatAnalysis(chatAnalysis)
+
+        // Store file metadata
+        await FirebaseService.storeFileMetadata(fileId, {
+          fileName: file.name,
+          fileSize: file.size,
+          originalType: file.type,
+          processedAt: new Date()
+        })
+
+        console.log(`Successfully stored ${messages.length} messages and analysis in Firebase`)
+      }
+    } catch (firebaseError) {
+      console.warn('Firebase storage failed, continuing with local processing:', firebaseError)
+      // Don't fail the entire request if Firebase is unavailable
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: result
+    })
 
   } catch (error) {
     console.error('File processing error:', error)
     return NextResponse.json(
-      { error: 'Failed to process file', details: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        success: false,
+        error: 'Failed to process file', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      },
       { status: 500 }
     )
   }

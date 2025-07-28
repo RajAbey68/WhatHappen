@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import { FirebaseService } from '@/lib/firebase-service'
 
 let openai: OpenAI | null = null
 
@@ -15,6 +16,7 @@ function getOpenAI(): OpenAI | null {
 interface SearchRequest {
   query: string
   chatData?: any
+  searchType?: 'semantic' | 'keyword' | 'financial' | 'sentiment'  // Add this field
   options?: {
     searchType?: 'semantic' | 'keyword' | 'financial' | 'sentiment'
     limit?: number
@@ -43,64 +45,105 @@ export async function POST(request: NextRequest) {
 
     if (!query) {
       return NextResponse.json(
-        { error: 'Query is required' },
+        { 
+          success: false,
+          error: 'Query is required' 
+        },
         { status: 400 }
       )
     }
 
+    // Extract searchType from body for backward compatibility
+    const searchType = body.searchType || options?.searchType || 'semantic'
+
+    // Try to get data from Firebase first, then fall back to passed chatData
+    let searchData = chatData
+    if (chatData?.fileId && process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) {
+      try {
+        const firebaseMessages = await FirebaseService.getMessagesByChatId(chatData.chatId)
+        const firebaseAnalysis = await FirebaseService.getChatAnalysis(chatData.fileId)
+        
+        if (firebaseMessages.length > 0 && firebaseAnalysis) {
+          searchData = {
+            ...chatData,
+            messages: firebaseMessages,
+            analysis: firebaseAnalysis.analysis
+          }
+          console.log(`Using Firebase data: ${firebaseMessages.length} messages`)
+        }
+      } catch (firebaseError) {
+        console.warn('Failed to retrieve from Firebase, using passed data:', firebaseError)
+      }
+    }
+
     // Enhanced financial analysis based on memory
-    if (options?.searchType === 'financial' || isFinancialQuery(query)) {
-      const financialAnalysis = await performFinancialAnalysis(query, chatData)
+    if (searchType === 'financial' || isFinancialQuery(query)) {
+      const financialAnalysis = await performFinancialAnalysis(query, searchData)
       return NextResponse.json({
+        success: true,
         type: 'financial_analysis',
         query,
-        result: financialAnalysis,
+        results: financialAnalysis.financialMentions,
+        analysis: financialAnalysis.summary,
         timestamp: new Date().toISOString()
       })
     }
 
     // Semantic search using AI
-    if (options?.searchType === 'semantic' || !options?.searchType) {
-      const semanticResults = await performSemanticSearch(query, chatData, options)
+    if (searchType === 'semantic') {
+      const semanticResults = await performSemanticSearch(query, searchData, options)
       return NextResponse.json({
+        success: true,
         type: 'semantic_search',
         query,
-        results: semanticResults,
+        results: semanticResults.results || [],
+        analysis: semanticResults.summary,
         timestamp: new Date().toISOString()
       })
     }
 
     // Keyword search
-    if (options?.searchType === 'keyword') {
-      const keywordResults = performKeywordSearch(query, chatData, options)
+    if (searchType === 'keyword') {
+      const keywordResults = performKeywordSearch(query, searchData, options)
       return NextResponse.json({
+        success: true,
         type: 'keyword_search',
         query,
-        results: keywordResults,
+        results: keywordResults.results,
+        analysis: keywordResults.summary,
         timestamp: new Date().toISOString()
       })
     }
 
     // Sentiment analysis
-    if (options?.searchType === 'sentiment') {
-      const sentimentResults = await performSentimentAnalysis(query, chatData)
+    if (searchType === 'sentiment') {
+      const sentimentResults = await performSentimentAnalysis(query, searchData)
       return NextResponse.json({
+        success: true,
         type: 'sentiment_analysis',
         query,
-        results: sentimentResults,
+        results: sentimentResults.results,
+        analysis: sentimentResults.summary,
         timestamp: new Date().toISOString()
       })
     }
 
     return NextResponse.json(
-      { error: 'Invalid search type' },
+      { 
+        success: false,
+        error: 'Invalid search type' 
+      },
       { status: 400 }
     )
 
   } catch (error) {
     console.error('AI search error:', error)
     return NextResponse.json(
-      { error: 'Search failed', details: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        success: false,
+        error: 'AI analysis failed', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      },
       { status: 500 }
     )
   }

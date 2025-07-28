@@ -83,6 +83,7 @@ export function AIChatInterface({ data }: AIChatInterfaceProps) {
         body: JSON.stringify({
           query,
           chatData: data,
+          searchType: searchType || 'semantic',
           options: {
             searchType: searchType || 'semantic',
             limit: 20,
@@ -91,11 +92,11 @@ export function AIChatInterface({ data }: AIChatInterfaceProps) {
         }),
       })
 
-      if (!response.ok) {
-        throw new Error(`Search failed: ${response.statusText}`)
-      }
-
       const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || result.details || `Search failed: ${response.statusText}`)
+      }
 
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -127,7 +128,7 @@ export function AIChatInterface({ data }: AIChatInterfaceProps) {
 
       toast({
         title: "Search failed",
-        description: "Please try again with a different query",
+        description: error instanceof Error ? error.message : "Please try again with a different query",
         variant: "destructive",
       })
     } finally {
