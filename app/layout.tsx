@@ -1,14 +1,12 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
-import { ThemeProvider } from '@/components/theme-provider'
-import { Toaster } from '@/components/ui/toaster'
 
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'WhatsApp Analyzer',
-  description: 'Advanced AI-powered WhatsApp chat analysis and insights',
+  description: 'Analyze your WhatsApp chat exports with AI-powered insights',
 }
 
 export default function RootLayout({
@@ -17,17 +15,11 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <body className={inter.className}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
+        <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
           {children}
-          <Toaster />
-        </ThemeProvider>
+        </main>
       </body>
     </html>
   )

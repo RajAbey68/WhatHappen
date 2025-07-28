@@ -1,18 +1,17 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useState, useEffect, useRef } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Send, Bot, User, Loader2, Search, TrendingUp, DollarSign } from 'lucide-react'
-import { toast } from '@/hooks/use-toast'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Send, Bot, User, Database, MessageSquare, Sparkles, Brain, FileText } from 'lucide-react'
+import { Project } from '@/lib/firebase'
 
 interface AIChatInterfaceProps {
-  data?: any
+  selectedProject: Project
 }
 
 interface ChatMessage {
@@ -20,346 +19,318 @@ interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
-  type?: 'financial_analysis' | 'semantic_search' | 'keyword_search' | 'sentiment_analysis'
-  metadata?: any
 }
 
-const SUGGESTED_QUERIES = [
-  {
-    text: "Show me financial discussions and payment mentions",
-    icon: DollarSign,
-    searchType: 'financial'
-  },
-  {
-    text: "What are the most discussed topics?",
-    icon: TrendingUp,
-    searchType: 'semantic'
-  },
-  {
-    text: "Find messages about specific events or dates",
-    icon: Search,
-    searchType: 'keyword'
-  },
-  {
-    text: "Analyze the emotional tone of conversations",
-    icon: Bot,
-    searchType: 'sentiment'
-  }
-]
-
-export function AIChatInterface({ data }: AIChatInterfaceProps) {
+export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [isDataProcessed, setIsDataProcessed] = useState(false)
+  const [showProcessDialog, setShowProcessDialog] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   useEffect(() => {
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight
-    }
+    scrollToBottom()
   }, [messages])
 
-  const handleSendMessage = async (query: string, searchType?: string) => {
-    if (!query.trim()) return
-
-    const newUserMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: query,
-      timestamp: new Date()
+  useEffect(() => {
+    if (selectedProject) {
+      loadChatHistory()
     }
+  }, [selectedProject])
 
-    setMessages(prev => [...prev, newUserMessage])
-    setInput('')
-    setIsLoading(true)
-
+  const loadChatHistory = async () => {
     try {
-      const response = await fetch('/api/ai-search', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query,
-          chatData: data,
-          searchType: searchType || 'semantic',
-          options: {
-            searchType: searchType || 'semantic',
-            limit: 20,
-            includeContext: true
-          }
-        }),
-      })
-
-      const result = await response.json()
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || result.details || `Search failed: ${response.statusText}`)
+      const response = await fetch(`/api/ai-chat/save?projectId=${selectedProject.id}`)
+      if (response.ok) {
+        const conversations = await response.json()
+        if (conversations.length > 0) {
+          const lastConversation = conversations[conversations.length - 1]
+          setMessages(lastConversation.messages.map((msg: any) => ({
+            ...msg,
+            timestamp: new Date(msg.timestamp)
+          })))
+        }
       }
-
-      const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: formatAssistantResponse(result),
-        timestamp: new Date(),
-        type: result.type,
-        metadata: result
-      }
-
-      setMessages(prev => [...prev, assistantMessage])
-
-      toast({
-        title: "Search completed",
-        description: `Found results using ${result.type?.replace('_', ' ')} analysis`,
-      })
-
     } catch (error) {
-      console.error('AI search error:', error)
-      
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `I apologize, but I encountered an error while searching: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again with a different query.`,
-        timestamp: new Date()
+      console.error('Error loading chat history:', error)
+    }
+  }
+
+  const processWhatsAppData = async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch(`/api/ai-chat/${selectedProject.id}`)
+      if (response.ok) {
+        setIsDataProcessed(true)
+        setShowProcessDialog(false)
+        
+        // Add a system message to inform the user
+        const systemMessage: ChatMessage = {
+          id: `system-${Date.now()}`,
+          role: 'assistant',
+          content: `✅ **WhatsApp data loaded successfully!**\n\nI now have access to:\n• ${selectedProject.messageCount?.toLocaleString() || 0} messages\n• ${selectedProject.participants?.length || 0} participants\n• Full conversation history\n\nYou can now ask me questions about your WhatsApp chat data!`,
+          timestamp: new Date()
+        }
+        
+        setMessages(prev => [...prev, systemMessage])
       }
-
-      setMessages(prev => [...prev, errorMessage])
-
-      toast({
-        title: "Search failed",
-        description: error instanceof Error ? error.message : "Please try again with a different query",
-        variant: "destructive",
-      })
+    } catch (error) {
+      console.error('Error processing data:', error)
     } finally {
       setIsLoading(false)
     }
   }
 
-  const formatAssistantResponse = (result: any): string => {
-    switch (result.type) {
-      case 'financial_analysis':
-        const financial = result.result
-        return `💰 **Financial Analysis Results**
+  const sendMessage = async () => {
+    if (!input.trim() || isLoading) return
 
-**Summary:** ${financial.summary}
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: input,
+      timestamp: new Date()
+    }
 
-**Key Findings:**
-${financial.keyFindings.map((finding: string) => `• ${finding}`).join('\n')}
+    setMessages(prev => [...prev, userMessage])
+    setInput('')
+    setIsLoading(true)
 
-**Found ${financial.totalFinancialMessages} financial-related messages.** ${financial.financialMentions.length > 0 ? 'Recent mentions include discussions about payments, amounts, and financial commitments.' : ''}
+    try {
+      const response = await fetch('/api/ai-chat/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          message: input,
+          conversationHistory: messages
+        })
+      })
 
-${financial.financialMentions.slice(0, 3).map((mention: any) => 
-  `📝 **${mention.sender}**: ${mention.message.substring(0, 100)}...`
-).join('\n\n')}`
+      if (response.ok) {
+        const data = await response.json()
+        const assistantMessage: ChatMessage = {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: data.response,
+          timestamp: new Date()
+        }
 
-      case 'semantic_search':
-        return `🔍 **Semantic Search Results**
+        setMessages(prev => [...prev, assistantMessage])
 
-${result.results.summary}
-
-**Found ${result.results.totalSearched} messages to analyze.** Here are some relevant excerpts:
-
-${result.results.results?.slice(0, 3).map((msg: any) => 
-  `💬 **${msg.sender}**: ${msg.message?.substring(0, 150)}...`
-).join('\n\n') || 'No specific message excerpts available.'}`
-
-      case 'keyword_search':
-        return `🔍 **Keyword Search Results**
-
-${result.results.summary}
-
-**Matching Messages:**
-${result.results.results?.slice(0, 5).map((msg: any) => 
-  `📝 **${msg.sender}**: ${msg.message?.substring(0, 120)}...`
-).join('\n\n') || 'No matching messages found.'}`
-
-      case 'sentiment_analysis':
-        const sentiment = result.results
-        return `😊 **Sentiment Analysis Results**
-
-${sentiment.summary}
-
-**Emotional Breakdown:**
-• **Positive Messages**: ${sentiment.results.positive?.length || 0}
-• **Negative Messages**: ${sentiment.results.negative?.length || 0}  
-• **Neutral Messages**: ${sentiment.results.neutral?.length || 0}
-
-**Recent Examples:**
-${sentiment.results.positive?.slice(0, 2).map((msg: any) => 
-  `😊 **${msg.sender}**: ${msg.message?.substring(0, 100)}...`
-).join('\n') || ''}
-
-${sentiment.results.negative?.slice(0, 2).map((msg: any) => 
-  `😔 **${msg.sender}**: ${msg.message?.substring(0, 100)}...`
-).join('\n') || ''}`
-
-      default:
-        return result.summary || 'Analysis completed successfully.'
+        // Save conversation
+        await fetch('/api/ai-chat/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectId: selectedProject.id,
+            messages: [...messages, userMessage, assistantMessage]
+          })
+        })
+      } else {
+        throw new Error('Failed to get AI response')
+      }
+    } catch (error) {
+      console.error('Error sending message:', error)
+      const errorMessage: ChatMessage = {
+        id: `error-${Date.now()}`,
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  const handleSuggestedQuery = (query: string, searchType: string) => {
-    setInput(query)
-    handleSendMessage(query, searchType)
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
   }
 
-  if (!data) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>AI Chat Analysis</CardTitle>
-          <CardDescription>
-            Upload and process WhatsApp chat files first to enable AI analysis.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Once you have processed chat data, you can ask questions like:
-          </p>
-          <ul className="mt-2 text-sm text-muted-foreground list-disc list-inside">
-            <li>Show me financial discussions and payment mentions</li>
-            <li>What are the most positive conversations?</li>
-            <li>Find messages about specific topics or events</li>
-            <li>Analyze communication patterns between participants</li>
-          </ul>
-        </CardContent>
-      </Card>
-    )
-  }
+  const suggestedQuestions = [
+    "How many messages are in this chat?",
+    "Who are the most active participants?",
+    "Show me any financial discussions",
+    "What's the overall sentiment?",
+    "When are people most active?",
+    "Find mentions of payments or money"
+  ]
 
   return (
-    <div className="space-y-4">
-      {/* Chat Messages */}
-      <Card className="h-[500px] flex flex-col">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2">
-            <Bot className="h-5 w-5" />
-            AI Chat Analysis
-          </CardTitle>
-          <CardDescription>
-            Ask questions about your WhatsApp chat data. I can help with financial analysis, 
-            sentiment analysis, keyword searches, and more.
-          </CardDescription>
-        </CardHeader>
-        
-        <CardContent className="flex-1 flex flex-col">
-          <ScrollArea className="flex-1 pr-4" ref={scrollAreaRef}>
-            {messages.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">
-                <Bot className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium mb-2">Ready to analyze your chat data!</p>
-                <p className="text-sm">Try one of the suggested queries below or ask your own question.</p>
+    <div className="h-[700px] flex flex-col space-y-4">
+      {/* Header */}
+      <Card className="bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200">
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-purple-500 rounded-lg">
+                <Bot className="h-6 w-6 text-white" />
               </div>
-            ) : (
-              <div className="space-y-4">
-                {messages.map((message) => (
-                  <div key={message.id} className="flex gap-3">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback>
-                        {message.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
-                      </AvatarFallback>
-                    </Avatar>
-                    
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">
-                          {message.role === 'user' ? 'You' : 'AI Assistant'}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {message.timestamp.toLocaleTimeString()}
-                        </span>
-                        {message.type && (
-                          <Badge variant="outline" className="text-xs">
-                            {message.type.replace('_', ' ')}
-                          </Badge>
+              <div>
+                <CardTitle className="text-xl">AI Chat Assistant</CardTitle>
+                <p className="text-sm text-slate-600 mt-1">
+                  Ask questions about your WhatsApp chat data
+                </p>
+              </div>
+            </div>
+            
+            {!isDataProcessed && (
+              <Dialog open={showProcessDialog} onOpenChange={setShowProcessDialog}>
+                <DialogTrigger asChild>
+                  <Button 
+                    className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+                    disabled={!selectedProject.messageCount}
+                  >
+                    <Database className="h-4 w-4 mr-2" />
+                    Process WhatsApp Data
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Process WhatsApp Data</DialogTitle>
+                    <DialogDescription>
+                      Load your WhatsApp messages into AI context for intelligent querying.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <MessageSquare className="h-5 w-5 text-blue-500" />
+                        <span className="font-medium">Chat Overview</span>
+                      </div>
+                      <div className="text-sm text-slate-600">
+                        • {selectedProject.messageCount?.toLocaleString()} total messages
+                        • {selectedProject.participants?.length} participants  
+                        • {selectedProject.dateRange?.start && selectedProject.dateRange?.end ? 
+                            `${Math.ceil((new Date(selectedProject.dateRange.end).getTime() - new Date(selectedProject.dateRange.start).getTime()) / (1000 * 60 * 60 * 24))} days`
+                            : 'Date range available'}
+                      </div>
+                    </div>
+                    <Button 
+                      onClick={processWhatsAppData} 
+                      disabled={isLoading}
+                      className="w-full"
+                    >
+                      {isLoading ? 'Processing...' : 'Load Data into AI'}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* Chat Messages */}
+      <Card className="flex-1 flex flex-col">
+        <CardContent className="flex-1 flex flex-col p-6">
+          <ScrollArea className="flex-1 pr-4">
+            <div className="space-y-4">
+              {messages.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="mb-6">
+                    <div className="w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Brain className="h-8 w-8 text-purple-500" />
+                    </div>
+                    <h3 className="text-lg font-semibold mb-2">AI Chat Ready</h3>
+                    <p className="text-slate-600 mb-6">
+                      {isDataProcessed 
+                        ? 'Start asking questions about your WhatsApp chat!'
+                        : 'Process your WhatsApp data first, then ask me anything!'}
+                    </p>
+                  </div>
+                  
+                  {isDataProcessed && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl mx-auto">
+                      {suggestedQuestions.map((question, index) => (
+                        <Button
+                          key={index}
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setInput(question)}
+                          className="text-left h-auto p-3 justify-start"
+                        >
+                          <Sparkles className="h-3 w-3 mr-2 flex-shrink-0" />
+                          <span className="text-xs">{question}</span>
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`flex space-x-3 max-w-[80%] ${message.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        message.role === 'user' 
+                          ? 'bg-blue-500' 
+                          : 'bg-gradient-to-br from-purple-500 to-blue-500'
+                      }`}>
+                        {message.role === 'user' ? (
+                          <User className="h-4 w-4 text-white" />
+                        ) : (
+                          <Bot className="h-4 w-4 text-white" />
                         )}
                       </div>
-                      
-                      <div className="text-sm whitespace-pre-wrap break-words">
-                        {message.content}
+                      <div className={`rounded-lg p-3 ${
+                        message.role === 'user'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-slate-100 text-slate-900'
+                      }`}>
+                        <div className="whitespace-pre-wrap text-sm">
+                          {message.content}
+                        </div>
+                        <div className={`text-xs mt-1 opacity-70 ${
+                          message.role === 'user' ? 'text-blue-100' : 'text-slate-500'
+                        }`}>
+                          {message.timestamp.toLocaleTimeString()}
+                        </div>
                       </div>
                     </div>
                   </div>
-                ))}
-                
-                {isLoading && (
-                  <div className="flex gap-3">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback>
-                        <Bot className="h-4 w-4" />
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span className="text-sm text-muted-foreground">Analyzing...</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+                ))
+              )}
+              <div ref={messagesEndRef} />
+            </div>
           </ScrollArea>
 
-          <Separator className="my-4" />
-          
           {/* Input Area */}
-          <div className="flex gap-2">
-            <Input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about your chat data... (e.g., 'Show me financial discussions')"
-              onKeyPress={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSendMessage(input)
-                }
-              }}
-              disabled={isLoading}
-              className="flex-1"
-            />
-            <Button 
-              onClick={() => handleSendMessage(input)}
-              disabled={isLoading || !input.trim()}
-              size="icon"
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
+          <div className="mt-4 space-y-3">
+            <div className="flex space-x-2">
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder={isDataProcessed ? "Ask me anything about your WhatsApp chat..." : "Process your data first to start chatting"}
+                disabled={!isDataProcessed || isLoading}
+                className="flex-1 min-h-[60px] resize-none"
+              />
+              <Button
+                onClick={sendMessage}
+                disabled={!input.trim() || isLoading || !isDataProcessed}
+                size="lg"
+                className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+              >
                 <Send className="h-4 w-4" />
-              )}
-            </Button>
+              </Button>
+            </div>
+            <div className="text-xs text-slate-500 text-center">
+              Press Enter to send • Shift+Enter for new line
+            </div>
           </div>
         </CardContent>
       </Card>
-
-      {/* Suggested Queries */}
-      {messages.length === 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Suggested Queries</CardTitle>
-            <CardDescription>
-              Click on any suggestion to get started with AI analysis
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {SUGGESTED_QUERIES.map((suggestion, index) => (
-                <Button
-                  key={index}
-                  variant="outline"
-                  className="h-auto p-4 text-left justify-start"
-                  onClick={() => handleSuggestedQuery(suggestion.text, suggestion.searchType)}
-                  disabled={isLoading}
-                >
-                  <suggestion.icon className="h-4 w-4 mr-2 flex-shrink-0" />
-                  <span className="text-sm">{suggestion.text}</span>
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 } 

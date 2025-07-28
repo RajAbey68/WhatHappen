@@ -5,19 +5,19 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDate(date: Date | string) {
-  return new Date(date).toLocaleDateString('en-US', {
+export function formatDate(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
-    month: 'short',
+    month: 'long',
     day: 'numeric',
-  })
+  }).format(date)
 }
 
-export function formatTime(date: Date | string) {
-  return new Date(date).toLocaleTimeString('en-US', {
+export function formatTime(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
     hour: '2-digit',
     minute: '2-digit',
-  })
+  }).format(date)
 }
 
 export function slugify(str: string) {

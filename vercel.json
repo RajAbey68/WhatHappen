@@ -4,15 +4,30 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "functions": {
-    "app/api/process-file/route.ts": {
-      "maxDuration": 30
-    },
-    "app/api/ai-search/route.ts": {
+    "app/api/**/*.ts": {
       "maxDuration": 30
     }
   },
+  "regions": ["iad1"],
   "env": {
-    "NODE_ENV": "production"
+    "OPENAI_API_KEY": "@openai_api_key",
+    "NEXT_PUBLIC_FIREBASE_API_KEY": "@firebase_api_key",
+    "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN": "@firebase_auth_domain",
+    "NEXT_PUBLIC_FIREBASE_PROJECT_ID": "@firebase_project_id",
+    "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET": "@firebase_storage_bucket",
+    "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "@firebase_sender_id",
+    "NEXT_PUBLIC_FIREBASE_APP_ID": "@firebase_app_id"
   },
-  "regions": ["iad1"]
+  "build": {
+    "env": {
+      "NEXT_TELEMETRY_DISABLED": "1"
+    }
+  },
+  "redirects": [
+    {
+      "source": "/github",
+      "destination": "https://github.com/yourusername/whatsapp-analyzer",
+      "permanent": false
+    }
+  ]
 } 

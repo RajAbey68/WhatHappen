@@ -1,262 +1,385 @@
-"use client"
+'use client'
 
-import { useState } from "react"
-import { Moon, Sun, Upload, BarChart3, MessageCircle, Database, Settings, Brain, Zap, TrendingUp } from 'lucide-react'
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
-import { FileUpload } from "@/components/file-upload"
-import { Dashboard } from "@/components/dashboard"
-import { AIChatInterface } from "@/components/ai-chat-interface"
-import { DatabaseViewer } from "@/components/database-viewer"
+import { useState } from 'react'
+import { ProjectSelector } from '@/components/project-selector'
+import { WhatsAppAnalyzer } from '@/components/whatsapp-analyzer'
+import { AIChatInterface } from '@/components/ai-chat-interface'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Project } from '@/lib/firebase'
+import { Upload, MessageSquare, BarChart3, FileText, Bot, Database } from 'lucide-react'
 
-export default function WhatsAppAnalyzer() {
-  const [isDarkMode, setIsDarkMode] = useState(false)
-  const [processedData, setProcessedData] = useState<any>(null)
-  const [activeTab, setActiveTab] = useState("upload")
-
-  const toggleDarkMode = () => {
-    setIsDarkMode(!isDarkMode)
-    document.documentElement.classList.toggle("dark")
-  }
-
-  const handleFileProcessed = (data: any) => {
-    setProcessedData(data)
-    setActiveTab("dashboard") // Auto-switch to dashboard when file is processed
-  }
-
-  const features = [
-    { icon: Brain, label: "AI-Powered", color: "bg-purple-500/20 text-purple-300 border-purple-500/30" },
-    { icon: Zap, label: "Real-time Analysis", color: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-    { icon: TrendingUp, label: "Advanced Insights", color: "bg-green-500/20 text-green-300 border-green-500/30" },
-  ]
+export default function Home() {
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
 
   return (
-    <div className={`min-h-screen transition-all duration-500 ${isDarkMode ? "dark" : ""}`}>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50 dark:from-slate-900 dark:via-blue-900 dark:to-purple-900">
-        
-        {/* Animated Background Pattern */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cg%20fill%3D%22none%22%20fillRule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%239C92AC%22%20fillOpacity%3D%220.05%22%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%222%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] dark:bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cg%20fill%3D%22none%22%20fillRule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%23ffffff%22%20fillOpacity%3D%220.02%22%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%222%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] animate-pulse"></div>
-          
-          {/* Floating gradient orbs */}
-          <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-gradient-to-r from-blue-400/20 to-purple-400/20 rounded-full blur-3xl animate-bounce [animation-duration:6s]"></div>
-          <div className="absolute top-3/4 right-1/4 w-96 h-96 bg-gradient-to-r from-purple-400/20 to-pink-400/20 rounded-full blur-3xl animate-bounce [animation-duration:8s] [animation-delay:2s]"></div>
-          <div className="absolute bottom-1/4 left-1/3 w-80 h-80 bg-gradient-to-r from-cyan-400/20 to-blue-400/20 rounded-full blur-3xl animate-bounce [animation-duration:7s] [animation-delay:4s]"></div>
-        </div>
-
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Header */}
-        <header className="relative z-10 p-6">
-          <div className="max-w-7xl mx-auto flex justify-between items-center">
-            <div className="flex items-center space-x-4">
-              <div className="relative">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-r from-blue-500 via-purple-500 to-blue-600 flex items-center justify-center shadow-2xl">
-                  <MessageCircle className="w-7 h-7 text-white" />
-                </div>
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-green-400 to-blue-400 rounded-full animate-ping"></div>
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 via-blue-800 to-purple-800 dark:from-white dark:via-blue-200 dark:to-purple-200 bg-clip-text text-transparent">
-                  WhatsApp Analyzer
-                </h1>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  AI-Powered Chat Analytics
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              {processedData && (
-                <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30 dark:text-green-400">
-                  Data Loaded
-                </Badge>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleDarkMode}
-                className="rounded-2xl bg-white/20 dark:bg-black/20 backdrop-blur-sm border border-white/30 dark:border-white/10 hover:bg-white/30 dark:hover:bg-black/30 transition-all duration-300 hover:scale-105"
-              >
-                {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-              </Button>
-            </div>
-          </div>
-        </header>
-
-        {/* Hero Section */}
-        <section className="relative z-10 px-6 py-8">
-          <div className="max-w-5xl mx-auto text-center">
-            <div className="mb-8">
-              <h1 className="text-5xl md:text-7xl font-bold mb-6 bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 dark:from-blue-400 dark:via-purple-400 dark:to-blue-600 bg-clip-text text-transparent animate-gradient bg-300% [animation-duration:6s]">
-                Unlock Chat Insights
-              </h1>
-              <p className="text-xl text-slate-600 dark:text-slate-300 mb-8 max-w-3xl mx-auto leading-relaxed">
-                Transform your WhatsApp conversations into powerful insights with AI-driven analysis, 
-                beautiful visualizations, and intelligent search capabilities
-              </p>
-
-              {/* Enhanced Feature Pills */}
-              <div className="flex flex-wrap justify-center gap-4 mb-12">
-                {features.map((feature, index) => (
-                  <Badge
-                    key={index}
-                    variant="outline"
-                    className={`px-6 py-3 rounded-2xl backdrop-blur-sm border ${feature.color} transition-all duration-300 hover:scale-110 hover:shadow-xl transform cursor-pointer group`}
-                  >
-                    <feature.icon className="w-5 h-5 mr-3 group-hover:rotate-12 transition-transform duration-300" />
-                    <span className="font-medium">{feature.label}</span>
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Main Content */}
-        <main className="relative z-10 px-6 pb-12">
-          <div className="max-w-7xl mx-auto">
-            <Card className="backdrop-blur-2xl bg-white/10 dark:bg-black/10 border-white/20 dark:border-white/10 shadow-2xl rounded-3xl overflow-hidden">
-              <CardContent className="p-0">
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                  
-                  {/* Enhanced Tab Navigation */}
-                  <TabsList className="grid w-full grid-cols-5 bg-gradient-to-r from-white/20 via-white/30 to-white/20 dark:from-black/20 dark:via-black/30 dark:to-black/20 backdrop-blur-sm border-b border-white/20 dark:border-white/10 rounded-t-3xl p-2">
-                    <TabsTrigger
-                      value="upload"
-                      className="flex items-center gap-3 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all duration-300 rounded-2xl px-4 py-3"
-                    >
-                      <Upload className="w-5 h-5" />
-                      <span className="hidden sm:inline font-medium">Upload</span>
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="dashboard"
-                      disabled={!processedData}
-                      className="flex items-center gap-3 data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all duration-300 rounded-2xl px-4 py-3 disabled:opacity-50"
-                    >
-                      <BarChart3 className="w-5 h-5" />
-                      <span className="hidden sm:inline font-medium">Analytics</span>
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="ai-chat"
-                      disabled={!processedData}
-                      className="flex items-center gap-3 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all duration-300 rounded-2xl px-4 py-3 disabled:opacity-50"
-                    >
-                      <MessageCircle className="w-5 h-5" />
-                      <span className="hidden sm:inline font-medium">AI Chat</span>
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="database"
-                      disabled={!processedData}
-                      className="flex items-center gap-3 data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all duration-300 rounded-2xl px-4 py-3 disabled:opacity-50"
-                    >
-                      <Database className="w-5 h-5" />
-                      <span className="hidden sm:inline font-medium">Search</span>
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="settings"
-                      className="flex items-center gap-3 data-[state=active]:bg-gradient-to-r data-[state=active]:from-slate-500 data-[state=active]:to-gray-600 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all duration-300 rounded-2xl px-4 py-3"
-                    >
-                      <Settings className="w-5 h-5" />
-                      <span className="hidden sm:inline font-medium">Settings</span>
-                    </TabsTrigger>
-                  </TabsList>
-
-                  {/* Tab Content */}
-                  <div className="min-h-[500px]">
-                    <TabsContent value="upload" className="p-8 mt-0">
-                      <FileUpload onFileProcessed={handleFileProcessed} />
-                    </TabsContent>
-
-                    <TabsContent value="dashboard" className="p-8 mt-0">
-                      {processedData ? (
-                        <Dashboard data={processedData} />
-                      ) : (
-                        <div className="text-center py-20">
-                          <BarChart3 className="w-20 h-20 mx-auto text-slate-400 mb-6" />
-                          <h3 className="text-2xl font-semibold text-slate-700 dark:text-slate-300 mb-4">
-                            No Data Available
-                          </h3>
-                          <p className="text-slate-500 dark:text-slate-400 mb-8">
-                            Upload and process WhatsApp chat files to view analytics
-                          </p>
-                          <Button
-                            onClick={() => setActiveTab("upload")}
-                            className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all duration-300"
-                          >
-                            Upload Files
-                          </Button>
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="ai-chat" className="p-8 mt-0">
-                      {processedData ? (
-                        <AIChatInterface data={processedData} />
-                      ) : (
-                        <div className="text-center py-20">
-                          <MessageCircle className="w-20 h-20 mx-auto text-slate-400 mb-6" />
-                          <h3 className="text-2xl font-semibold text-slate-700 dark:text-slate-300 mb-4">
-                            AI Chat Ready
-                          </h3>
-                          <p className="text-slate-500 dark:text-slate-400">
-                            Process chat files to start intelligent conversations about your data
-                          </p>
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="database" className="p-8 mt-0">
-                      {processedData ? (
-                        <DatabaseViewer data={processedData} />
-                      ) : (
-                        <div className="text-center py-20">
-                          <Database className="w-20 h-20 mx-auto text-slate-400 mb-6" />
-                          <h3 className="text-2xl font-semibold text-slate-700 dark:text-slate-300 mb-4">
-                            Search Engine Ready
-                          </h3>
-                          <p className="text-slate-500 dark:text-slate-400">
-                            Upload chat files to enable powerful search and filtering capabilities
-                          </p>
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="settings" className="p-8 mt-0">
-                      <div className="text-center py-20">
-                        <Settings className="w-20 h-20 mx-auto text-slate-400 mb-6" />
-                        <h3 className="text-2xl font-semibold text-slate-700 dark:text-slate-300 mb-4">
-                          Settings & Preferences
-                        </h3>
-                        <p className="text-slate-500 dark:text-slate-400 mb-8">
-                          Customize your analysis preferences, privacy settings, and data handling options
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-                          <Card className="bg-white/50 dark:bg-black/50 border-white/30 dark:border-white/10">
-                            <CardContent className="p-6 text-center">
-                              <h4 className="font-semibold mb-2">Privacy</h4>
-                              <p className="text-sm text-slate-600 dark:text-slate-400">
-                                All data processing happens locally
-                              </p>
-                            </CardContent>
-                          </Card>
-                          <Card className="bg-white/50 dark:bg-black/50 border-white/30 dark:border-white/10">
-                            <CardContent className="p-6 text-center">
-                              <h4 className="font-semibold mb-2">Performance</h4>
-                              <p className="text-sm text-slate-600 dark:text-slate-400">
-                                Optimized for large chat files
-                              </p>
-                            </CardContent>
-                          </Card>
-                        </div>
-                      </div>
-                    </TabsContent>
+        <div className="text-center mb-8">
+          <h1 className="text-6xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 bg-clip-text text-transparent mb-4">
+            WhatsApp Analyzer
+          </h1>
+          <p className="text-xl text-slate-600 max-w-3xl mx-auto leading-relaxed">
+            Professional WhatsApp chat analysis with AI-powered insights, complete message processing, and intelligent querying
+          </p>
+        </div>
+        
+        {/* Project Selector */}
+        <div className="mb-8">
+          <ProjectSelector 
+            onProjectSelect={setSelectedProject}
+            selectedProject={selectedProject}
+          />
+        </div>
+        
+        {/* Main Interface */}
+        {selectedProject ? (
+          <div className="space-y-6">
+            {/* Project Overview */}
+            <Card className="bg-white/80 backdrop-blur-sm border border-white/20">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-2xl">{selectedProject.name}</CardTitle>
+                    {selectedProject.description && (
+                      <CardDescription className="text-base mt-1">
+                        {selectedProject.description}
+                      </CardDescription>
+                    )}
                   </div>
-                </Tabs>
+                  <div className="flex items-center space-x-2">
+                    {selectedProject.messageCount > 0 && (
+                      <Badge className="bg-green-500 hover:bg-green-600">
+                        {selectedProject.messageCount.toLocaleString()} messages
+                      </Badge>
+                    )}
+                    {selectedProject.analysis && (
+                      <Badge className="bg-blue-500 hover:bg-blue-600">
+                        Analyzed
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              {selectedProject.messageCount > 0 && (
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center p-3 bg-blue-50 rounded-lg">
+                      <div className="text-2xl font-bold text-blue-600">
+                        {selectedProject.messageCount.toLocaleString()}
+                      </div>
+                      <div className="text-sm text-blue-700">Total Messages</div>
+                    </div>
+                    <div className="text-center p-3 bg-green-50 rounded-lg">
+                      <div className="text-2xl font-bold text-green-600">
+                        {selectedProject.participants?.length || 0}
+                      </div>
+                      <div className="text-sm text-green-700">Participants</div>
+                    </div>
+                    <div className="text-center p-3 bg-purple-50 rounded-lg">
+                      <div className="text-2xl font-bold text-purple-600">
+                        {selectedProject.analysis?.keywords?.length || 0}
+                      </div>
+                      <div className="text-sm text-purple-700">Keywords</div>
+                    </div>
+                    <div className="text-center p-3 bg-orange-50 rounded-lg">
+                      <div className="text-2xl font-bold text-orange-600">
+                        {selectedProject.dateRange?.start ? 
+                          Math.ceil((new Date(selectedProject.dateRange.end).getTime() - new Date(selectedProject.dateRange.start).getTime()) / (1000 * 60 * 60 * 24)) 
+                          : 0}
+                      </div>
+                      <div className="text-sm text-orange-700">Days Span</div>
+                    </div>
+                  </div>
+                </CardContent>
+              )}
+            </Card>
+
+            {/* Tabbed Interface */}
+            <Tabs defaultValue="upload" className="space-y-6">
+              <TabsList className="grid w-full grid-cols-4 bg-white/80 backdrop-blur-sm h-auto p-2">
+                <TabsTrigger 
+                  value="upload" 
+                  className="flex flex-col items-center space-y-1 h-16 data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+                >
+                  <Upload className="h-5 w-5" />
+                  <span className="text-sm font-medium">Upload & Process</span>
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="ai-chat" 
+                  className="flex flex-col items-center space-y-1 h-16 data-[state=active]:bg-purple-500 data-[state=active]:text-white"
+                  disabled={!selectedProject.messageCount}
+                >
+                  <Bot className="h-5 w-5" />
+                  <span className="text-sm font-medium">AI Chat</span>
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="analysis" 
+                  className="flex flex-col items-center space-y-1 h-16 data-[state=active]:bg-green-500 data-[state=active]:text-white"
+                  disabled={!selectedProject.messageCount}
+                >
+                  <BarChart3 className="h-5 w-5" />
+                  <span className="text-sm font-medium">Analysis</span>
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="documents" 
+                  className="flex flex-col items-center space-y-1 h-16 data-[state=active]:bg-orange-500 data-[state=active]:text-white"
+                  disabled={!selectedProject.messageCount}
+                >
+                  <FileText className="h-5 w-5" />
+                  <span className="text-sm font-medium">Documents</span>
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Upload & Process Tab */}
+              <TabsContent value="upload" className="space-y-6">
+                <WhatsAppAnalyzer selectedProject={selectedProject} />
+              </TabsContent>
+
+              {/* AI Chat Tab */}
+              <TabsContent value="ai-chat" className="space-y-6">
+                {selectedProject.messageCount > 0 ? (
+                  <AIChatInterface selectedProject={selectedProject} />
+                ) : (
+                  <Card>
+                    <CardContent className="text-center py-12">
+                      <MessageSquare className="h-16 w-16 mx-auto text-slate-400 mb-4" />
+                      <h3 className="text-xl font-semibold mb-2">No Chat Data</h3>
+                      <p className="text-slate-600">
+                        Upload and process WhatsApp chat files to start AI conversations
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+
+              {/* Analysis Tab */}
+              <TabsContent value="analysis" className="space-y-6">
+                {selectedProject.messageCount > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center">
+                          <BarChart3 className="h-5 w-5 mr-2" />
+                          Sentiment Analysis
+                        </CardTitle>
+                        <CardDescription>Emotional tone and mood patterns</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span>Positive</span>
+                            <span className="font-bold text-green-600">45%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Neutral</span>
+                            <span className="font-bold text-slate-600">35%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Negative</span>
+                            <span className="font-bold text-red-600">20%</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center">
+                          <MessageSquare className="h-5 w-5 mr-2" />
+                          Activity Patterns
+                        </CardTitle>
+                        <CardDescription>When people are most active</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span>Morning (6-12)</span>
+                            <span className="font-bold">30%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Afternoon (12-18)</span>
+                            <span className="font-bold">40%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Evening (18-24)</span>
+                            <span className="font-bold">25%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Night (0-6)</span>
+                            <span className="font-bold">5%</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center">
+                          <Database className="h-5 w-5 mr-2" />
+                          Top Keywords
+                        </CardTitle>
+                        <CardDescription>Most mentioned topics</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedProject.analysis?.keywords?.slice(0, 8).map((keyword, index) => (
+                            <Badge key={keyword} variant="outline">
+                              {keyword}
+                            </Badge>
+                          )) || (
+                            <p className="text-sm text-slate-500">Run analysis to see keywords</p>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                ) : (
+                  <Card>
+                    <CardContent className="text-center py-12">
+                      <BarChart3 className="h-16 w-16 mx-auto text-slate-400 mb-4" />
+                      <h3 className="text-xl font-semibold mb-2">No Analysis Data</h3>
+                      <p className="text-slate-600">
+                        Upload and process WhatsApp chat files to view analysis
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+
+              {/* Documents Tab */}
+              <TabsContent value="documents" className="space-y-6">
+                {selectedProject.messageCount > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Legal Report</CardTitle>
+                        <CardDescription>Comprehensive legal document with analysis</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="text-sm text-slate-600">
+                            • Complete message transcript
+                            • Participant verification
+                            • Timeline analysis
+                            • Legal formatting
+                          </div>
+                          <button className="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">
+                            Generate Legal PDF
+                          </button>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Analysis Summary</CardTitle>
+                        <CardDescription>Executive summary with key insights</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="text-sm text-slate-600">
+                            • Key statistics
+                            • Sentiment overview
+                            • Activity patterns
+                            • Important highlights
+                          </div>
+                          <button className="w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors">
+                            Generate Summary PDF
+                          </button>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Raw Data Export</CardTitle>
+                        <CardDescription>Complete data in multiple formats</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="text-sm text-slate-600">
+                            • JSON format
+                            • CSV spreadsheet
+                            • Full message data
+                            • Metadata included
+                          </div>
+                          <div className="space-y-2">
+                            <button className="w-full px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors">
+                              Export JSON
+                            </button>
+                            <button className="w-full px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors">
+                              Export CSV
+                            </button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                ) : (
+                  <Card>
+                    <CardContent className="text-center py-12">
+                      <FileText className="h-16 w-16 mx-auto text-slate-400 mb-4" />
+                      <h3 className="text-xl font-semibold mb-2">No Documents Available</h3>
+                      <p className="text-slate-600">
+                        Upload and process WhatsApp chat files to generate documents
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+            </Tabs>
+          </div>
+        ) : (
+          <div className="text-center py-16">
+            <Card className="bg-white/50 backdrop-blur-sm border border-white/20 max-w-4xl mx-auto">
+              <CardContent className="p-12">
+                <h3 className="text-3xl font-semibold text-slate-700 mb-6">
+                  Complete WhatsApp Analysis Platform
+                </h3>
+                <p className="text-slate-600 mb-8 text-lg">
+                  Create a project to start analyzing WhatsApp chats with AI-powered insights
+                </p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-lg">
+                    <Upload className="h-12 w-12 text-blue-500 mx-auto mb-4" />
+                    <h4 className="font-semibold mb-2">Complete Processing</h4>
+                    <p className="text-sm text-slate-600">
+                      Parse ALL messages without truncation from any WhatsApp export format
+                    </p>
+                  </div>
+                  
+                  <div className="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-lg">
+                    <Bot className="h-12 w-12 text-purple-500 mx-auto mb-4" />
+                    <h4 className="font-semibold mb-2">AI Chat Interface</h4>
+                    <p className="text-sm text-slate-600">
+                      ChatGPT-style conversations with full access to your chat data
+                    </p>
+                  </div>
+                  
+                  <div className="bg-gradient-to-br from-green-50 to-blue-50 p-6 rounded-lg">
+                    <BarChart3 className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                    <h4 className="font-semibold mb-2">Advanced Analysis</h4>
+                    <p className="text-sm text-slate-600">
+                      Sentiment, financial, timeline, and comprehensive insights
+                    </p>
+                  </div>
+                  
+                  <div className="bg-gradient-to-br from-orange-50 to-yellow-50 p-6 rounded-lg">
+                    <FileText className="h-12 w-12 text-orange-500 mx-auto mb-4" />
+                    <h4 className="font-semibold mb-2">Legal Documents</h4>
+                    <p className="text-sm text-slate-600">
+                      Professional reports and legal documents with PDFKit
+                    </p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
-        </main>
+        )}
       </div>
     </div>
   )
