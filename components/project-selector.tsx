@@ -1,101 +1,132 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Plus, Trash2, FolderOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Plus, Folder, MessageSquare, Users, Calendar, Trash2 } from 'lucide-react'
-import { Project } from '@/lib/firebase'
+
+// Define the Project interface locally since Firebase might not be available
+interface Project {
+  id: string
+  name: string
+  description?: string
+  createdAt: string
+  updatedAt?: string
+  messageCount: number
+  participants: string[]
+  analysis?: any
+  dateRange?: {
+    start: string
+    end: string
+  }
+}
 
 interface ProjectSelectorProps {
-  onProjectSelect: (project: Project) => void
-  selectedProject?: Project | null
+  onProjectSelect: (project: Project | null) => void
+  selectedProject: Project | null
 }
 
 export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSelectorProps) {
   const [projects, setProjects] = useState<Project[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [newProject, setNewProject] = useState({ name: '', description: '' })
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [newProjectName, setNewProjectName] = useState('')
+  const [newProjectDescription, setNewProjectDescription] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
 
+  // Load projects from localStorage
   useEffect(() => {
-    fetchProjects()
+    loadProjects()
   }, [])
 
-  const fetchProjects = async () => {
+  const loadProjects = () => {
     try {
-      const response = await fetch('/api/projects')
-      const data = await response.json()
-      setProjects(data.projects || [])
+      const stored = localStorage.getItem('whatsapp-analyzer-projects')
+      if (stored) {
+        const parsedProjects = JSON.parse(stored)
+        setProjects(parsedProjects)
+      } else {
+        // Create a sample project for demo
+        const sampleProject: Project = {
+          id: 'sample-1',
+          name: 'Sample WhatsApp Analysis',
+          description: 'Demo project showing the beautiful interface',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          messageCount: 0,
+          participants: []
+        }
+        setProjects([sampleProject])
+        localStorage.setItem('whatsapp-analyzer-projects', JSON.stringify([sampleProject]))
+      }
     } catch (error) {
-      console.error('Error fetching projects:', error)
-    } finally {
-      setLoading(false)
+      console.error('Error loading projects:', error)
+      setProjects([])
+    }
+  }
+
+  const saveProjects = (updatedProjects: Project[]) => {
+    try {
+      localStorage.setItem('whatsapp-analyzer-projects', JSON.stringify(updatedProjects))
+      setProjects(updatedProjects)
+    } catch (error) {
+      console.error('Error saving projects:', error)
     }
   }
 
   const createProject = async () => {
-    if (!newProject.name.trim()) return
+    if (!newProjectName.trim()) return
 
+    setIsLoading(true)
     try {
-      const response = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newProject)
-      })
-
-      if (response.ok) {
-        const createdProject = await response.json()
-        setProjects(prev => [createdProject, ...prev])
-        setNewProject({ name: '', description: '' })
-        setShowCreateDialog(false)
-        onProjectSelect(createdProject)
+      const newProject: Project = {
+        id: `project-${Date.now()}`,
+        name: newProjectName.trim(),
+        description: newProjectDescription.trim() || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        messageCount: 0,
+        participants: []
       }
+
+      const updatedProjects = [...projects, newProject]
+      saveProjects(updatedProjects)
+
+      setNewProjectName('')
+      setNewProjectDescription('')
+      setIsCreateDialogOpen(false)
+      
+      // Auto-select the new project
+      onProjectSelect(newProject)
     } catch (error) {
       console.error('Error creating project:', error)
+      alert('Error creating project. Please try again.')
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  const deleteProject = async (projectId: string) => {
-    if (!confirm('Are you sure you want to delete this project?')) return
-
-    try {
-      const response = await fetch(`/api/projects/${projectId}`, {
-        method: 'DELETE'
-      })
-
-      if (response.ok) {
-        setProjects(prev => prev.filter(p => p.id !== projectId))
-        if (selectedProject?.id === projectId) {
-          onProjectSelect(null as any)
-        }
+  const deleteProject = (projectId: string) => {
+    if (confirm('Are you sure you want to delete this project?')) {
+      const updatedProjects = projects.filter(p => p.id !== projectId)
+      saveProjects(updatedProjects)
+      
+      if (selectedProject?.id === projectId) {
+        onProjectSelect(null)
       }
-    } catch (error) {
-      console.error('Error deleting project:', error)
     }
-  }
-
-  if (loading) {
-    return (
-      <Card>
-        <CardContent className="p-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-2 text-slate-600">Loading projects...</p>
-        </CardContent>
-      </Card>
-    )
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Your Projects</h2>
-        <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <h2 className="text-2xl font-semibold text-slate-700">Your Projects</h2>
+        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600">
               <Plus className="h-4 w-4 mr-2" />
               New Project
             </Button>
@@ -104,32 +135,43 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
             <DialogHeader>
               <DialogTitle>Create New Project</DialogTitle>
               <DialogDescription>
-                Create a new project to organize your WhatsApp chat analysis
+                Set up a new WhatsApp analysis project
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Project Name</label>
+                <Label htmlFor="name">Project Name</Label>
                 <Input
-                  placeholder="Enter project name"
-                  value={newProject.name}
-                  onChange={(e) => setNewProject(prev => ({ ...prev, name: e.target.value }))}
+                  id="name"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="My WhatsApp Analysis"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2">Description (Optional)</label>
+                <Label htmlFor="description">Description (Optional)</Label>
                 <Textarea
-                  placeholder="Enter project description"
-                  value={newProject.description}
-                  onChange={(e) => setNewProject(prev => ({ ...prev, description: e.target.value }))}
+                  id="description"
+                  value={newProjectDescription}
+                  onChange={(e) => setNewProjectDescription(e.target.value)}
+                  placeholder="Brief description of this analysis project"
+                  rows={3}
                 />
               </div>
-              <div className="flex gap-2">
-                <Button onClick={createProject} disabled={!newProject.name.trim()}>
-                  Create Project
-                </Button>
-                <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+              <div className="flex justify-end space-x-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsCreateDialogOpen(false)}
+                  disabled={isLoading}
+                >
                   Cancel
+                </Button>
+                <Button 
+                  onClick={createProject}
+                  disabled={!newProjectName.trim() || isLoading}
+                  className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+                >
+                  {isLoading ? 'Creating...' : 'Create Project'}
                 </Button>
               </div>
             </div>
@@ -138,32 +180,42 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
       </div>
 
       {projects.length === 0 ? (
-        <Card>
-          <CardContent className="p-12 text-center">
-            <Folder className="h-16 w-16 mx-auto text-slate-400 mb-4" />
+        <Card className="text-center py-12 bg-white/50 backdrop-blur-sm border border-white/20">
+          <CardContent>
+            <FolderOpen className="h-16 w-16 mx-auto text-slate-400 mb-4" />
             <h3 className="text-xl font-semibold mb-2">No Projects Yet</h3>
-            <p className="text-slate-600 mb-6">
-              Create your first project to start analyzing WhatsApp chats
-            </p>
-            <Button onClick={() => setShowCreateDialog(true)}>
+            <p className="text-slate-600 mb-4">Create your first WhatsApp analysis project</p>
+            <Button 
+              onClick={() => setIsCreateDialogOpen(true)}
+              className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+            >
               <Plus className="h-4 w-4 mr-2" />
               Create First Project
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects.map((project) => (
             <Card 
               key={project.id}
-              className={`cursor-pointer transition-all hover:shadow-lg ${
-                selectedProject?.id === project.id ? 'ring-2 ring-blue-500' : ''
+              className={`cursor-pointer transition-all duration-200 hover:shadow-lg bg-white/80 backdrop-blur-sm border ${
+                selectedProject?.id === project.id 
+                  ? 'border-blue-500 ring-2 ring-blue-500/20' 
+                  : 'border-white/20 hover:border-blue-300'
               }`}
               onClick={() => onProjectSelect(project)}
             >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
-                  <CardTitle className="text-lg">{project.name}</CardTitle>
+                  <div className="flex-1">
+                    <CardTitle className="text-lg line-clamp-1">{project.name}</CardTitle>
+                    {project.description && (
+                      <p className="text-sm text-slate-600 mt-1 line-clamp-2">
+                        {project.description}
+                      </p>
+                    )}
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -171,34 +223,17 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
                       e.stopPropagation()
                       deleteProject(project.id)
                     }}
+                    className="text-slate-400 hover:text-red-500 hover:bg-red-50"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
-                {project.description && (
-                  <CardDescription>{project.description}</CardDescription>
-                )}
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-4 text-sm text-slate-600">
-                  <div className="flex items-center">
-                    <MessageSquare className="h-4 w-4 mr-1" />
-                    {project.messageCount || 0}
-                  </div>
-                  <div className="flex items-center">
-                    <Users className="h-4 w-4 mr-1" />
-                    {project.participants?.length || 0}
-                  </div>
-                  <div className="flex items-center">
-                    <Calendar className="h-4 w-4 mr-1" />
-                    {new Date(project.createdAt).toLocaleDateString()}
-                  </div>
+                <div className="flex justify-between text-sm text-slate-500">
+                  <span>{project.messageCount} messages</span>
+                  <span>{new Date(project.createdAt).toLocaleDateString()}</span>
                 </div>
-                {project.analysis && (
-                  <div className="mt-3">
-                    <Badge variant="secondary">Analyzed</Badge>
-                  </div>
-                )}
               </CardContent>
             </Card>
           ))}

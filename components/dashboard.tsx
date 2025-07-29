@@ -221,7 +221,7 @@ export function Dashboard({ data }: DashboardProps) {
                 <div>
                   <p className="text-sm font-medium">Processed At</p>
                   <p className="text-xs text-muted-foreground">
-                    {formatDate(data.processedAt)}
+                    {formatDate(new Date(data.processedAt))}
                   </p>
                 </div>
               </div>

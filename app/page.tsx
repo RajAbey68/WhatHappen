@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { ProjectSelector } from '@/components/project-selector'
-import { WhatsAppAnalyzer } from '@/components/whatsapp-analyzer'
+import { FileUpload } from '@/components/file-upload'
 import { AIChatInterface } from '@/components/ai-chat-interface'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,6 +12,23 @@ import { Upload, MessageSquare, BarChart3, FileText, Bot, Database } from 'lucid
 
 export default function Home() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const [processedData, setProcessedData] = useState<any>(null)
+
+  const handleFileProcessed = (data: any) => {
+    setProcessedData(data)
+    // Update project with processed data
+    if (selectedProject) {
+      const updatedProject = {
+        ...selectedProject,
+        messageCount: data.totalMessages || 0,
+        participants: data.participants?.map((p: any) => p.name || p) || [],
+        analysis: data.analysis || data,
+        dateRange: data.analysis?.dateRange || data.dateRange,
+        updatedAt: new Date().toISOString()
+      }
+      setSelectedProject(updatedProject)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
@@ -29,7 +46,7 @@ export default function Home() {
         {/* Project Selector */}
         <div className="mb-8">
           <ProjectSelector 
-            onProjectSelect={setSelectedProject}
+            onProjectSelect={(project) => setSelectedProject(project)}
             selectedProject={selectedProject}
           />
         </div>
@@ -135,7 +152,9 @@ export default function Home() {
 
               {/* Upload & Process Tab */}
               <TabsContent value="upload" className="space-y-6">
-                <WhatsAppAnalyzer selectedProject={selectedProject} />
+                <FileUpload 
+                  onFileProcessed={handleFileProcessed}
+                />
               </TabsContent>
 
               {/* AI Chat Tab */}
