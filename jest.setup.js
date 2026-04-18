@@ -1,8 +1,21 @@
 import '@testing-library/jest-dom'
- // Mock global Response for Next.js API route testing
-if (typeof global.Response === 'undefined') {
-  global.Response = Response
-}
+
+// Mock next/server for API route testing
+jest.mock('next/server', () => ({
+  NextRequest: class {
+    constructor(url, options) {
+      this.url = url
+      this.method = options?.method || 'GET'
+      this.body = options?.body
+      this.headers = new Map(Object.entries(options?.headers || {}))
+    }
+  },
+  NextResponse: class {
+    static json(data, init) {
+      return { json: () => Promise.resolve(data), ...init }
+    }
+  },
+}))
 
 // Mock next/router
 jest.mock('next/router', () => ({
@@ -17,13 +30,6 @@ jest.mock('next/router', () => ({
       reload: jest.fn(),
       back: jest.fn(),
       prefetch: jest.fn(),
-      beforePopState: jest.fn(),
-      events: {
-        on: jest.fn(),
-        off: jest.fn(),
-        emit: jest.fn(),
-      },
-      isFallback: false,
     }
   },
 }))
@@ -37,7 +43,7 @@ jest.mock('next/image', () => ({
   },
 }))
 
-// Suppress console errors in tests
+// Suppress ReactDOM warnings
 const originalError = console.error
 beforeAll(() => {
   console.error = (...args) => {
