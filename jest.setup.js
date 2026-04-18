@@ -1,4 +1,8 @@
 import '@testing-library/jest-dom'
+ // Mock global Response for Next.js API route testing
+if (typeof global.Response === 'undefined') {
+  global.Response = Response
+}
 
 // Mock next/router
 jest.mock('next/router', () => ({
