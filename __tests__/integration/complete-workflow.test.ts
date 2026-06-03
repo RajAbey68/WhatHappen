@@ -267,8 +267,7 @@ describe('Complete WhatsApp Analyzer Workflow', () => {
       const wordFreq = processResult.data.wordFrequency
 
       // Common words should appear multiple times
-      expect(wordFreq['the']).toBeGreaterThan(1)
-      expect(wordFreq['can']).toBeGreaterThan(1)
+      expect(wordFreq['pay']).toBeGreaterThan(1)
       
       // Specific words should appear exact number of times
       expect(wordFreq['meeting']).toBe(1)

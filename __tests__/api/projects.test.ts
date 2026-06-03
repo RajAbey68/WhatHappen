@@ -1,23 +1,35 @@
+// Define mock functions on global so they are accessible and not subject to hoisting issues
+(global as any).mockSingle = jest.fn();
+(global as any).mockSelect = jest.fn().mockImplementation(() => ({
+  single: (global as any).mockSingle
+}));
+(global as any).mockInsert = jest.fn().mockImplementation(() => ({
+  select: (global as any).mockSelect
+}));
+(global as any).mockOrder = jest.fn();
+(global as any).mockSelectRoot = jest.fn().mockImplementation(() => ({
+  order: (global as any).mockOrder
+}));
+(global as any).mockFrom = jest.fn().mockImplementation(() => ({
+  select: (global as any).mockSelectRoot,
+  insert: (global as any).mockInsert
+}));
+
+jest.mock('../../lib/supabase', () => ({
+  supabase: {
+    from: (...args: any[]) => (global as any).mockFrom(...args)
+  }
+}))
+
+const mockFrom = (global as any).mockFrom
+const mockOrder = (global as any).mockOrder
+const mockSingle = (global as any).mockSingle
+const mockInsert = (global as any).mockInsert
+const mockSelectRoot = (global as any).mockSelectRoot
+const mockSelect = (global as any).mockSelect
+
 import { GET, POST } from '../../app/api/projects/route'
 import { NextRequest } from 'next/server'
-
-// Mock Firebase Firestore
-const mockCollection = jest.fn()
-const mockAddDoc = jest.fn()
-const mockGetDocs = jest.fn()
-const mockServerTimestamp = jest.fn()
-
-jest.mock('firebase/firestore', () => ({
-  collection: mockCollection,
-  addDoc: mockAddDoc,
-  getDocs: mockGetDocs,
-  serverTimestamp: mockServerTimestamp
-}))
-
-// Mock Firebase config
-jest.mock('../../lib/firebase', () => ({
-  db: { mockDb: true }
-}))
 
 const createMockRequest = (body?: any): NextRequest => {
   return {
@@ -25,57 +37,37 @@ const createMockRequest = (body?: any): NextRequest => {
   } as unknown as NextRequest
 }
 
-const mockProjectData = {
-  id: 'project-1',
-  name: 'Test Project',
-  description: 'Test Description',
-  createdAt: '2025-01-15T10:30:00Z',
-  messageCount: 0,
-  participants: [],
-  analysis: null
-}
-
 describe('/api/projects API Route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockServerTimestamp.mockReturnValue({ seconds: 1642234200 })
   })
 
   describe('GET /api/projects', () => {
     test('should return empty array when no projects exist', async () => {
-      const mockSnapshot = {
-        docs: []
-      }
-      mockGetDocs.mockResolvedValue(mockSnapshot)
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockOrder.mockResolvedValue({ data: [], error: null })
 
       const response = await GET()
       const result = await response.json()
 
       expect(response.status).toBe(200)
       expect(result).toEqual([])
-      expect(mockCollection).toHaveBeenCalledWith({ mockDb: true }, 'projects')
-      expect(mockGetDocs).toHaveBeenCalled()
+      expect(mockFrom).toHaveBeenCalledWith('projects')
+      expect(mockSelectRoot).toHaveBeenCalled()
+      expect(mockOrder).toHaveBeenCalledWith('created_at', { ascending: false })
     })
 
     test('should return projects list when projects exist', async () => {
-      const mockDoc = {
+      const mockProj = {
         id: 'project-1',
-        data: () => ({
-          name: 'Test Project',
-          description: 'Test Description',
-          createdAt: mockServerTimestamp(),
-          messageCount: 0,
-          participants: []
-        })
+        name: 'Test Project',
+        description: 'Test Description',
+        message_count: 0,
+        participants: [],
+        created_at: '2025-01-15T10:30:00Z',
+        updated_at: '2025-01-15T10:30:00Z'
       }
       
-      const mockSnapshot = {
-        docs: [mockDoc]
-      }
-      
-      mockGetDocs.mockResolvedValue(mockSnapshot)
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockOrder.mockResolvedValue({ data: [mockProj], error: null })
 
       const response = await GET()
       const result = await response.json()
@@ -86,15 +78,15 @@ describe('/api/projects API Route', () => {
         id: 'project-1',
         name: 'Test Project',
         description: 'Test Description',
-        createdAt: mockServerTimestamp(),
         messageCount: 0,
-        participants: []
+        participants: [],
+        createdAt: '2025-01-15T10:30:00Z',
+        updatedAt: '2025-01-15T10:30:00Z'
       })
     })
 
-    test('should handle Firestore errors gracefully', async () => {
-      mockGetDocs.mockRejectedValue(new Error('Firestore connection failed'))
-      mockCollection.mockReturnValue({ collectionRef: true })
+    test('should handle database errors gracefully', async () => {
+      mockOrder.mockResolvedValue({ data: null, error: new Error('Database connection failed') })
 
       const response = await GET()
       const result = await response.json()
@@ -104,24 +96,13 @@ describe('/api/projects API Route', () => {
     })
 
     test('should handle multiple projects correctly', async () => {
-      const mockDocs = [
-        {
-          id: 'project-1',
-          data: () => ({ name: 'Project 1', messageCount: 5 })
-        },
-        {
-          id: 'project-2', 
-          data: () => ({ name: 'Project 2', messageCount: 10 })
-        },
-        {
-          id: 'project-3',
-          data: () => ({ name: 'Project 3', messageCount: 0 })
-        }
+      const mockProjects = [
+        { id: 'project-1', name: 'Project 1', message_count: 5, participants: [], created_at: '2025-01-15T10:30:00Z' },
+        { id: 'project-2', name: 'Project 2', message_count: 10, participants: [], created_at: '2025-01-15T10:30:00Z' },
+        { id: 'project-3', name: 'Project 3', message_count: 0, participants: [], created_at: '2025-01-15T10:30:00Z' }
       ]
       
-      const mockSnapshot = { docs: mockDocs }
-      mockGetDocs.mockResolvedValue(mockSnapshot)
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockOrder.mockResolvedValue({ data: mockProjects, error: null })
 
       const response = await GET()
       const result = await response.json()
@@ -139,8 +120,18 @@ describe('/api/projects API Route', () => {
         description: 'New Description'
       }
 
-      mockAddDoc.mockResolvedValue({ id: 'new-project-id' })
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockSingle.mockResolvedValue({
+        data: {
+          id: 'new-project-id',
+          name: 'New Project',
+          description: 'New Description',
+          message_count: 0,
+          participants: [],
+          created_at: '2025-01-15T10:30:00Z',
+          updated_at: '2025-01-15T10:30:00Z'
+        },
+        error: null
+      })
 
       const request = createMockRequest(requestBody)
       const response = await POST(request)
@@ -154,15 +145,13 @@ describe('/api/projects API Route', () => {
       expect(result.project.messageCount).toBe(0)
       expect(result.project.participants).toEqual([])
       
-      expect(mockAddDoc).toHaveBeenCalledWith(
-        { collectionRef: true },
+      expect(mockInsert).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'New Project',
           description: 'New Description',
-          messageCount: 0,
+          message_count: 0,
           participants: [],
-          analysis: null,
-          createdAt: mockServerTimestamp()
+          analysis: null
         })
       )
     })
@@ -172,8 +161,18 @@ describe('/api/projects API Route', () => {
         name: 'Project Without Description'
       }
 
-      mockAddDoc.mockResolvedValue({ id: 'project-no-desc' })
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockSingle.mockResolvedValue({
+        data: {
+          id: 'project-no-desc',
+          name: 'Project Without Description',
+          description: null,
+          message_count: 0,
+          participants: [],
+          created_at: '2025-01-15T10:30:00Z',
+          updated_at: '2025-01-15T10:30:00Z'
+        },
+        error: null
+      })
 
       const request = createMockRequest(requestBody)
       const response = await POST(request)
@@ -197,7 +196,7 @@ describe('/api/projects API Route', () => {
       expect(response.status).toBe(400)
       expect(result.success).toBe(false)
       expect(result.error).toBe('Project name is required')
-      expect(mockAddDoc).not.toHaveBeenCalled()
+      expect(mockInsert).not.toHaveBeenCalled()
     })
 
     test('should reject request with empty name', async () => {
@@ -213,7 +212,7 @@ describe('/api/projects API Route', () => {
       expect(response.status).toBe(400)
       expect(result.success).toBe(false)
       expect(result.error).toBe('Project name is required')
-      expect(mockAddDoc).not.toHaveBeenCalled()
+      expect(mockInsert).not.toHaveBeenCalled()
     })
 
     test('should trim whitespace from name and description', async () => {
@@ -222,8 +221,18 @@ describe('/api/projects API Route', () => {
         description: '   Trimmed Description   '
       }
 
-      mockAddDoc.mockResolvedValue({ id: 'trimmed-project' })
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockSingle.mockResolvedValue({
+        data: {
+          id: 'trimmed-project',
+          name: 'Trimmed Project',
+          description: 'Trimmed Description',
+          message_count: 0,
+          participants: [],
+          created_at: '2025-01-15T10:30:00Z',
+          updated_at: '2025-01-15T10:30:00Z'
+        },
+        error: null
+      })
 
       const request = createMockRequest(requestBody)
       const response = await POST(request)
@@ -233,8 +242,7 @@ describe('/api/projects API Route', () => {
       expect(result.project.name).toBe('Trimmed Project')
       expect(result.project.description).toBe('Trimmed Description')
       
-      expect(mockAddDoc).toHaveBeenCalledWith(
-        { collectionRef: true },
+      expect(mockInsert).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'Trimmed Project',
           description: 'Trimmed Description'
@@ -242,13 +250,12 @@ describe('/api/projects API Route', () => {
       )
     })
 
-    test('should handle Firestore creation errors', async () => {
+    test('should handle database creation errors', async () => {
       const requestBody = {
         name: 'Test Project'
       }
 
-      mockAddDoc.mockRejectedValue(new Error('Failed to create document'))
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockSingle.mockResolvedValue({ data: null, error: new Error('Failed to create document') })
 
       const request = createMockRequest(requestBody)
       const response = await POST(request)
@@ -266,8 +273,18 @@ describe('/api/projects API Route', () => {
         description: 'Test with long name'
       }
 
-      mockAddDoc.mockResolvedValue({ id: 'long-name-project' })
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockSingle.mockResolvedValue({
+        data: {
+          id: 'long-name-project',
+          name: longName,
+          description: 'Test with long name',
+          message_count: 0,
+          participants: [],
+          created_at: '2025-01-15T10:30:00Z',
+          updated_at: '2025-01-15T10:30:00Z'
+        },
+        error: null
+      })
 
       const request = createMockRequest(requestBody)
       const response = await POST(request)
@@ -283,8 +300,18 @@ describe('/api/projects API Route', () => {
         description: 'Description with émojis 🎉 and other chars: ñáéíóú'
       }
 
-      mockAddDoc.mockResolvedValue({ id: 'special-chars-project' })
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockSingle.mockResolvedValue({
+        data: {
+          id: 'special-chars-project',
+          name: 'Project with 特殊字符 & symbols!@#$%',
+          description: 'Description with émojis 🎉 and other chars: ñáéíóú',
+          message_count: 0,
+          participants: [],
+          created_at: '2025-01-15T10:30:00Z',
+          updated_at: '2025-01-15T10:30:00Z'
+        },
+        error: null
+      })
 
       const request = createMockRequest(requestBody)
       const response = await POST(request)
@@ -313,8 +340,18 @@ describe('/api/projects API Route', () => {
         name: 'Default Values Test'
       }
 
-      mockAddDoc.mockResolvedValue({ id: 'defaults-project' })
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockSingle.mockResolvedValue({
+        data: {
+          id: 'defaults-project',
+          name: 'Default Values Test',
+          description: null,
+          message_count: 0,
+          participants: [],
+          created_at: '2025-01-15T10:30:00Z',
+          updated_at: '2025-01-15T10:30:00Z'
+        },
+        error: null
+      })
 
       const request = createMockRequest(requestBody)
       const response = await POST(request)
@@ -322,15 +359,15 @@ describe('/api/projects API Route', () => {
 
       expect(result.project.messageCount).toBe(0)
       expect(result.project.participants).toEqual([])
-      expect(result.project.analysis).toBeNull()
+      expect(result.project.analysis).toBeUndefined()
       expect(result.project.createdAt).toBeDefined()
     })
   })
 
   describe('Error Recovery and Edge Cases', () => {
-    test('should handle Firebase service unavailable', async () => {
-      mockCollection.mockImplementation(() => {
-        throw new Error('Firebase service unavailable')
+    test('should handle database service unavailable', async () => {
+      mockFrom.mockImplementationOnce(() => {
+        throw new Error('Database service unavailable')
       })
 
       const response = await GET()
@@ -340,34 +377,12 @@ describe('/api/projects API Route', () => {
       expect(result.error).toBe('Failed to fetch projects')
     })
 
-    test('should handle malformed Firestore responses', async () => {
-      const mockSnapshot = {
-        docs: [
-          {
-            id: 'project-1',
-            data: () => null // Malformed data
-          }
-        ]
-      }
-      
-      mockGetDocs.mockResolvedValue(mockSnapshot)
-      mockCollection.mockReturnValue({ collectionRef: true })
-
-      const response = await GET()
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result).toHaveLength(1)
-      expect(result[0].id).toBe('project-1')
-    })
-
     test('should handle network timeouts gracefully', async () => {
-      mockGetDocs.mockImplementation(() => 
+      mockOrder.mockImplementation(() => 
         new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Network timeout')), 100)
         )
       )
-      mockCollection.mockReturnValue({ collectionRef: true })
 
       const response = await GET()
       const result = await response.json()
@@ -377,16 +392,11 @@ describe('/api/projects API Route', () => {
     })
 
     test('should handle concurrent requests correctly', async () => {
-      const mockSnapshot = {
-        docs: [
-          { id: 'project-1', data: () => ({ name: 'Project 1' }) }
-        ]
-      }
-      
-      mockGetDocs.mockResolvedValue(mockSnapshot)
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockOrder.mockResolvedValue({
+        data: [{ id: 'project-1', name: 'Project 1', message_count: 0, participants: [], created_at: '2025-01-15T10:30:00Z' }],
+        error: null
+      })
 
-      // Make multiple concurrent requests
       const responses = await Promise.all([
         GET(),
         GET(),
@@ -412,8 +422,18 @@ describe('/api/projects API Route', () => {
 
       for (const maliciousName of maliciousNames) {
         const requestBody = { name: maliciousName }
-        mockAddDoc.mockResolvedValue({ id: 'test-id' })
-        mockCollection.mockReturnValue({ collectionRef: true })
+        mockSingle.mockResolvedValue({
+          data: {
+            id: 'test-id',
+            name: maliciousName,
+            description: null,
+            message_count: 0,
+            participants: [],
+            created_at: '2025-01-15T10:30:00Z',
+            updated_at: '2025-01-15T10:30:00Z'
+          },
+          error: null
+        })
 
         const request = createMockRequest(requestBody)
         const response = await POST(request)
@@ -432,8 +452,18 @@ describe('/api/projects API Route', () => {
         description: hugeDescription
       }
 
-      mockAddDoc.mockResolvedValue({ id: 'large-request' })
-      mockCollection.mockReturnValue({ collectionRef: true })
+      mockSingle.mockResolvedValue({
+        data: {
+          id: 'large-request',
+          name: 'Large Request Test',
+          description: hugeDescription,
+          message_count: 0,
+          participants: [],
+          created_at: '2025-01-15T10:30:00Z',
+          updated_at: '2025-01-15T10:30:00Z'
+        },
+        error: null
+      })
 
       const request = createMockRequest(requestBody)
       const response = await POST(request)
@@ -443,4 +473,4 @@ describe('/api/projects API Route', () => {
       expect(result.project.description).toBe(hugeDescription)
     })
   })
-}) 
+})

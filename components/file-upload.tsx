@@ -8,9 +8,12 @@ import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Upload, File, CheckCircle, XCircle, Loader2, FileText, Archive, Code, Sparkles } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { encryptText } from '@/lib/crypto'
 
 interface FileUploadProps {
   onFileProcessed: (data: any) => void
+  projectId: string
+  passphrase?: string
 }
 
 interface UploadedFile {
@@ -21,7 +24,7 @@ interface UploadedFile {
   data?: any
 }
 
-export function FileUpload({ onFileProcessed }: FileUploadProps) {
+export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploadProps) {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [aggregatedData, setAggregatedData] = useState<any>(null)
@@ -35,7 +38,7 @@ export function FileUpload({ onFileProcessed }: FileUploadProps) {
     
     setUploadedFiles(prev => [...prev, ...newFiles])
     processFiles(newFiles)
-  }, [])
+  }, [projectId, passphrase])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -60,51 +63,149 @@ export function FileUpload({ onFileProcessed }: FileUploadProps) {
         setUploadedFiles(prev => 
           prev.map(f => 
             f.file === uploadedFile.file 
-              ? { ...f, status: 'processing', progress: 10 }
+              ? { ...f, status: 'processing', progress: 5 }
               : f
           )
         )
 
-        const formData = new FormData()
-        formData.append('file', uploadedFile.file)
+        const isTextOrJson = uploadedFile.file.name.endsWith('.txt') || uploadedFile.file.name.endsWith('.json')
+        let resultData: any
 
-        // Simulate progress updates
-        const progressInterval = setInterval(() => {
+        if (isTextOrJson) {
+          // Parse client-side using Web Worker
+          const fileContent = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(reader.result as string)
+            reader.onerror = () => reject(new Error('Failed to read file'))
+            reader.readAsText(uploadedFile.file)
+          })
+
           setUploadedFiles(prev => 
             prev.map(f => 
-              f.file === uploadedFile.file && f.progress < 90
-                ? { ...f, progress: f.progress + 10 }
+              f.file === uploadedFile.file 
+                ? { ...f, progress: 10 }
                 : f
             )
           )
-        }, 500)
 
-        const response = await fetch('/api/process-file', {
+          resultData = await new Promise((resolve, reject) => {
+            const worker = new Worker('/workers/parser.js')
+            
+            worker.onmessage = (e) => {
+              const { type, percent, data, error } = e.data
+              if (type === 'progress') {
+                setUploadedFiles(prev => 
+                  prev.map(f => 
+                    f.file === uploadedFile.file 
+                      ? { ...f, progress: 10 + Math.round(percent * 0.85) }
+                      : f
+                  )
+                )
+              } else if (type === 'complete') {
+                worker.terminate()
+                resolve(data)
+              } else if (type === 'error') {
+                worker.terminate()
+                reject(new Error(error))
+              }
+            }
+
+            worker.onerror = (err) => {
+              worker.terminate()
+              reject(err)
+            }
+
+            worker.postMessage({ fileContent, fileName: uploadedFile.file.name })
+          })
+        } else {
+          // Fallback to server-side API route for binary files
+          const formData = new FormData()
+          formData.append('file', uploadedFile.file)
+
+          const progressInterval = setInterval(() => {
+            setUploadedFiles(prev => 
+              prev.map(f => 
+                f.file === uploadedFile.file && f.progress < 90
+                  ? { ...f, progress: f.progress + 10 }
+                  : f
+              )
+            )
+          }, 500)
+
+          const response = await fetch('/api/process-file', {
+            method: 'POST',
+            body: formData,
+          })
+
+          clearInterval(progressInterval)
+
+          const result = await response.json()
+
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || result.details || `Upload failed: ${response.statusText}`)
+          }
+
+          resultData = result.data
+        }
+
+        // Encrypt messages if passphrase is provided
+        let finalMessages = resultData.messages || []
+        if (passphrase && finalMessages.length > 0) {
+          setUploadedFiles(prev => 
+            prev.map(f => 
+              f.file === uploadedFile.file 
+                ? { ...f, progress: 95 }
+                : f
+            )
+          )
+          
+          finalMessages = await Promise.all(
+            finalMessages.map(async (msg: any) => {
+              try {
+                const encSender = await encryptText(msg.sender || 'Unknown', passphrase)
+                const encMessage = await encryptText(msg.message || '', passphrase)
+                return {
+                  ...msg,
+                  sender: JSON.stringify(encSender),
+                  message: JSON.stringify(encMessage)
+                }
+              } catch (err) {
+                console.error('Encryption failed for message:', err)
+                return msg
+              }
+            })
+          )
+        }
+
+        // Post the processed and encrypted data to Supabase complete ingestion API
+        const completeResponse = await fetch('/api/process-whatsapp-complete', {
           method: 'POST',
-          body: formData,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectId,
+            messages: finalMessages,
+            analysis: resultData.analysis || resultData
+          })
         })
 
-        clearInterval(progressInterval)
-
-        const result = await response.json()
-
-        if (!response.ok || !result.success) {
-          throw new Error(result.error || result.details || `Upload failed: ${response.statusText}`)
+        if (!completeResponse.ok) {
+          const errRes = await completeResponse.json().catch(() => ({}))
+          throw new Error(errRes.error || 'Failed to save chat data to database')
         }
 
         setUploadedFiles(prev => 
           prev.map(f => 
             f.file === uploadedFile.file 
-              ? { ...f, status: 'completed', progress: 100, data: result.data }
+              ? { ...f, status: 'completed', progress: 100, data: resultData }
               : f
           )
         )
 
-        processedResults.push(result.data)
+        processedResults.push(resultData)
 
         toast({
           title: "✨ File processed successfully",
-          description: `${uploadedFile.file.name} has been analyzed with AI insights.`,
+          description: `${uploadedFile.file.name} has been analyzed locally.`,
         })
 
       } catch (error) {

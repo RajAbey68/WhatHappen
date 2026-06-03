@@ -1,0 +1,1916 @@
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      58 |           setIsDataProcessed(true)
+      59 |         } else {
+    > 60 |           setIsDataProcessed(false)
+         |           ^
+      61 |         }
+      62 |       }
+      63 |     } catch (error) {
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setIsDataProcessed (components/ai-chat-interface.tsx:60:11)
+
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      58 |           setIsDataProcessed(true)
+      59 |         } else {
+    > 60 |           setIsDataProcessed(false)
+         |           ^
+      61 |         }
+      62 |       }
+      63 |     } catch (error) {
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setIsDataProcessed (components/ai-chat-interface.tsx:60:11)
+
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      58 |           setIsDataProcessed(true)
+      59 |         } else {
+    > 60 |           setIsDataProcessed(false)
+         |           ^
+      61 |         }
+      62 |       }
+      63 |     } catch (error) {
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setIsDataProcessed (components/ai-chat-interface.tsx:60:11)
+
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      58 |           setIsDataProcessed(true)
+      59 |         } else {
+    > 60 |           setIsDataProcessed(false)
+         |           ^
+      61 |         }
+      62 |       }
+      63 |     } catch (error) {
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setIsDataProcessed (components/ai-chat-interface.tsx:60:11)
+
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      58 |           setIsDataProcessed(true)
+      59 |         } else {
+    > 60 |           setIsDataProcessed(false)
+         |           ^
+      61 |         }
+      62 |       }
+      63 |     } catch (error) {
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setIsDataProcessed (components/ai-chat-interface.tsx:60:11)
+
+  console.error
+    Error sending message: Error: Failed to get AI response
+        at sendMessage (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:142:15)
+
+      143 |       }
+      144 |     } catch (error) {
+    > 145 |       console.error('Error sending message:', error)
+          |               ^
+      146 |       const errorMessage: ChatMessage = {
+      147 |         id: `error-${Date.now()}`,
+      148 |         role: 'assistant',
+
+      at error (components/ai-chat-interface.tsx:145:15)
+
+  console.error
+    Error sending message: Error: Network error
+        at Object.<anonymous> (/Users/arajiv/GitHub/WhatHappen/__tests__/components/ai-chat-interface.test.tsx:487:39)
+        at Promise.finally.completed (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:1561:28)
+        at new Promise (<anonymous>)
+        at callAsyncCircusFn (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:1501:10)
+        at _callCircusTest (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:1011:40)
+        at _runTest (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:951:3)
+        at /Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:853:7
+        at _runTestsForDescribeBlock (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:866:11)
+        at _runTestsForDescribeBlock (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:861:11)
+        at _runTestsForDescribeBlock (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:861:11)
+        at run (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:765:3)
+        at runAndTransformResultsToJestFormat (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:1993:21)
+        at jestAdapter (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/runner.js:111:19)
+        at runTestInternal (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-runner/build/index.js:276:16)
+        at runTest (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-runner/build/index.js:344:7)
+
+      143 |       }
+      144 |     } catch (error) {
+    > 145 |       console.error('Error sending message:', error)
+          |               ^
+      146 |       const errorMessage: ChatMessage = {
+      147 |         id: `error-${Date.now()}`,
+      148 |         role: 'assistant',
+
+      at error (components/ai-chat-interface.tsx:145:15)
+
+  console.error
+    Error sending message: Error: Malformed API response
+        at sendMessage (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:121:17)
+
+      143 |       }
+      144 |     } catch (error) {
+    > 145 |       console.error('Error sending message:', error)
+          |               ^
+      146 |       const errorMessage: ChatMessage = {
+      147 |         id: `error-${Date.now()}`,
+      148 |         role: 'assistant',
+
+      at error (components/ai-chat-interface.tsx:145:15)
+
+  console.error
+    Error sending message: Error: Network error
+        at Object.<anonymous> (/Users/arajiv/GitHub/WhatHappen/__tests__/components/ai-chat-interface.test.tsx:524:39)
+        at Promise.finally.completed (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:1561:28)
+        at new Promise (<anonymous>)
+        at callAsyncCircusFn (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:1501:10)
+        at _callCircusTest (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:1011:40)
+        at _runTest (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:951:3)
+        at /Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:853:7
+        at _runTestsForDescribeBlock (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:866:11)
+        at _runTestsForDescribeBlock (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:861:11)
+        at _runTestsForDescribeBlock (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:861:11)
+        at run (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:765:3)
+        at runAndTransformResultsToJestFormat (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/jestAdapterInit.js:1993:21)
+        at jestAdapter (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-circus/build/runner.js:111:19)
+        at runTestInternal (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-runner/build/index.js:276:16)
+        at runTest (/Users/arajiv/GitHub/WhatHappen/node_modules/jest-runner/build/index.js:344:7)
+
+      143 |       }
+      144 |     } catch (error) {
+    > 145 |       console.error('Error sending message:', error)
+          |               ^
+      146 |       const errorMessage: ChatMessage = {
+      147 |         id: `error-${Date.now()}`,
+      148 |         role: 'assistant',
+
+      at error (components/ai-chat-interface.tsx:145:15)
+
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      58 |           setIsDataProcessed(true)
+      59 |         } else {
+    > 60 |           setIsDataProcessed(false)
+         |           ^
+      61 |         }
+      62 |       }
+      63 |     } catch (error) {
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setIsDataProcessed (components/ai-chat-interface.tsx:60:11)
+
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      58 |           setIsDataProcessed(true)
+      59 |         } else {
+    > 60 |           setIsDataProcessed(false)
+         |           ^
+      61 |         }
+      62 |       }
+      63 |     } catch (error) {
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setIsDataProcessed (components/ai-chat-interface.tsx:60:11)
+
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      58 |           setIsDataProcessed(true)
+      59 |         } else {
+    > 60 |           setIsDataProcessed(false)
+         |           ^
+      61 |         }
+      62 |       }
+      63 |     } catch (error) {
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setIsDataProcessed (components/ai-chat-interface.tsx:60:11)
+
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      58 |           setIsDataProcessed(true)
+      59 |         } else {
+    > 60 |           setIsDataProcessed(false)
+         |           ^
+      61 |         }
+      62 |       }
+      63 |     } catch (error) {
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setIsDataProcessed (components/ai-chat-interface.tsx:60:11)
+
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      128 |         }
+      129 |
+    > 130 |         setMessages(prev => [...prev, assistantMessage])
+          |         ^
+      131 |
+      132 |         // Save conversation
+      133 |         await fetch('/api/ai-chat/save', {
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setMessages (components/ai-chat-interface.tsx:130:9)
+
+  console.error
+    Warning: An update to AIChatInterface inside a test was not wrapped in act(...).
+    
+    When testing, code that causes React state updates should be wrapped into act(...):
+    
+    act(() => {
+      /* fire events that update state */
+    });
+    /* assert on the output */
+    
+    This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+        at selectedProject (/Users/arajiv/GitHub/WhatHappen/components/ai-chat-interface.tsx:24:35)
+
+      152 |       setMessages(prev => [...prev, errorMessage])
+      153 |     } finally {
+    > 154 |       setIsLoading(false)
+          |       ^
+      155 |     }
+      156 |   }
+      157 |
+
+      at printWarning (node_modules/react-dom/cjs/react-dom.development.js:86:30)
+      at error (node_modules/react-dom/cjs/react-dom.development.js:60:7)
+      at warnIfUpdatesNotWrappedWithActDEV (node_modules/react-dom/cjs/react-dom.development.js:27628:9)
+      at scheduleUpdateOnFiber (node_modules/react-dom/cjs/react-dom.development.js:25547:5)
+      at dispatchSetState (node_modules/react-dom/cjs/react-dom.development.js:16708:7)
+      at setIsLoading (components/ai-chat-interface.tsx:154:7)
+
+FAIL __tests__/components/ai-chat-interface.test.tsx
+  AIChatInterface Component
+    Basic Rendering
+      ✓ should render without crashing (41 ms)
+      ✓ should render chat header (5 ms)
+      ✓ should render chat input (7 ms)
+      ✓ should render send button (39 ms)
+      ✕ should show project context information (8 ms)
+    Message Handling
+      ✓ should send message when send button is clicked (84 ms)
+      ✓ should send message when Enter key is pressed (37 ms)
+      ✓ should not send empty messages (15 ms)
+      ✓ should not send messages with only whitespace (30 ms)
+      ✓ should clear input after sending message (52 ms)
+      ✓ should disable input while message is being sent (57 ms)
+    Chat Display
+      ✓ should display user messages in chat (50 ms)
+      ✓ should display AI responses in chat (53 ms)
+      ✕ should show user and bot icons for messages (39 ms)
+      ✕ should preserve message order in conversation (99 ms)
+    Process WhatsApp Data Feature
+      ✓ should show process data button (4 ms)
+      ✕ should process data when button is clicked (12 ms)
+      ✕ should show loading state during data processing (12 ms)
+    Error Handling
+      ✓ should handle API errors gracefully (54 ms)
+      ✓ should handle network errors (447 ms)
+      ✓ should handle malformed API responses (52 ms)
+      ✓ should re-enable input after error (52 ms)
+    Project Context Integration
+      ✕ should display project information correctly (5 ms)
+      ✕ should handle projects without analysis (4 ms)
+      ✕ should handle projects without participants (4 ms)
+    Conversation Management
+      ✓ should load previous conversations on mount (3 ms)
+      ✓ should save conversations after each exchange (48 ms)
+    Edge Cases and Special Scenarios
+      ✓ should handle very long messages (15 ms)
+      ✓ should handle special characters in messages (158 ms)
+      ✓ should handle rapid successive messages (76 ms)
+    Accessibility
+      ✓ should be keyboard navigable (16 ms)
+      ✓ should have proper ARIA labels (12 ms)
+      ✓ should provide visual feedback for loading states (39 ms)
+
+  ● AIChatInterface Component › Basic Rendering › should show project context information
+
+    TestingLibraryElementError: Unable to find an element with the text: /100 messages/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"h-[700px] flex flex-col space-y-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"pb-4"[39m
+              [33mdata-testid[39m=[32m"card-header"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center justify-between"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex items-center space-x-3"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"p-2 bg-purple-500 rounded-lg"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-6 w-6 text-white"[39m
+                      [33mdata-testid[39m=[32m"bot-icon"[39m
+                    [36m/>[39m
+                  [36m</div>[39m
+                  [36m<div>[39m
+                    [36m<h3[39m
+                      [33mclass[39m=[32m"text-xl"[39m
+                      [33mdata-testid[39m=[32m"card-title"[39m
+                    [36m>[39m
+                      [0mAI Chat Assistant[0m
+                    [36m</h3>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"text-sm font-semibold text-slate-700"[39m
+                    [36m>[39m
+                      [0mTest Project[0m
+                    [36m</div>[39m
+                    [36m<p[39m
+                      [33mclass[39m=[32m"text-sm text-slate-600 mt-1"[39m
+                    [36m>[39m
+                      [0mAsk questions about your WhatsApp chat data[0m
+                    [36m</p>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1 flex flex-col"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex-1 flex flex-col p-6"[39m
+              [33mdata-testid[39m=[32m"card-content"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex-1 pr-4"[39m
+                [33mdata-testid[39m=[32m"scroll-area"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-4"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"text-center py-12"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"mb-6"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto mb-4"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-8 w-8 text-purple-500"[39m
+                          [33mdata-testid[39m=[32m"brain-icon"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                      [36m<h3[39m
+                        [33mclass[39m=[32m"text-lg font-semibold mb-2"[39m
+                      [36m>[39m
+                        [0mAI Chat Ready[0m
+                      [36m</h3>[39m
+                      [36m<p[39m
+                        [33mclass[39m=[32m"text-slate-600 mb-6"[39m
+                      [36m>[39m
+                        [0mStart asking questions about your WhatsApp chat![0m
+                      [36m</p>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl mx-auto"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mHow many messages are in this chat?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWho are the most active participants?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mShow me any financial discussions[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWhat's the overall sentiment?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWhen are people most active?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mFind mentions of payments or money[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div />[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"mt-4 space-y-3"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex space-x-2"[39m
+                [36m>[39m
+                  [36m<textarea[39m
+                    [33mclass[39m=[32m"flex-1 min-h-[60px] resize-none"[39m
+                    [33mdata-testid[39m=[32m"chat-input"[39m
+                    [33mplaceholder[39m=[32m"Ask me anything about your WhatsApp chat..."[39m
+                  [36m/>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"Send"[39m
+                    [33mclass[39m=[32m"bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-4 w-4"[39m
+                      [33mdata-testid[39m=[32m"send-icon"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"text-xs text-slate-500 text-center"[39m
+                [36m>[39m
+                  [0mPress Enter to send • Shift+Enter for new line[0m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</body>[39m
+
+      169 |     test('should show project context information', () => {
+      170 |       renderComponent()
+    > 171 |       expect(screen.getByText(/100 messages/)).toBeInTheDocument()
+          |                     ^
+      172 |       expect(screen.getByText(/3 participants/)).toBeInTheDocument()
+      173 |       expect(screen.getByText(/3 keywords/)).toBeInTheDocument()
+      174 |     })
+
+      at Object.getElementError (node_modules/@testing-library/dom/dist/config.js:37:19)
+      at node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+      at node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+      at node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+      at Object.getByText (__tests__/components/ai-chat-interface.test.tsx:171:21)
+
+  ● AIChatInterface Component › Chat Display › should show user and bot icons for messages
+
+    TestingLibraryElementError: Found multiple elements by: [data-testid="bot-icon"]
+
+    Here are the matching elements:
+
+    Ignored nodes: comments, script, style
+    [36m<div[39m
+      [33mclass[39m=[32m"h-6 w-6 text-white"[39m
+      [33mdata-testid[39m=[32m"bot-icon"[39m
+    [36m/>[39m
+
+    Ignored nodes: comments, script, style
+    [36m<div[39m
+      [33mclass[39m=[32m"h-4 w-4 text-white"[39m
+      [33mdata-testid[39m=[32m"bot-icon"[39m
+    [36m/>[39m
+
+    (If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"h-[700px] flex flex-col space-y-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"pb-4"[39m
+              [33mdata-testid[39m=[32m"card-header"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center justify-between"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex items-center space-x-3"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"p-2 bg-purple-500 rounded-lg"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-6 w-6 text-white"[39m
+                      [33mdata-testid[39m=[32m"bot-icon"[39m
+                    [36m/>[39m
+                  [36m</div>[39m
+                  [36m<div>[39m
+                    [36m<h3[39m
+                      [33mclass[39m=[32m"text-xl"[39m
+                      [33mdata-testid[39m=[32m"card-title"[39m
+                    [36m>[39m
+                      [0mAI Chat Assistant[0m
+                    [36m</h3>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"text-sm font-semibold text-slate-700"[39m
+                    [36m>[39m
+                      [0mTest Project[0m
+                    [36m</div>[39m
+                    [36m<p[39m
+                      [33mclass[39m=[32m"text-sm text-slate-600 mt-1"[39m
+                    [36m>[39m
+                      [0mAsk questions about your WhatsApp chat data[0m
+                    [36m</p>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mdata-testid[39m=[32m"dialog"[39m
+                [36m>[39m
+                  [36m<button[39m
+                    [33mclass[39m=[32m"bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-4 w-4 mr-2"[39m
+                      [33mdata-testid[39m=[32m"database-icon"[39m
+                    [36m/>[39m
+                    [0mProcess WhatsApp Data[0m
+                  [36m</button>[39m
+                  [36m<div[39m
+                    [33mdata-testid[39m=[32m"dialog-content"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mdata-testid[39m=[32m"dialog-header"[39m
+                    [36m>[39m
+                      [36m<h2[39m
+                        [33mdata-testid[39m=[32m"dialog-title"[39m
+                      [36m>[39m
+                        [0mProcess WhatsApp Data[0m
+                      [36m</h2>[39m
+                      [36m<p[39m
+                        [33mdata-testid[39m=[32m"dialog-description"[39m
+                      [36m>[39m
+                        [0mLoad your WhatsApp messages into AI context for intelligent querying.[0m
+                      [36m</p>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"space-y-4"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"p-4 bg-blue-50 rounded-lg"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"flex items-center space-x-2 mb-2"[39m
+                        [36m>[39m
+                          [36m<div[39m
+                            [33mclass[39m=[32m"h-5 w-5 text-blue-500"[39m
+                            [33mdata-testid[39m=[32m"message-icon"[39m
+                          [36m/>[39m
+                          [36m<span[39m
+                            [33mclass[39m=[32m"font-medium"[39m
+                          [36m>[39m
+                            [0mChat Overview[0m
+                          [36m</span>[39m
+                        [36m</div>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"text-sm text-slate-600"[39m
+                        [36m>[39m
+                          [0m• [0m
+                          [0m100[0m
+                          [0m messages • [0m
+                          [0m3[0m
+                          [0m participants • [0m
+                          [0m3[0m
+                          [0m keywords • [0m
+                          [0m15 days[0m
+                        [36m</div>[39m
+                      [36m</div>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"w-full"[39m
+                      [36m>[39m
+                        [0mLoad Data into AI[0m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1 flex flex-col"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex-1 flex flex-col p-6"[39m
+              [33mdata-testid[39m=[32m"card-content"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex-1 pr-4"[39m
+                [33mdata-testid[39m=[32m"scroll-area"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-4"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"flex justify-end"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"flex space-x-3 max-w-[80%] flex-row-reverse space-x-reverse"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-blue-500"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-4 w-4 text-white"[39m
+                          [33mdata-testid[39m=[32m"user-icon"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"rounded-lg p-3 bg-blue-500 text-white"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"whitespace-pre-wrap text-sm"[39m
+                        [36m>[39m
+                          [0mTest[0m
+                        [36m</div>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"text-xs mt-1 opacity-70 text-blue-100"[39m
+                        [36m>[39m
+                          [0m6:04:13 PM[0m
+                        [36m</div>[39m
+                      [36m</div>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"flex justify-start"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"flex space-x-3 max-w-[80%] "[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-purple-500 to-blue-500"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-4 w-4 text-white"[39m
+                          [33mdata-testid[39m=[32m"bot-icon"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"rounded-lg p-3 bg-slate-100 text-slate-900"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"whitespace-pre-wrap text-sm"[39m
+                        [36m>[39m
+                          [0mAI response[0m
+                        [36m</div>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"text-xs mt-1 opacity-70 text-slate-500"[39m
+                        [36m>[39m
+                          [0m6:04:13 PM[0m
+                        [36m</div>[39m
+                      [36m</div>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div />[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"mt-4 space-y-3"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex space-x-2"[39m
+                [36m>[39m
+                  [36m<textarea[39m
+                    [33mclass[39m=[32m"flex-1 min-h-[60px] resize-none"[39m
+                    [33mdata-testid[39m=[32m"chat-input"[39m
+                    [33mplaceholder[39m=[32m"Ask me anything about your WhatsApp chat..."[39m
+                  [36m/>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"Send"[39m
+                    [33mclass[39m=[32m"bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-4 w-4"[39m
+                      [33mdata-testid[39m=[32m"send-icon"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"text-xs text-slate-500 text-center"[39m
+                [36m>[39m
+                  [0mPress Enter to send • Shift+Enter for new line[0m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</body>[39m
+
+      361 |
+      362 |       expect(screen.getByTestId('user-icon')).toBeInTheDocument()
+    > 363 |       expect(screen.getByTestId('bot-icon')).toBeInTheDocument()
+          |                     ^
+      364 |     })
+      365 |
+      366 |     test('should preserve message order in conversation', async () => {
+
+      at Object.getElementError (node_modules/@testing-library/dom/dist/config.js:37:19)
+      at getElementError (node_modules/@testing-library/dom/dist/query-helpers.js:20:35)
+      at getMultipleElementsFoundError (node_modules/@testing-library/dom/dist/query-helpers.js:23:10)
+      at node_modules/@testing-library/dom/dist/query-helpers.js:55:13
+      at node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+      at Object.getByTestId (__tests__/components/ai-chat-interface.test.tsx:363:21)
+
+  ● AIChatInterface Component › Chat Display › should preserve message order in conversation
+
+    expect(element).toHaveTextContent()
+
+    Expected element to have text content:
+      First message
+    Received:
+      Load your WhatsApp messages into AI context for intelligent querying.
+
+      399 |       // Check order
+      400 |       const messages = screen.getAllByText(/message|response/)
+    > 401 |       expect(messages[0]).toHaveTextContent('First message')
+          |                           ^
+      402 |       expect(messages[1]).toHaveTextContent('First AI response')
+      403 |       expect(messages[2]).toHaveTextContent('Second message')
+      404 |       expect(messages[3]).toHaveTextContent('Second AI response')
+
+      at Object.toHaveTextContent (__tests__/components/ai-chat-interface.test.tsx:401:27)
+
+  ● AIChatInterface Component › Process WhatsApp Data Feature › should process data when button is clicked
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: "/api/ai-chat/project-1", {"method": "GET"}
+    Received: "/api/ai-chat/save?projectId=project-1"
+
+    Number of calls: 1
+
+      426 |       await user.click(processButton)
+      427 |
+    > 428 |       expect(mockFetch).toHaveBeenCalledWith('/api/ai-chat/project-1', {
+          |                         ^
+      429 |         method: 'GET'
+      430 |       })
+      431 |     })
+
+      at Object.toHaveBeenCalledWith (__tests__/components/ai-chat-interface.test.tsx:428:25)
+
+  ● AIChatInterface Component › Process WhatsApp Data Feature › should show loading state during data processing
+
+    TestingLibraryElementError: Unable to find an element with the text: /processing/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"h-[700px] flex flex-col space-y-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"pb-4"[39m
+              [33mdata-testid[39m=[32m"card-header"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center justify-between"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex items-center space-x-3"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"p-2 bg-purple-500 rounded-lg"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-6 w-6 text-white"[39m
+                      [33mdata-testid[39m=[32m"bot-icon"[39m
+                    [36m/>[39m
+                  [36m</div>[39m
+                  [36m<div>[39m
+                    [36m<h3[39m
+                      [33mclass[39m=[32m"text-xl"[39m
+                      [33mdata-testid[39m=[32m"card-title"[39m
+                    [36m>[39m
+                      [0mAI Chat Assistant[0m
+                    [36m</h3>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"text-sm font-semibold text-slate-700"[39m
+                    [36m>[39m
+                      [0mTest Project[0m
+                    [36m</div>[39m
+                    [36m<p[39m
+                      [33mclass[39m=[32m"text-sm text-slate-600 mt-1"[39m
+                    [36m>[39m
+                      [0mAsk questions about your WhatsApp chat data[0m
+                    [36m</p>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mdata-testid[39m=[32m"dialog"[39m
+                [36m>[39m
+                  [36m<button[39m
+                    [33mclass[39m=[32m"bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"[39m
+                    [33mdisabled[39m=[32m""[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-4 w-4 mr-2"[39m
+                      [33mdata-testid[39m=[32m"database-icon"[39m
+                    [36m/>[39m
+                    [0mProcess WhatsApp Data[0m
+                  [36m</button>[39m
+                  [36m<div[39m
+                    [33mdata-testid[39m=[32m"dialog-content"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mdata-testid[39m=[32m"dialog-header"[39m
+                    [36m>[39m
+                      [36m<h2[39m
+                        [33mdata-testid[39m=[32m"dialog-title"[39m
+                      [36m>[39m
+                        [0mProcess WhatsApp Data[0m
+                      [36m</h2>[39m
+                      [36m<p[39m
+                        [33mdata-testid[39m=[32m"dialog-description"[39m
+                      [36m>[39m
+                        [0mLoad your WhatsApp messages into AI context for intelligent querying.[0m
+                      [36m</p>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"space-y-4"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"p-4 bg-blue-50 rounded-lg"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"flex items-center space-x-2 mb-2"[39m
+                        [36m>[39m
+                          [36m<div[39m
+                            [33mclass[39m=[32m"h-5 w-5 text-blue-500"[39m
+                            [33mdata-testid[39m=[32m"message-icon"[39m
+                          [36m/>[39m
+                          [36m<span[39m
+                            [33mclass[39m=[32m"font-medium"[39m
+                          [36m>[39m
+                            [0mChat Overview[0m
+                          [36m</span>[39m
+                        [36m</div>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"text-sm text-slate-600"[39m
+                        [36m>[39m
+                          [0m• [0m
+                          [0m0[0m
+                          [0m messages • [0m
+                          [0m3[0m
+                          [0m participants • [0m
+                          [0m3[0m
+                          [0m keywords • [0m
+                          [0m15 days[0m
+                        [36m</div>[39m
+                      [36m</div>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"w-full"[39m
+                      [36m>[39m
+                        [0mLoad Data into AI[0m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1 flex flex-col"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex-1 flex flex-col p-6"[39m
+              [33mdata-testid[39m=[32m"card-content"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex-1 pr-4"[39m
+                [33mdata-testid[39m=[32m"scroll-area"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-4"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"text-center py-12"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"mb-6"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto mb-4"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-8 w-8 text-purple-500"[39m
+                          [33mdata-testid[39m=[32m"brain-icon"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                      [36m<h3[39m
+                        [33mclass[39m=[32m"text-lg font-semibold mb-2"[39m
+                      [36m>[39m
+                        [0mAI Chat Ready[0m
+                      [36m</h3>[39m
+                      [36m<p[39m
+                        [33mclass[39m=[32m"text-slate-600 mb-6"[39m
+                      [36m>[39m
+                        [0mProcess your WhatsApp data first, then ask me anything![0m
+                      [36m</p>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div />[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"mt-4 space-y-3"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex space-x-2"[39m
+                [36m>[39m
+                  [36m<textarea[39m
+                    [33mclass[39m=[32m"flex-1 min-h-[60px] resize-none"[39m
+                    [33mdata-testid[39m=[32m"chat-input"[39m
+                    [33mplaceholder[39m=[32m"Ask me anything about your WhatsApp chat..."[39m
+                  [36m/>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"Send"[39m
+                    [33mclass[39m=[32m"bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-4 w-4"[39m
+                      [33mdata-testid[39m=[32m"send-icon"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"text-xs text-slate-500 text-center"[39m
+                [36m>[39m
+                  [0mPress Enter to send • Shift+Enter for new line[0m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</body>[39m
+
+      447 |
+      448 |       expect(processButton).toBeDisabled()
+    > 449 |       expect(screen.getByText(/processing/i)).toBeInTheDocument()
+          |                     ^
+      450 |
+      451 |       // Resolve the promise
+      452 |       resolvePromise!({
+
+      at Object.getElementError (node_modules/@testing-library/dom/dist/config.js:37:19)
+      at node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+      at node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+      at node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+      at Object.getByText (__tests__/components/ai-chat-interface.test.tsx:449:21)
+
+  ● AIChatInterface Component › Project Context Integration › should display project information correctly
+
+    TestingLibraryElementError: Unable to find an element with the text: /100 messages/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"h-[700px] flex flex-col space-y-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"pb-4"[39m
+              [33mdata-testid[39m=[32m"card-header"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center justify-between"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex items-center space-x-3"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"p-2 bg-purple-500 rounded-lg"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-6 w-6 text-white"[39m
+                      [33mdata-testid[39m=[32m"bot-icon"[39m
+                    [36m/>[39m
+                  [36m</div>[39m
+                  [36m<div>[39m
+                    [36m<h3[39m
+                      [33mclass[39m=[32m"text-xl"[39m
+                      [33mdata-testid[39m=[32m"card-title"[39m
+                    [36m>[39m
+                      [0mAI Chat Assistant[0m
+                    [36m</h3>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"text-sm font-semibold text-slate-700"[39m
+                    [36m>[39m
+                      [0mTest Project[0m
+                    [36m</div>[39m
+                    [36m<p[39m
+                      [33mclass[39m=[32m"text-sm text-slate-600 mt-1"[39m
+                    [36m>[39m
+                      [0mAsk questions about your WhatsApp chat data[0m
+                    [36m</p>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1 flex flex-col"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex-1 flex flex-col p-6"[39m
+              [33mdata-testid[39m=[32m"card-content"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex-1 pr-4"[39m
+                [33mdata-testid[39m=[32m"scroll-area"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-4"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"text-center py-12"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"mb-6"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto mb-4"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-8 w-8 text-purple-500"[39m
+                          [33mdata-testid[39m=[32m"brain-icon"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                      [36m<h3[39m
+                        [33mclass[39m=[32m"text-lg font-semibold mb-2"[39m
+                      [36m>[39m
+                        [0mAI Chat Ready[0m
+                      [36m</h3>[39m
+                      [36m<p[39m
+                        [33mclass[39m=[32m"text-slate-600 mb-6"[39m
+                      [36m>[39m
+                        [0mStart asking questions about your WhatsApp chat![0m
+                      [36m</p>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl mx-auto"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mHow many messages are in this chat?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWho are the most active participants?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mShow me any financial discussions[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWhat's the overall sentiment?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWhen are people most active?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mFind mentions of payments or money[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div />[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"mt-4 space-y-3"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex space-x-2"[39m
+                [36m>[39m
+                  [36m<textarea[39m
+                    [33mclass[39m=[32m"flex-1 min-h-[60px] resize-none"[39m
+                    [33mdata-testid[39m=[32m"chat-input"[39m
+                    [33mplaceholder[39m=[32m"Ask me anything about your WhatsApp chat..."[39m
+                  [36m/>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"Send"[39m
+                    [33mclass[39m=[32m"bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-4 w-4"[39m
+                      [33mdata-testid[39m=[32m"send-icon"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"text-xs text-slate-500 text-center"[39m
+                [36m>[39m
+                  [0mPress Enter to send • Shift+Enter for new line[0m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</body>[39m
+
+      544 |       
+      545 |       expect(screen.getByText('Test Project')).toBeInTheDocument()
+    > 546 |       expect(screen.getByText(/100 messages/)).toBeInTheDocument()
+          |                     ^
+      547 |       expect(screen.getByText(/3 participants/)).toBeInTheDocument()
+      548 |     })
+      549 |
+
+      at Object.getElementError (node_modules/@testing-library/dom/dist/config.js:37:19)
+      at node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+      at node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+      at node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+      at Object.getByText (__tests__/components/ai-chat-interface.test.tsx:546:21)
+
+  ● AIChatInterface Component › Project Context Integration › should handle projects without analysis
+
+    TestingLibraryElementError: Unable to find an element with the text: /0 keywords/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"h-[700px] flex flex-col space-y-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"pb-4"[39m
+              [33mdata-testid[39m=[32m"card-header"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center justify-between"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex items-center space-x-3"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"p-2 bg-purple-500 rounded-lg"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-6 w-6 text-white"[39m
+                      [33mdata-testid[39m=[32m"bot-icon"[39m
+                    [36m/>[39m
+                  [36m</div>[39m
+                  [36m<div>[39m
+                    [36m<h3[39m
+                      [33mclass[39m=[32m"text-xl"[39m
+                      [33mdata-testid[39m=[32m"card-title"[39m
+                    [36m>[39m
+                      [0mAI Chat Assistant[0m
+                    [36m</h3>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"text-sm font-semibold text-slate-700"[39m
+                    [36m>[39m
+                      [0mTest Project[0m
+                    [36m</div>[39m
+                    [36m<p[39m
+                      [33mclass[39m=[32m"text-sm text-slate-600 mt-1"[39m
+                    [36m>[39m
+                      [0mAsk questions about your WhatsApp chat data[0m
+                    [36m</p>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1 flex flex-col"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex-1 flex flex-col p-6"[39m
+              [33mdata-testid[39m=[32m"card-content"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex-1 pr-4"[39m
+                [33mdata-testid[39m=[32m"scroll-area"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-4"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"text-center py-12"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"mb-6"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto mb-4"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-8 w-8 text-purple-500"[39m
+                          [33mdata-testid[39m=[32m"brain-icon"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                      [36m<h3[39m
+                        [33mclass[39m=[32m"text-lg font-semibold mb-2"[39m
+                      [36m>[39m
+                        [0mAI Chat Ready[0m
+                      [36m</h3>[39m
+                      [36m<p[39m
+                        [33mclass[39m=[32m"text-slate-600 mb-6"[39m
+                      [36m>[39m
+                        [0mStart asking questions about your WhatsApp chat![0m
+                      [36m</p>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl mx-auto"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mHow many messages are in this chat?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWho are the most active participants?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mShow me any financial discussions[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWhat's the overall sentiment?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWhen are people most active?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mFind mentions of payments or money[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div />[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"mt-4 space-y-3"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex space-x-2"[39m
+                [36m>[39m
+                  [36m<textarea[39m
+                    [33mclass[39m=[32m"flex-1 min-h-[60px] resize-none"[39m
+                    [33mdata-testid[39m=[32m"chat-input"[39m
+                    [33mplaceholder[39m=[32m"Ask me anything about your WhatsApp chat..."[39m
+                  [36m/>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"Send"[39m
+                    [33mclass[39m=[32m"bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-4 w-4"[39m
+                      [33mdata-testid[39m=[32m"send-icon"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"text-xs text-slate-500 text-center"[39m
+                [36m>[39m
+                  [0mPress Enter to send • Shift+Enter for new line[0m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</body>[39m
+
+      553 |       renderComponent(projectWithoutAnalysis)
+      554 |       
+    > 555 |       expect(screen.getByText(/0 keywords/)).toBeInTheDocument()
+          |                     ^
+      556 |     })
+      557 |
+      558 |     test('should handle projects without participants', () => {
+
+      at Object.getElementError (node_modules/@testing-library/dom/dist/config.js:37:19)
+      at node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+      at node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+      at node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+      at Object.getByText (__tests__/components/ai-chat-interface.test.tsx:555:21)
+
+  ● AIChatInterface Component › Project Context Integration › should handle projects without participants
+
+    TestingLibraryElementError: Unable to find an element with the text: /0 participants/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"h-[700px] flex flex-col space-y-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"pb-4"[39m
+              [33mdata-testid[39m=[32m"card-header"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center justify-between"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex items-center space-x-3"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"p-2 bg-purple-500 rounded-lg"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-6 w-6 text-white"[39m
+                      [33mdata-testid[39m=[32m"bot-icon"[39m
+                    [36m/>[39m
+                  [36m</div>[39m
+                  [36m<div>[39m
+                    [36m<h3[39m
+                      [33mclass[39m=[32m"text-xl"[39m
+                      [33mdata-testid[39m=[32m"card-title"[39m
+                    [36m>[39m
+                      [0mAI Chat Assistant[0m
+                    [36m</h3>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"text-sm font-semibold text-slate-700"[39m
+                    [36m>[39m
+                      [0mTest Project[0m
+                    [36m</div>[39m
+                    [36m<p[39m
+                      [33mclass[39m=[32m"text-sm text-slate-600 mt-1"[39m
+                    [36m>[39m
+                      [0mAsk questions about your WhatsApp chat data[0m
+                    [36m</p>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-1 flex flex-col"[39m
+            [33mdata-testid[39m=[32m"card"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex-1 flex flex-col p-6"[39m
+              [33mdata-testid[39m=[32m"card-content"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex-1 pr-4"[39m
+                [33mdata-testid[39m=[32m"scroll-area"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-4"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"text-center py-12"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"mb-6"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto mb-4"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-8 w-8 text-purple-500"[39m
+                          [33mdata-testid[39m=[32m"brain-icon"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                      [36m<h3[39m
+                        [33mclass[39m=[32m"text-lg font-semibold mb-2"[39m
+                      [36m>[39m
+                        [0mAI Chat Ready[0m
+                      [36m</h3>[39m
+                      [36m<p[39m
+                        [33mclass[39m=[32m"text-slate-600 mb-6"[39m
+                      [36m>[39m
+                        [0mStart asking questions about your WhatsApp chat![0m
+                      [36m</p>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl mx-auto"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mHow many messages are in this chat?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWho are the most active participants?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mShow me any financial discussions[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWhat's the overall sentiment?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mWhen are people most active?[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"text-left h-auto p-3 justify-start"[39m
+                        [33mtabindex[39m=[32m"-1"[39m
+                        [33mvariant[39m=[32m"outline"[39m
+                      [36m>[39m
+                        [36m<div[39m
+                          [33mclass[39m=[32m"h-3 w-3 mr-2 flex-shrink-0"[39m
+                          [33mdata-testid[39m=[32m"sparkles-icon"[39m
+                        [36m/>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-xs"[39m
+                        [36m>[39m
+                          [0mFind mentions of payments or money[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div />[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"mt-4 space-y-3"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex space-x-2"[39m
+                [36m>[39m
+                  [36m<textarea[39m
+                    [33mclass[39m=[32m"flex-1 min-h-[60px] resize-none"[39m
+                    [33mdata-testid[39m=[32m"chat-input"[39m
+                    [33mplaceholder[39m=[32m"Ask me anything about your WhatsApp chat..."[39m
+                  [36m/>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"Send"[39m
+                    [33mclass[39m=[32m"bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"h-4 w-4"[39m
+                      [33mdata-testid[39m=[32m"send-icon"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"text-xs text-slate-500 text-center"[39m
+                [36m>[39m
+                  [0mPress Enter to send • Shift+Enter for new line[0m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</body>[39m
+
+      564 |       renderComponent(projectWithoutParticipants)
+      565 |       
+    > 566 |       expect(screen.getByText(/0 participants/)).toBeInTheDocument()
+          |                     ^
+      567 |     })
+      568 |   })
+      569 |
+
+      at Object.getElementError (node_modules/@testing-library/dom/dist/config.js:37:19)
+      at node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+      at node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+      at node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+      at Object.getByText (__tests__/components/ai-chat-interface.test.tsx:566:21)
+
+Test Suites: 1 failed, 1 total
+Tests:       8 failed, 25 passed, 33 total
+Snapshots:   0 total
+Time:        2.538 s
+Ran all test suites matching __tests__/components/ai-chat-interface.test.tsx.

@@ -1,24 +1,68 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/firebase'
-import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { supabase } from '@/lib/supabase'
+import { decryptText } from '@/lib/crypto'
 
 export async function POST(request: NextRequest) {
   try {
-    const { projectId, analysisType = 'comprehensive' } = await request.json()
+    const { projectId, analysisType = 'comprehensive', passphrase } = await request.json()
 
     if (!projectId) {
       return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
     }
 
     // Get all messages for this project
-    const messagesRef = collection(db, 'messages')
-    const messagesQuery = query(messagesRef, where('projectId', '==', projectId))
-    const querySnapshot = await getDocs(messagesQuery)
-    
-    const messages = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }))
+    const { data: dbMessages, error: msgError } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('project_id', projectId)
+
+    if (msgError) throw msgError
+
+    // Decrypt messages in memory if passphrase is provided
+    const messages = await Promise.all(
+      (dbMessages || []).map(async (msg) => {
+        let decryptedMessage = msg.message
+        let decryptedSender = msg.sender
+
+        if (passphrase) {
+          try {
+            const messageEnc = JSON.parse(msg.message)
+            if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
+              decryptedMessage = await decryptText(
+                messageEnc.ciphertext,
+                passphrase,
+                messageEnc.salt,
+                messageEnc.iv
+              )
+            }
+          } catch (e) {
+            // Treat as plaintext fallback
+          }
+
+          try {
+            const senderEnc = JSON.parse(msg.sender)
+            if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
+              decryptedSender = await decryptText(
+                senderEnc.ciphertext,
+                passphrase,
+                senderEnc.salt,
+                senderEnc.iv
+              )
+            }
+          } catch (e) {
+            // Treat as plaintext fallback
+          }
+        }
+
+        return {
+          id: msg.id,
+          projectId: msg.project_id,
+          sender: decryptedSender,
+          message: decryptedMessage,
+          timestamp: msg.timestamp
+        }
+      })
+    )
 
     if (messages.length === 0) {
       return NextResponse.json({ error: 'No messages found for this project' }, { status: 404 })
@@ -44,12 +88,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Update project with new analysis
-    const projectRef = doc(db, 'projects', projectId)
-    await updateDoc(projectRef, {
-      analysis: analysisResult,
-      lastAnalyzed: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    })
+    const { error: updateError } = await supabase
+      .from('projects')
+      .update({
+        analysis: analysisResult,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', projectId)
+
+    if (updateError) throw updateError
 
     return NextResponse.json({
       success: true,

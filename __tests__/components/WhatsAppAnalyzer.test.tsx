@@ -1,237 +1,260 @@
 import React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import WhatsAppAnalyzer from '../../app/page'
+import Home from '../../app/page'
 
 // Mock Lucide React icons
 jest.mock('lucide-react', () => ({
-  Moon: (props: any) => <div data-testid="moon-icon" {...props} />,
-  Sun: (props: any) => <div data-testid="sun-icon" {...props} />,
   Upload: (props: any) => <div data-testid="upload-icon" {...props} />,
+  MessageSquare: (props: any) => <div data-testid="message-square-icon" {...props} />,
   BarChart3: (props: any) => <div data-testid="chart-icon" {...props} />,
-  MessageCircle: (props: any) => <div data-testid="message-icon" {...props} />,
-  Database: (props: any) => <div data-testid="database-icon" {...props} />,
-  Settings: (props: any) => <div data-testid="settings-icon" {...props} />,
   FileText: (props: any) => <div data-testid="file-icon" {...props} />,
-  Zap: (props: any) => <div data-testid="zap-icon" {...props} />,
-  TrendingUp: (props: any) => <div data-testid="trending-icon" {...props} />,
-  Brain: (props: any) => <div data-testid="brain-icon" {...props} />
+  Bot: (props: any) => <div data-testid="bot-icon" {...props} />,
+  Database: (props: any) => <div data-testid="database-icon" {...props} />
 }))
 
-// Mock the UI components using relative paths
-jest.mock('../../components/ui/button', () => ({
-  Button: ({ children, onClick, ...props }: any) => (
-    <button onClick={onClick} {...props}>
-      {children}
-    </button>
+// Mock the sub-components
+jest.mock('../../components/project-selector', () => ({
+  ProjectSelector: ({ onProjectSelect, selectedProject }: any) => (
+    <div data-testid="project-selector">
+      <div data-testid="selected-project-id">{selectedProject?.id || 'none'}</div>
+      <button 
+        data-testid="select-project-btn" 
+        onClick={() => onProjectSelect({ 
+          id: 'test-project-123', 
+          name: 'Test Chat Project', 
+          description: 'A mock project for testing',
+          messageCount: 1500, 
+          participants: ['Alice', 'Bob'],
+          analysis: { keywords: ['hello', 'meeting', 'urgent'] },
+          dateRange: { start: '2025-01-01T00:00:00Z', end: '2025-01-10T00:00:00Z' },
+          createdAt: new Date().toISOString()
+        })}
+      >
+        Select Mock Project
+      </button>
+      <button 
+        data-testid="clear-project-btn" 
+        onClick={() => onProjectSelect(null)}
+      >
+        Clear Selection
+      </button>
+    </div>
   )
 }))
 
+jest.mock('../../components/file-upload', () => ({
+  FileUpload: ({ onFileProcessed }: any) => (
+    <div data-testid="file-upload-mock">
+      <button 
+        data-testid="mock-file-process-btn"
+        onClick={() => onFileProcessed({
+          totalMessages: 2000,
+          participants: [{ name: 'Alice' }, { name: 'Bob' }],
+          analysis: { keywords: ['work', 'project'] },
+          dateRange: { start: '2025-01-01', end: '2025-01-15' }
+        })}
+      >
+        Process Mock File
+      </button>
+    </div>
+  )
+}))
+
+jest.mock('../../components/ai-chat-interface', () => ({
+  AIChatInterface: ({ selectedProject }: any) => (
+    <div data-testid="ai-chat-interface-mock">
+      Chatting about {selectedProject?.name}
+    </div>
+  )
+}))
+
+// Mock shadcn/ui components
 jest.mock('../../components/ui/card', () => ({
-  Card: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-  CardContent: ({ children, ...props }: any) => <div {...props}>{children}</div>
-}))
-
-jest.mock('../../components/ui/tabs', () => ({
-  Tabs: ({ children, defaultValue, ...props }: any) => (
-    <div data-testid="tabs" data-default-value={defaultValue} {...props}>
-      {children}
-    </div>
-  ),
-  TabsContent: ({ children, value, ...props }: any) => (
-    <div data-testid={`tab-content-${value}`} {...props}>
-      {children}
-    </div>
-  ),
-  TabsList: ({ children, ...props }: any) => (
-    <div data-testid="tabs-list" {...props}>
-      {children}
-    </div>
-  ),
-  TabsTrigger: ({ children, value, ...props }: any) => (
-    <button data-testid={`tab-trigger-${value}`} {...props}>
-      {children}
-    </button>
-  )
+  Card: ({ children, className, ...props }: any) => <div className={className} data-testid="card" {...props}>{children}</div>,
+  CardContent: ({ children, className, ...props }: any) => <div className={className} data-testid="card-content" {...props}>{children}</div>,
+  CardHeader: ({ children, className, ...props }: any) => <div className={className} data-testid="card-header" {...props}>{children}</div>,
+  CardTitle: ({ children, className, ...props }: any) => <h3 className={className} data-testid="card-title" {...props}>{children}</h3>,
+  CardDescription: ({ children, className, ...props }: any) => <p className={className} data-testid="card-description" {...props}>{children}</p>
 }))
 
 jest.mock('../../components/ui/badge', () => ({
-  Badge: ({ children, ...props }: any) => (
-    <span data-testid="badge" {...props}>
+  Badge: ({ children, className, ...props }: any) => (
+    <span data-testid="badge" className={className} {...props}>
       {children}
     </span>
   )
 }))
 
-describe('WhatsAppAnalyzer Component', () => {
-  beforeEach(() => {
-    // Reset DOM manipulation
-    document.documentElement.className = ''
+jest.mock('../../components/ui/tabs', () => ({
+  Tabs: ({ children, defaultValue, className, ...props }: any) => (
+    <div data-testid="tabs" data-default-value={defaultValue} className={className} {...props}>
+      {children}
+    </div>
+  ),
+  TabsContent: ({ children, value, className, ...props }: any) => (
+    <div data-testid={`tab-content-${value}`} className={className} {...props}>
+      {children}
+    </div>
+  ),
+  TabsList: ({ children, className, ...props }: any) => (
+    <div data-testid="tabs-list" className={className} {...props}>
+      {children}
+    </div>
+  ),
+  TabsTrigger: ({ children, value, disabled, className, ...props }: any) => (
+    <button 
+      data-testid={`tab-trigger-${value}`} 
+      disabled={disabled}
+      className={className} 
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}))
+
+describe('WhatsAppAnalyzer Main Page Component', () => {
+  describe('Initial Default State (No Project Selected)', () => {
+    test('should render headers and description text', () => {
+      render(<Home />)
+      expect(screen.getByText('WhatsApp Analyzer')).toBeInTheDocument()
+      expect(screen.getByText(/Professional WhatsApp chat analysis with AI-powered insights/i)).toBeInTheDocument()
+    })
+
+    test('should render project selector interface in default state', () => {
+      render(<Home />)
+      expect(screen.getByTestId('project-selector')).toBeInTheDocument()
+      expect(screen.getByTestId('selected-project-id')).toHaveTextContent('none')
+    })
+
+    test('should render platform introduction panel when no project is selected', () => {
+      render(<Home />)
+      expect(screen.getByText('Complete WhatsApp Analysis Platform')).toBeInTheDocument()
+      expect(screen.getByText(/Create a project to start analyzing WhatsApp chats/i)).toBeInTheDocument()
+    })
+
+    test('should render all 4 platform descriptive feature cards', () => {
+      render(<Home />)
+      expect(screen.getByText('Complete Processing')).toBeInTheDocument()
+      expect(screen.getByText('AI Chat Interface')).toBeInTheDocument()
+      expect(screen.getByText('Advanced Analysis')).toBeInTheDocument()
+      expect(screen.getByText('Legal Documents')).toBeInTheDocument()
+    })
   })
 
-  describe('Basic Rendering', () => {
-    test('should render without crashing', () => {
-      render(<WhatsAppAnalyzer />)
-      expect(document.body).toBeInTheDocument()
-    })
+  describe('Project Selection and Active Dashboard State', () => {
+    test('should transition page state and hide introductory layout when a project is selected', async () => {
+      const user = userEvent.setup()
+      render(<Home />)
 
-    test('should render main title', () => {
-      render(<WhatsAppAnalyzer />)
-      const title = screen.getAllByText(/WhatsApp Analyzer/i)[0]
-      expect(title).toBeInTheDocument()
-    })
+      // Click mock select button
+      const selectBtn = screen.getByTestId('select-project-btn')
+      await user.click(selectBtn)
 
-    test('should render description text', () => {
-      render(<WhatsAppAnalyzer />)
-      const description = screen.getByText(/Unlock powerful insights/i)
-      expect(description).toBeInTheDocument()
-    })
-  })
-
-  describe('Feature Pills', () => {
-    test('should render feature badges', () => {
-      render(<WhatsAppAnalyzer />)
+      // Intro layout should be gone
+      expect(screen.queryByText('Complete WhatsApp Analysis Platform')).not.toBeInTheDocument()
       
-      expect(screen.getByText('AI-Powered')).toBeInTheDocument()
-      expect(screen.getByText('Real-time Analysis')).toBeInTheDocument()
-      expect(screen.getByText('Advanced Insights')).toBeInTheDocument()
+      // Selected project name and overview cards should be visible
+      expect(screen.getByText('Test Chat Project')).toBeInTheDocument()
+      expect(screen.getByText('A mock project for testing')).toBeInTheDocument()
     })
-  })
 
-  describe('Navigation Structure', () => {
-    test('should render tabs container', () => {
-      render(<WhatsAppAnalyzer />)
-      
+    test('should render overall metrics widgets when a project is selected', async () => {
+      const user = userEvent.setup()
+      render(<Home />)
+
+      const selectBtn = screen.getByTestId('select-project-btn')
+      await user.click(selectBtn)
+
+      // Metrics: messages count badge and values
+      expect(screen.getByText('1,500 messages')).toBeInTheDocument()
+      expect(screen.getByText('2')).toBeInTheDocument() // 2 participants
+      expect(screen.getByText('3')).toBeInTheDocument() // 3 keywords
+      expect(screen.getByText('9')).toBeInTheDocument() // 9 days span (Jan 1 to Jan 10)
+    })
+
+    test('should render tabbed interface container and all tab triggers', async () => {
+      const user = userEvent.setup()
+      render(<Home />)
+
+      const selectBtn = screen.getByTestId('select-project-btn')
+      await user.click(selectBtn)
+
       expect(screen.getByTestId('tabs')).toBeInTheDocument()
-      expect(screen.getByTestId('tabs-list')).toBeInTheDocument()
-    })
-
-    test('should render all tab triggers', () => {
-      render(<WhatsAppAnalyzer />)
-      
       expect(screen.getByTestId('tab-trigger-upload')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-dashboard')).toBeInTheDocument()
       expect(screen.getByTestId('tab-trigger-ai-chat')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-database')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-settings')).toBeInTheDocument()
+      expect(screen.getByTestId('tab-trigger-analysis')).toBeInTheDocument()
+      expect(screen.getByTestId('tab-trigger-documents')).toBeInTheDocument()
     })
 
-    test('should render all tab content areas', () => {
-      render(<WhatsAppAnalyzer />)
-      
+    test('should enable AI Chat, Analysis and Documents tabs when messageCount > 0', async () => {
+      const user = userEvent.setup()
+      render(<Home />)
+
+      const selectBtn = screen.getByTestId('select-project-btn')
+      await user.click(selectBtn)
+
+      expect(screen.getByTestId('tab-trigger-ai-chat')).not.toBeDisabled()
+      expect(screen.getByTestId('tab-trigger-analysis')).not.toBeDisabled()
+      expect(screen.getByTestId('tab-trigger-documents')).not.toBeDisabled()
+    })
+
+    test('should render sub-components inside tab contents when selected', async () => {
+      const user = userEvent.setup()
+      render(<Home />)
+
+      const selectBtn = screen.getByTestId('select-project-btn')
+      await user.click(selectBtn)
+
+      // Default active tab is 'upload', rendering file upload mock
       expect(screen.getByTestId('tab-content-upload')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-content-dashboard')).toBeInTheDocument()
+      expect(screen.getByTestId('file-upload-mock')).toBeInTheDocument()
+
+      // Should also render other tab contents
       expect(screen.getByTestId('tab-content-ai-chat')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-content-database')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-content-settings')).toBeInTheDocument()
+      expect(screen.getByTestId('tab-content-analysis')).toBeInTheDocument()
+      expect(screen.getByTestId('tab-content-documents')).toBeInTheDocument()
     })
   })
 
-  describe('Upload Section', () => {
-    test('should render upload area', () => {
-      render(<WhatsAppAnalyzer />)
-      
-      expect(screen.getByText('Drop your WhatsApp chat file here')).toBeInTheDocument()
-      expect(screen.getByText('Browse Files')).toBeInTheDocument()
-    })
-
-    test('should render supported file types text', () => {
-      render(<WhatsAppAnalyzer />)
-      
-      expect(screen.getByText(/Supports .txt and .zip files up to 50MB/)).toBeInTheDocument()
-    })
-  })
-
-  describe('Content Sections', () => {
-    test('should render dashboard placeholder content', () => {
-      render(<WhatsAppAnalyzer />)
-      
-      expect(screen.getByText('Upload a chat file to see your analytics dashboard')).toBeInTheDocument()
-    })
-
-    test('should render chat placeholder content', () => {
-      render(<WhatsAppAnalyzer />)
-      
-      expect(screen.getByText('Chat with AI about your WhatsApp conversations')).toBeInTheDocument()
-    })
-
-    test('should render database placeholder content', () => {
-      render(<WhatsAppAnalyzer />)
-      
-      expect(screen.getByText('Manage your stored chat data and analysis results')).toBeInTheDocument()
-    })
-
-    test('should render settings placeholder content', () => {
-      render(<WhatsAppAnalyzer />)
-      
-      expect(screen.getByText('Customize your analysis preferences and privacy settings')).toBeInTheDocument()
-    })
-  })
-
-  describe('Dark Mode Toggle', () => {
-    test('should render dark mode toggle button', () => {
-      render(<WhatsAppAnalyzer />)
-      
-      const darkModeButton = screen.getByTestId('moon-icon').closest('button')
-      expect(darkModeButton).toBeInTheDocument()
-    })
-
-    test('should toggle dark mode state', async () => {
+  describe('Flow Interactivity', () => {
+    test('should allow files to be processed and update project messageCount metrics', async () => {
       const user = userEvent.setup()
-      render(<WhatsAppAnalyzer />)
-      
-      const darkModeButton = screen.getByTestId('moon-icon').closest('button')!
-      
-      // Click to toggle
-      await user.click(darkModeButton)
-      
-      // Should update document class
+      render(<Home />)
+
+      // Select project first
+      const selectBtn = screen.getByTestId('select-project-btn')
+      await user.click(selectBtn)
+
+      expect(screen.getByText('1,500 messages')).toBeInTheDocument()
+
+      // Click the file process mock button inside FileUpload component
+      const processBtn = screen.getByTestId('mock-file-process-btn')
+      await user.click(processBtn)
+
+      // Should update messageCount metric to 2,000 (as returned by mock file processor)
       await waitFor(() => {
-        expect(document.documentElement.classList.contains('dark')).toBe(true)
+        expect(screen.getByText('2,000 messages')).toBeInTheDocument()
       })
     })
-  })
 
-  describe('Accessibility', () => {
-    test('should have proper semantic structure', () => {
-      render(<WhatsAppAnalyzer />)
-      
-      const header = screen.getByRole('banner')
-      const main = screen.getByRole('main')
-      
-      expect(header).toBeInTheDocument()
-      expect(main).toBeInTheDocument()
-    })
-
-    test('should be keyboard navigable', async () => {
+    test('should allow clearing the active project selection', async () => {
       const user = userEvent.setup()
-      render(<WhatsAppAnalyzer />)
-      
-      const darkModeButton = screen.getByTestId('moon-icon').closest('button')!
-      
-      // Should be focusable
-      await user.tab()
-      expect(darkModeButton).toHaveFocus()
+      render(<Home />)
+
+      // Select project
+      const selectBtn = screen.getByTestId('select-project-btn')
+      await user.click(selectBtn)
+      expect(screen.getByText('Test Chat Project')).toBeInTheDocument()
+
+      // Clear selection
+      const clearBtn = screen.getByTestId('clear-project-btn')
+      await user.click(clearBtn)
+
+      // Intro layout should be back
+      expect(screen.getByText('Complete WhatsApp Analysis Platform')).toBeInTheDocument()
+      expect(screen.queryByText('Test Chat Project')).not.toBeInTheDocument()
     })
   })
-
-  describe('Visual Elements', () => {
-    test('should render with proper styling classes', () => {
-      render(<WhatsAppAnalyzer />)
-      
-      const title = screen.getAllByText('WhatsApp Analyzer').find(el => el.tagName === 'H1')
-      expect(title?.classList.contains('animate-pulse')).toBe(true)
-    })
-
-    test('should render badges with hover effects', () => {
-      render(<WhatsAppAnalyzer />)
-      
-      const badges = screen.getAllByTestId('badge')
-      expect(badges.length).toBeGreaterThan(0)
-      
-      badges.forEach(badge => {
-        expect(badge.classList.contains('hover:scale-105')).toBe(true)
-      })
-    })
-  })
-}) 
+})

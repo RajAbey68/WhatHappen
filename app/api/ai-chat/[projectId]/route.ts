@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/firebase'
-import { collection, query, where, getDocs, doc, getDoc, orderBy } from 'firebase/firestore'
+import { supabase } from '@/lib/supabase'
+
+function mapDbProject(dbProj: any) {
+  if (!dbProj) return null
+  return {
+    id: dbProj.id,
+    name: dbProj.name,
+    description: dbProj.description || undefined,
+    messageCount: dbProj.message_count || 0,
+    participants: dbProj.participants || [],
+    dateRange: dbProj.date_range || undefined,
+    analysis: dbProj.analysis || undefined,
+    createdAt: dbProj.created_at,
+    updatedAt: dbProj.updated_at
+  }
+}
 
 export async function GET(
   request: NextRequest,
@@ -10,46 +24,50 @@ export async function GET(
     const { projectId } = params
 
     // Get project details
-    const projectRef = doc(db, 'projects', projectId)
-    const projectDoc = await getDoc(projectRef)
+    const { data: dbProj, error: projError } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', projectId)
+      .single()
 
-    if (!projectDoc.exists()) {
+    if (projError || !dbProj) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
-    const projectData = projectDoc.data()
-    const project = {
-      id: projectDoc.id,
-      ...projectData
-    } as any
+    const project = mapDbProject(dbProj) as any
 
     // Get recent messages for context
-    const messagesRef = collection(db, 'messages')
-    const messagesQuery = query(
-      messagesRef,
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
-    )
+    const { data: dbMessages, error: msgError } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+      .limit(100)
 
-    const messagesSnapshot = await getDocs(messagesQuery)
-    const recentMessages = messagesSnapshot.docs.slice(0, 100).map(doc => ({
-      id: doc.id,
-      ...doc.data()
+    if (msgError) throw msgError
+
+    const recentMessages = (dbMessages || []).map(msg => ({
+      id: msg.id,
+      sender: msg.sender,
+      message: msg.message,
+      timestamp: msg.timestamp,
+      projectId: msg.project_id
     }))
 
     // Get AI conversation history
-    const conversationsRef = collection(db, 'ai_conversations')
-    const conversationsQuery = query(
-      conversationsRef,
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
-    )
+    const { data: dbConversations, error: convError } = await supabase
+      .from('ai_conversations')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
 
-    const conversationsSnapshot = await getDocs(conversationsQuery)
-    const conversations = conversationsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+    if (convError) throw convError
+
+    const conversations = (dbConversations || []).map(conv => ({
+      id: conv.id,
+      projectId: conv.project_id,
+      messages: conv.messages || [],
+      createdAt: conv.created_at
     }))
 
     return NextResponse.json({

@@ -3,21 +3,24 @@ import { NextRequest } from 'next/server'
 
 // Mock OpenAI
 jest.mock('openai', () => {
-  return {
-    OpenAI: jest.fn().mockImplementation(() => ({
-      chat: {
-        completions: {
-          create: jest.fn().mockResolvedValue({
-            choices: [{
-              message: {
-                content: 'Mocked AI response about financial analysis'
-              }
-            }]
-          })
-        }
+  const mockOpenAIInstance = jest.fn().mockImplementation(() => ({
+    chat: {
+      completions: {
+        create: jest.fn().mockResolvedValue({
+          choices: [{
+            message: {
+              content: 'Mocked AI response about financial analysis'
+            }
+          }]
+        })
       }
-    }))
-  }
+    }
+  }));
+  return {
+    __esModule: true,
+    default: mockOpenAIInstance,
+    OpenAI: mockOpenAIInstance
+  };
 })
 
 describe('/api/ai-search', () => {

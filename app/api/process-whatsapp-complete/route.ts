@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/firebase'
-import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { supabase } from '@/lib/supabase'
 
 interface WhatsAppMessage {
   timestamp: string
@@ -25,54 +24,100 @@ interface ProcessingResult {
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData()
-    const file = formData.get('file') as File
-    const projectId = formData.get('projectId') as string
+    const contentType = request.headers.get('content-type') || ''
+    
+    let projectId: string
+    let messages: any[] = []
+    let dbAnalysis: any
+    let responsePayload: any
 
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+    if (contentType.includes('application/json')) {
+      const body = await request.json()
+      projectId = body.projectId
+      messages = body.messages
+      
+      const clientAnalysis = body.analysis || {}
+      dbAnalysis = {
+        participants: clientAnalysis.participants || [],
+        dateRange: clientAnalysis.dateRange || { start: '', end: '' },
+        sentiment: clientAnalysis.sentimentAnalysis || { positive: 0, negative: 0, neutral: 100 },
+        keywords: clientAnalysis.keywords || [],
+        insights: clientAnalysis.insights || []
+      }
+
+      if (!projectId || !messages) {
+        return NextResponse.json({ error: 'Missing required JSON parameters' }, { status: 400 })
+      }
+
+      responsePayload = {
+        success: true,
+        messageCount: messages.length
+      }
+    } else {
+      // Legacy FormData fallback
+      const formData = await request.formData()
+      const file = formData.get('file') as File
+      projectId = formData.get('projectId') as string
+
+      if (!file || !projectId) {
+        return NextResponse.json({ error: 'No file or project ID provided' }, { status: 400 })
+      }
+
+      // Process the file on the server
+      const text = await file.text()
+      const rawMessages = parseWhatsAppChat(text)
+      const rawAnalysis = generateComprehensiveAnalysis(rawMessages)
+      
+      messages = rawMessages
+      dbAnalysis = {
+        participants: rawAnalysis.participants,
+        dateRange: rawAnalysis.dateRange,
+        sentiment: rawAnalysis.sentimentAnalysis,
+        keywords: rawAnalysis.keywords,
+        insights: generateInsights(rawAnalysis)
+      }
+
+      responsePayload = {
+        success: true,
+        analysis: rawAnalysis,
+        messageCount: messages.length
+      }
     }
 
-    if (!projectId) {
-      return NextResponse.json({ error: 'No project ID provided' }, { status: 400 })
-    }
+    // Store messages in Supabase (bulk insert)
+    const messagesToInsert = messages.map(message => ({
+      project_id: projectId,
+      sender: message.sender,
+      message: message.message,
+      timestamp: message.timestamp,
+      processed: true
+    }))
 
-    // Process the file
-    const text = await file.text()
-    const messages = parseWhatsAppChat(text)
-    const analysis = generateComprehensiveAnalysis(messages)
+    const { error: msgInsertError } = await supabase
+      .from('messages')
+      .insert(messagesToInsert)
 
-    // Store messages in Firebase
-    const messagePromises = messages.map(message => 
-      addDoc(collection(db, 'messages'), {
-        ...message,
-        projectId,
-        processed: true,
-        createdAt: serverTimestamp()
-      })
-    )
-
-    await Promise.all(messagePromises)
+    if (msgInsertError) throw msgInsertError
 
     // Update project with analysis
-    const projectRef = doc(db, 'projects', projectId)
-    await updateDoc(projectRef, {
-      messageCount: messages.length,
-      participants: analysis.participants,
-      dateRange: analysis.dateRange,
-      analysis: {
-        sentiment: analysis.sentimentAnalysis,
-        keywords: analysis.keywords,
-        insights: generateInsights(analysis)
-      },
-      updatedAt: serverTimestamp()
-    })
+    const { error: projectUpdateError } = await supabase
+      .from('projects')
+      .update({
+        message_count: messages.length,
+        participants: dbAnalysis.participants,
+        date_range: dbAnalysis.dateRange,
+        analysis: {
+          sentiment: dbAnalysis.sentiment,
+          keywords: dbAnalysis.keywords,
+          insights: dbAnalysis.insights
+        },
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', projectId)
 
-    return NextResponse.json({
-      success: true,
-      analysis,
-      messageCount: messages.length
-    })
+    if (projectUpdateError) throw projectUpdateError
+
+    return NextResponse.json(responsePayload)
 
   } catch (error) {
     console.error('Error processing WhatsApp file:', error)

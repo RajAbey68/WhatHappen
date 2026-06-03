@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Send, Bot, User, Database, MessageSquare, Sparkles, Brain, FileText } from 'lucide-react'
-import { Project } from '@/lib/firebase'
+import { Project } from '@/lib/supabase'
 
 interface AIChatInterfaceProps {
   selectedProject: Project
@@ -25,7 +25,7 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isDataProcessed, setIsDataProcessed] = useState(false)
+  const [isDataProcessed, setIsDataProcessed] = useState(!!selectedProject?.messageCount)
   const [showProcessDialog, setShowProcessDialog] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -40,6 +40,7 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
   useEffect(() => {
     if (selectedProject) {
       loadChatHistory()
+      setIsDataProcessed(!!selectedProject.messageCount)
     }
   }, [selectedProject])
 
@@ -54,6 +55,9 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
             ...msg,
             timestamp: new Date(msg.timestamp)
           })))
+          setIsDataProcessed(true)
+        } else {
+          setIsDataProcessed(false)
         }
       }
     } catch (error) {
@@ -64,7 +68,9 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
   const processWhatsAppData = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch(`/api/ai-chat/${selectedProject.id}`)
+      const response = await fetch(`/api/ai-chat/${selectedProject.id}`, {
+        method: 'GET'
+      })
       if (response.ok) {
         setIsDataProcessed(true)
         setShowProcessDialog(false)
@@ -87,7 +93,7 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
   }
 
   const sendMessage = async () => {
-    if (!input.trim() || isLoading) return
+    if (!input.trim()) return
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -107,12 +113,15 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
         body: JSON.stringify({
           projectId: selectedProject.id,
           message: input,
-          conversationHistory: messages
+          ...(messages.length > 0 ? { conversationHistory: messages } : {})
         })
       })
 
       if (response.ok) {
         const data = await response.json()
+        if (!data.response) {
+          throw new Error('Malformed API response')
+        }
         const assistantMessage: ChatMessage = {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
@@ -176,55 +185,60 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
               </div>
               <div>
                 <CardTitle className="text-xl">AI Chat Assistant</CardTitle>
+                <div className="text-sm font-semibold text-slate-700">{selectedProject.name}</div>
                 <p className="text-sm text-slate-600 mt-1">
                   Ask questions about your WhatsApp chat data
                 </p>
               </div>
             </div>
             
-            {!isDataProcessed && (
-              <Dialog open={showProcessDialog} onOpenChange={setShowProcessDialog}>
-                <DialogTrigger asChild>
-                  <Button 
-                    className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
-                    disabled={!selectedProject.messageCount}
-                  >
-                    <Database className="h-4 w-4 mr-2" />
-                    Process WhatsApp Data
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Process WhatsApp Data</DialogTitle>
-                    <DialogDescription>
-                      Load your WhatsApp messages into AI context for intelligent querying.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="p-4 bg-blue-50 rounded-lg">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <MessageSquare className="h-5 w-5 text-blue-500" />
-                        <span className="font-medium">Chat Overview</span>
-                      </div>
-                      <div className="text-sm text-slate-600">
-                        • {selectedProject.messageCount?.toLocaleString()} total messages
-                        • {selectedProject.participants?.length} participants  
-                        • {selectedProject.dateRange?.start && selectedProject.dateRange?.end ? 
-                            `${Math.ceil((new Date(selectedProject.dateRange.end).getTime() - new Date(selectedProject.dateRange.start).getTime()) / (1000 * 60 * 60 * 24))} days`
-                            : 'Date range available'}
-                      </div>
-                    </div>
+            <Dialog open={showProcessDialog} onOpenChange={setShowProcessDialog}>
+              {!isDataProcessed && (
+                <>
+                  <DialogTrigger asChild>
                     <Button 
-                      onClick={processWhatsAppData} 
+                      className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
                       disabled={isLoading}
-                      className="w-full"
+                      onClick={processWhatsAppData}
                     >
-                      {isLoading ? 'Processing...' : 'Load Data into AI'}
+                      <Database className="h-4 w-4 mr-2" />
+                      Process WhatsApp Data
                     </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            )}
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Process WhatsApp Data</DialogTitle>
+                      <DialogDescription>
+                        Load your WhatsApp messages into AI context for intelligent querying.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="p-4 bg-blue-50 rounded-lg">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <MessageSquare className="h-5 w-5 text-blue-500" />
+                          <span className="font-medium">Chat Overview</span>
+                        </div>
+                        <div className="text-sm text-slate-600">
+                          • {selectedProject.messageCount?.toLocaleString()} messages
+                          • {selectedProject.participants?.length || 0} participants  
+                          • {selectedProject.analysis?.keywords?.length || 0} keywords
+                          • {selectedProject.dateRange?.start && selectedProject.dateRange?.end ? 
+                              `${Math.ceil((new Date(selectedProject.dateRange.end).getTime() - new Date(selectedProject.dateRange.start).getTime()) / (1000 * 60 * 60 * 24))} days`
+                              : 'Date range available'}
+                        </div>
+                      </div>
+                      <Button 
+                        onClick={processWhatsAppData} 
+                        disabled={isLoading}
+                        className="w-full"
+                      >
+                        {isLoading ? 'Processing...' : 'Load Data into AI'}
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </>
+              )}
+            </Dialog>
           </div>
         </CardHeader>
       </Card>
@@ -257,6 +271,7 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
                           size="sm"
                           onClick={() => setInput(question)}
                           className="text-left h-auto p-3 justify-start"
+                          tabIndex={-1}
                         >
                           <Sparkles className="h-3 w-3 mr-2 flex-shrink-0" />
                           <span className="text-xs">{question}</span>
@@ -312,17 +327,18 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyPress}
-                placeholder={isDataProcessed ? "Ask me anything about your WhatsApp chat..." : "Process your data first to start chatting"}
-                disabled={!isDataProcessed || isLoading}
+                placeholder="Ask me anything about your WhatsApp chat..."
+                disabled={isLoading}
                 className="flex-1 min-h-[60px] resize-none"
               />
               <Button
                 onClick={sendMessage}
-                disabled={!input.trim() || isLoading || !isDataProcessed}
+                disabled={isLoading}
                 size="lg"
                 className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+                aria-label="Send"
               >
-                <Send className="h-4 w-4" />
+                {isLoading ? 'Sending...' : <Send className="h-4 w-4" />}
               </Button>
             </div>
             <div className="text-xs text-slate-500 text-center">

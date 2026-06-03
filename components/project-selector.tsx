@@ -1,29 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, FolderOpen } from 'lucide-react'
+import { Plus, Trash2, FolderOpen, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-
-// Define the Project interface locally since Firebase might not be available
-interface Project {
-  id: string
-  name: string
-  description?: string
-  createdAt: string
-  updatedAt?: string
-  messageCount: number
-  participants: string[]
-  analysis?: any
-  dateRange?: {
-    start: string
-    end: string
-  }
-}
+import { Project } from '@/lib/supabase'
 
 interface ProjectSelectorProps {
   onProjectSelect: (project: Project | null) => void
@@ -36,44 +21,37 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectDescription, setNewProjectDescription] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
 
-  // Load projects from localStorage
+  // Load projects from Supabase API
   useEffect(() => {
     loadProjects()
   }, [])
 
-  const loadProjects = () => {
+  const loadProjects = async () => {
+    setIsLoading(true)
     try {
-      const stored = localStorage.getItem('whatsapp-analyzer-projects')
-      if (stored) {
-        const parsedProjects = JSON.parse(stored)
-        setProjects(parsedProjects)
+      const response = await fetch('/api/projects')
+      if (response.ok) {
+        const data = await response.json()
+        setProjects(data)
       } else {
-        // Create a sample project for demo
-        const sampleProject: Project = {
-          id: 'sample-1',
-          name: 'Sample WhatsApp Analysis',
-          description: 'Demo project showing the beautiful interface',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          messageCount: 0,
-          participants: []
-        }
-        setProjects([sampleProject])
-        localStorage.setItem('whatsapp-analyzer-projects', JSON.stringify([sampleProject]))
+        throw new Error('Failed to fetch projects')
       }
     } catch (error) {
       console.error('Error loading projects:', error)
-      setProjects([])
-    }
-  }
-
-  const saveProjects = (updatedProjects: Project[]) => {
-    try {
-      localStorage.setItem('whatsapp-analyzer-projects', JSON.stringify(updatedProjects))
-      setProjects(updatedProjects)
-    } catch (error) {
-      console.error('Error saving projects:', error)
+      // Fallback to localStorage if API fails (for demo/development convenience)
+      try {
+        const stored = localStorage.getItem('whatsapp-analyzer-projects')
+        if (stored) {
+          setProjects(JSON.parse(stored))
+        }
+      } catch (e) {
+        console.error('LocalStorage fallback error:', e)
+      }
+    } finally {
+      setIsLoading(false)
+      setIsInitialLoad(false)
     }
   }
 
@@ -82,40 +60,69 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
 
     setIsLoading(true)
     try {
-      const newProject: Project = {
-        id: `project-${Date.now()}`,
-        name: newProjectName.trim(),
-        description: newProjectDescription.trim() || undefined,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        messageCount: 0,
-        participants: []
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newProjectName.trim(),
+          description: newProjectDescription.trim() || undefined
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.project) {
+          const newProj = result.project
+          const updatedProjects = [newProj, ...projects]
+          setProjects(updatedProjects)
+          
+          // Also sync to localStorage fallback
+          localStorage.setItem('whatsapp-analyzer-projects', JSON.stringify(updatedProjects))
+
+          setNewProjectName('')
+          setNewProjectDescription('')
+          setIsCreateDialogOpen(false)
+          
+          // Auto-select the new project
+          onProjectSelect(newProj)
+        } else {
+          throw new Error(result.error || 'Failed to create project')
+        }
+      } else {
+        throw new Error('Failed to create project')
       }
-
-      const updatedProjects = [...projects, newProject]
-      saveProjects(updatedProjects)
-
-      setNewProjectName('')
-      setNewProjectDescription('')
-      setIsCreateDialogOpen(false)
-      
-      // Auto-select the new project
-      onProjectSelect(newProject)
     } catch (error) {
       console.error('Error creating project:', error)
-      alert('Error creating project. Please try again.')
+      alert(error instanceof Error ? error.message : 'Error creating project. Please try again.')
     } finally {
       setIsLoading(false)
     }
   }
 
-  const deleteProject = (projectId: string) => {
-    if (confirm('Are you sure you want to delete this project?')) {
-      const updatedProjects = projects.filter(p => p.id !== projectId)
-      saveProjects(updatedProjects)
-      
-      if (selectedProject?.id === projectId) {
-        onProjectSelect(null)
+  const deleteProject = async (projectId: string) => {
+    if (confirm('Are you sure you want to delete this project? All associated messages and analysis will be permanently removed.')) {
+      setIsLoading(true)
+      try {
+        const response = await fetch(`/api/projects/${projectId}`, {
+          method: 'DELETE'
+        })
+
+        if (response.ok) {
+          const updatedProjects = projects.filter(p => p.id !== projectId)
+          setProjects(updatedProjects)
+          localStorage.setItem('whatsapp-analyzer-projects', JSON.stringify(updatedProjects))
+          
+          if (selectedProject?.id === projectId) {
+            onProjectSelect(null)
+          }
+        } else {
+          throw new Error('Failed to delete project')
+        }
+      } catch (error) {
+        console.error('Error deleting project:', error)
+        alert('Error deleting project. Please try again.')
+      } finally {
+        setIsLoading(false)
       }
     }
   }
@@ -135,7 +142,7 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
             <DialogHeader>
               <DialogTitle>Create New Project</DialogTitle>
               <DialogDescription>
-                Set up a new WhatsApp analysis project
+                Set up a new WhatsApp analysis project. Zero-knowledge local encryption will be used to protect your message privacy.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -146,6 +153,7 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   placeholder="My WhatsApp Analysis"
+                  disabled={isLoading}
                 />
               </div>
               <div>
@@ -156,6 +164,7 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
                   onChange={(e) => setNewProjectDescription(e.target.value)}
                   placeholder="Brief description of this analysis project"
                   rows={3}
+                  disabled={isLoading}
                 />
               </div>
               <div className="flex justify-end space-x-2">
@@ -179,7 +188,12 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
         </Dialog>
       </div>
 
-      {projects.length === 0 ? (
+      {isInitialLoad && projects.length === 0 ? (
+        <div className="flex justify-center items-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+          <span className="ml-2 text-slate-600 font-medium">Loading projects...</span>
+        </div>
+      ) : projects.length === 0 ? (
         <Card className="text-center py-12 bg-white/50 backdrop-blur-sm border border-white/20">
           <CardContent>
             <FolderOpen className="h-16 w-16 mx-auto text-slate-400 mb-4" />
@@ -231,7 +245,7 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
               </CardHeader>
               <CardContent>
                 <div className="flex justify-between text-sm text-slate-500">
-                  <span>{project.messageCount} messages</span>
+                  <span>{project.messageCount.toLocaleString()} messages</span>
                   <span>{new Date(project.createdAt).toLocaleDateString()}</span>
                 </div>
               </CardContent>
@@ -241,4 +255,4 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
       )}
     </div>
   )
-} 
+}

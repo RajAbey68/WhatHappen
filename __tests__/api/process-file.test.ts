@@ -103,6 +103,95 @@ describe('/api/process-file', () => {
       expect(result.success).toBe(true)
       expect(result.data.totalMessages).toBeGreaterThan(0)
     })
+
+    test('should auto-detect US date locale (MM/DD/YYYY) correctly', async () => {
+      const chatContent = `[12/31/2024, 10:30:00 AM] John: New Year's Eve!
+[05/06/2024, 10:31:00 AM] Jane: Indeed`
+
+      const formData = createMockFormData('chat.txt', chatContent)
+      const request = createMockRequest(formData)
+
+      const response = await POST(request)
+      const result = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(result.success).toBe(true)
+      
+      const msg1Date = new Date(result.data.messages[0].timestamp)
+      expect(msg1Date.getMonth()).toBe(11) // December is 11
+      expect(msg1Date.getDate()).toBe(31)
+
+      const msg2Date = new Date(result.data.messages[1].timestamp)
+      expect(msg2Date.getMonth()).toBe(4) // May is 4
+      expect(msg2Date.getDate()).toBe(6)
+    })
+
+    test('should handle different date delimiters like dots and dashes', async () => {
+      const chatContent = `[12.31.2024, 10:30:00 AM] John: Dot separation
+[12-31-2024, 10:31:00 AM] Jane: Dash separation`
+
+      const formData = createMockFormData('chat.txt', chatContent)
+      const request = createMockRequest(formData)
+
+      const response = await POST(request)
+      const result = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(result.success).toBe(true)
+      expect(result.data.totalMessages).toBe(2)
+      
+      const date1 = new Date(result.data.messages[0].timestamp)
+      expect(date1.getMonth()).toBe(11)
+      expect(date1.getDate()).toBe(31)
+    })
+
+    test('should normalize 2-digit years to 4-digit years', async () => {
+      const chatContent = `[12/31/24, 10:30:00 AM] John: 2-digit year`
+
+      const formData = createMockFormData('chat.txt', chatContent)
+      const request = createMockRequest(formData)
+
+      const response = await POST(request)
+      const result = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(result.success).toBe(true)
+      const date = new Date(result.data.messages[0].timestamp)
+      expect(date.getFullYear()).toBe(2024)
+    })
+
+    test('should reset currentMessage on parse error to avoid stale message appending', async () => {
+      const chatContent = `[12/31/2024, 10:30:00 AM] John: Message 1
+[invalid line format] John: This is invalid and throws
+Some continuation text that should not append to Message 1`
+
+      const formData = createMockFormData('chat.txt', chatContent)
+      const request = createMockRequest(formData)
+
+      const response = await POST(request)
+      const result = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(result.success).toBe(true)
+      expect(result.data.messages[0].message).not.toContain('continuation text')
+    })
+
+    test('should calculate daily message counts independently of timezone shifts', async () => {
+      const chatContent = `[12/31/2024, 11:30:00 PM] John: Message near midnight`
+
+      const formData = createMockFormData('chat.txt', chatContent)
+      const request = createMockRequest(formData)
+
+      const response = await POST(request)
+      const result = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(result.success).toBe(true)
+      
+      // Daily distribution should key by local day of the message date, not UTC day if timezone shifts it.
+      expect(result.data.timeAnalysis.dailyDistribution['2024-12-31']).toBe(1)
+      expect(result.data.timeAnalysis.dailyDistribution['2025-01-01']).toBeUndefined()
+    })
   })
 
   describe('Analysis Functions', () => {

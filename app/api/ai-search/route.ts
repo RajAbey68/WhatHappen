@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { OpenAI } from 'openai'
 
 // Firebase integration temporarily disabled due to compatibility issues
 
-let openai: OpenAI | null = null
-
-function getOpenAI(): OpenAI | null {
-  if (!openai && process.env.OPENAI_API_KEY) {
-    openai = new OpenAI({
+function getOpenAI(): any {
+  if (process.env.OPENAI_API_KEY) {
+    return new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     })
   }
-  return openai
+  return null
 }
 
 interface SearchRequest {
@@ -41,8 +39,29 @@ interface FinancialAnalysisResult {
 
 export async function POST(request: NextRequest) {
   try {
-    const body: SearchRequest = await request.json()
-    const { query, chatData, options = {} } = body
+    const body: any = await request.json()
+    
+    // Support both data and chatData keys (defensive design)
+    const chatData = body.chatData || body.data
+    
+    // Support options
+    const options = body.options || {}
+    
+    // Extract searchType
+    const searchType = body.searchType || options?.searchType || 'semantic'
+    
+    // Make query optional for financial/sentiment types, defaulting to searchType
+    const query = body.query || (searchType === 'financial' ? 'financial' : searchType === 'sentiment' ? 'sentiment' : '')
+
+    if (!chatData || !chatData.messages || !Array.isArray(chatData.messages)) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Chat data is required' 
+        },
+        { status: 400 }
+      )
+    }
 
     if (!query) {
       return NextResponse.json(
@@ -53,9 +72,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    // Extract searchType from body for backward compatibility
-    const searchType = body.searchType || options?.searchType || 'semantic'
 
     // Enhanced financial analysis based on memory
     if (searchType === 'financial' || isFinancialQuery(query)) {
@@ -119,11 +135,12 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('AI search error:', error)
+    const errMessage = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json(
       { 
         success: false,
-        error: 'AI analysis failed', 
-        details: error instanceof Error ? error.message : 'Unknown error' 
+        error: errMessage.includes('OpenAI API key not configured') ? errMessage : 'AI analysis failed', 
+        details: errMessage
       },
       { status: 500 }
     )
@@ -167,9 +184,10 @@ async function performFinancialAnalysis(query: string, chatData: any): Promise<F
   const financialMentions = []
   
   for (const message of recentMessages) {
-    if (!message.message || typeof message.message !== 'string') continue
+    const text = message.message || message.content
+    if (!text || typeof text !== 'string') continue
     
-    const messageText = message.message.toLowerCase()
+    const messageText = text.toLowerCase()
     const hasFinancialKeyword = financialKeywords.some(keyword => 
       messageText.includes(keyword.toLowerCase())
     )
@@ -190,7 +208,8 @@ async function performFinancialAnalysis(query: string, chatData: any): Promise<F
       }
       
       financialMentions.push({
-        message: message.message,
+        message: text,
+        content: text,
         sender: message.sender || 'Unknown',
         timestamp: new Date(message.timestamp),
         context: `Message from ${message.sender}`,
@@ -241,7 +260,7 @@ async function performFinancialAnalysis(query: string, chatData: any): Promise<F
       const analysis = completion.choices[0]?.message?.content || 'Analysis unavailable'
       
       // Extract key findings and summary from AI response
-      const lines = analysis.split('\n').filter(line => line.trim())
+      const lines = analysis.split('\n').filter((line: string) => line.trim())
       keyFindings = lines.slice(0, 5)
       summary = lines.join(' ')
 
@@ -259,7 +278,7 @@ async function performFinancialAnalysis(query: string, chatData: any): Promise<F
   }
 
   return {
-    financialMentions: financialMentions.slice(0, 50), // Return top 50 results
+    financialMentions: financialMentions.slice(0, 1000), // Return top 1000 results for large datasets
     keyFindings,
     summary,
     totalFinancialMessages: financialMentions.length
@@ -284,7 +303,7 @@ async function performSemanticSearch(query: string, chatData: any, options: any)
   // Use AI to find semantically relevant messages
   try {
     const contextMessages = messages.slice(0, 100).map((m: any) => 
-      `${m.sender}: ${m.message}`
+      `${m.sender || 'Unknown'}: ${m.message || m.content || ''}`
     ).join('\n')
 
     const openaiClient = getOpenAI()
@@ -311,15 +330,18 @@ async function performSemanticSearch(query: string, chatData: any, options: any)
     const response = completion.choices[0]?.message?.content || 'No relevant messages found'
     
     return {
-      results: messages.slice(0, limit),
+      results: messages.slice(0, limit).map((m: any) => ({
+        ...m,
+        message: m.message || m.content,
+        content: m.content || m.message
+      })),
       summary: response,
       totalSearched: messages.length
     }
 
   } catch (error) {
     console.error('Semantic search error:', error)
-    // Fallback to keyword search
-    return performKeywordSearch(query, chatData, options)
+    throw error
   }
 }
 
@@ -336,14 +358,19 @@ function performKeywordSearch(query: string, chatData: any, options: any) {
   const limit = options.limit || 20
 
   const matchingMessages = messages.filter((message: any) => {
-    if (!message.message || typeof message.message !== 'string') return false
+    const text = message.message || message.content
+    if (!text || typeof text !== 'string') return false
     
-    const messageText = message.message.toLowerCase()
+    const messageText = text.toLowerCase()
     return keywords.some(keyword => messageText.includes(keyword))
   })
 
   return {
-    results: matchingMessages.slice(0, limit),
+    results: matchingMessages.slice(0, limit).map((m: any) => ({
+      ...m,
+      message: m.message || m.content,
+      content: m.content || m.message
+    })),
     summary: `Found ${matchingMessages.length} messages containing keywords: ${keywords.join(', ')}`,
     totalMatches: matchingMessages.length
   }
@@ -358,20 +385,58 @@ async function performSentimentAnalysis(query: string, chatData: any) {
   }
 
   const messages = chatData.messages || []
-  const sentimentMessages = messages.filter((m: any) => m.sentiment)
+  const sentimentWords = {
+    positive: ['good', 'great', 'awesome', 'amazing', 'love', 'excellent', 'perfect', 'wonderful', 'fantastic', 'brilliant', 'happy', 'thanks', 'reasonable'],
+    negative: ['bad', 'terrible', 'awful', 'hate', 'horrible', 'worst', 'problem', 'issue', 'disappointed', 'frustrated', 'sad', 'unfortunate']
+  }
 
-  // Group by sentiment
-  const positive = sentimentMessages.filter((m: any) => m.sentiment.score > 0)
-  const negative = sentimentMessages.filter((m: any) => m.sentiment.score < 0)
-  const neutral = sentimentMessages.filter((m: any) => m.sentiment.score === 0)
+  const messageAnalysis: any[] = []
+  let positiveCount = 0
+  let negativeCount = 0
+  let neutralCount = 0
+
+  messages.forEach((msg: any) => {
+    const text = msg.message || msg.content
+    if (!text || typeof text !== 'string') return
+
+    const lowerText = text.toLowerCase()
+    const positiveScore = sentimentWords.positive.filter(word => lowerText.includes(word)).length
+    const negativeScore = sentimentWords.negative.filter(word => lowerText.includes(word)).length
+
+    const overallSentiment = positiveScore > negativeScore ? 'positive' :
+                             negativeScore > positiveScore ? 'negative' : 'neutral'
+
+    if (overallSentiment === 'positive') positiveCount++
+    else if (overallSentiment === 'negative') negativeCount++
+    else neutralCount++
+
+    messageAnalysis.push({
+      ...msg,
+      message: msg.message || msg.content,
+      content: msg.content || msg.message,
+      sentiment: overallSentiment
+    })
+  })
+
+  const filter = query.toLowerCase()
+  let filteredResults = messageAnalysis
+
+  if (filter === 'positive' || filter === 'negative' || filter === 'neutral') {
+    filteredResults = messageAnalysis.filter(msg => msg.sentiment === filter)
+  }
+
+  const summary = `Sentiment analysis shows ${positiveCount} positive, ${negativeCount} negative, and ${neutralCount} neutral messages. The overall sentiment is ${
+    positiveCount > negativeCount ? 'positive' : negativeCount > positiveCount ? 'negative' : 'neutral'
+  }.`
 
   return {
-    results: {
-      positive: positive.slice(0, 10),
-      negative: negative.slice(0, 10),
-      neutral: neutral.slice(0, 10)
-    },
-    summary: `Sentiment analysis: ${positive.length} positive, ${negative.length} negative, ${neutral.length} neutral messages`,
-    totalAnalyzed: sentimentMessages.length
+    results: filteredResults.map((m: any) => ({
+      ...m,
+      message: m.message || m.content,
+      content: m.content || m.message
+    })),
+    summary
   }
-} 
+}
+
+ 

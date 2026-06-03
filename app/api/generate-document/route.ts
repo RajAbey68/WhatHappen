@@ -1,33 +1,98 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/firebase'
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore'
+import { supabase } from '@/lib/supabase'
+import { decryptText } from '@/lib/crypto'
 import PDFDocument from 'pdfkit'
+
+function mapDbProject(dbProj: any) {
+  if (!dbProj) return null
+  return {
+    id: dbProj.id,
+    name: dbProj.name,
+    description: dbProj.description || undefined,
+    messageCount: dbProj.message_count || 0,
+    participants: dbProj.participants || [],
+    dateRange: dbProj.date_range || undefined,
+    analysis: dbProj.analysis || undefined,
+    createdAt: dbProj.created_at,
+    updatedAt: dbProj.updated_at
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { projectId, documentType = 'summary', format = 'pdf' } = await request.json()
+    const { projectId, documentType = 'summary', format = 'pdf', passphrase } = await request.json()
 
     if (!projectId) {
       return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
     }
 
     // Get project data
-    const projectRef = doc(db, 'projects', projectId)
-    const projectDoc = await getDoc(projectRef)
+    const { data: dbProj, error: projError } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', projectId)
+      .single()
 
-    if (!projectDoc.exists()) {
+    if (projError || !dbProj) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
-    const project = { id: projectDoc.id, ...projectDoc.data() } as any
+    const project = mapDbProject(dbProj) as any
 
     // Get messages if needed
     let messages: any[] = []
     if (documentType === 'full_transcript' || documentType === 'detailed_analysis') {
-      const messagesRef = collection(db, 'messages')
-      const messagesQuery = query(messagesRef, where('projectId', '==', projectId))
-      const querySnapshot = await getDocs(messagesQuery)
-      messages = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      const { data: dbMessages, error: msgError } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('project_id', projectId)
+
+      if (msgError) throw msgError
+      
+      messages = await Promise.all(
+        (dbMessages || []).map(async (msg) => {
+          let decryptedMessage = msg.message
+          let decryptedSender = msg.sender
+
+          if (passphrase) {
+            try {
+              const messageEnc = JSON.parse(msg.message)
+              if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
+                decryptedMessage = await decryptText(
+                  messageEnc.ciphertext,
+                  passphrase,
+                  messageEnc.salt,
+                  messageEnc.iv
+                )
+              }
+            } catch (e) {
+              // Treat as plaintext fallback
+            }
+
+            try {
+              const senderEnc = JSON.parse(msg.sender)
+              if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
+                decryptedSender = await decryptText(
+                  senderEnc.ciphertext,
+                  passphrase,
+                  senderEnc.salt,
+                  senderEnc.iv
+                )
+              }
+            } catch (e) {
+              // Treat as plaintext fallback
+            }
+          }
+
+          return {
+            id: msg.id,
+            projectId: msg.project_id,
+            sender: decryptedSender,
+            message: decryptedMessage,
+            timestamp: msg.timestamp
+          }
+        })
+      )
     }
 
     let documentContent: any

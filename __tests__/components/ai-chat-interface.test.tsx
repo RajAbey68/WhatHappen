@@ -3,8 +3,31 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AIChatInterface } from '../../components/ai-chat-interface'
 
+let mockConversationsResponse: any = null
+
 // Mock fetch
-global.fetch = jest.fn()
+const realMockFetch = jest.fn()
+global.fetch = async (url: any, init?: any) => {
+  if (typeof url === 'string' && url.includes('/api/ai-chat/save')) {
+    if (init !== undefined) {
+      realMockFetch.mock.calls.push([url, init])
+    } else {
+      realMockFetch.mock.calls.push([url])
+    }
+    
+    if (!init || init.method === 'GET') {
+      return {
+        ok: true,
+        json: async () => mockConversationsResponse || { conversations: [] }
+      } as any
+    }
+    return {
+      ok: true,
+      json: async () => ({ success: true })
+    } as any
+  }
+  return realMockFetch(url, init)
+}
 
 // Mock Lucide React icons
 jest.mock('lucide-react', () => ({
@@ -56,6 +79,20 @@ jest.mock('../../components/ui/input', () => ({
   )
 }))
 
+jest.mock('../../components/ui/textarea', () => ({
+  Textarea: ({ value, onChange, placeholder, onKeyDown, disabled, ...props }: any) => (
+    <textarea 
+      value={value} 
+      onChange={onChange} 
+      placeholder={placeholder}
+      onKeyDown={onKeyDown}
+      disabled={disabled}
+      data-testid="chat-input"
+      {...props}
+    />
+  )
+}))
+
 jest.mock('../../components/ui/scroll-area', () => ({
   ScrollArea: ({ children, className, ...props }: any) => (
     <div className={className} data-testid="scroll-area" {...props}>{children}</div>
@@ -63,12 +100,12 @@ jest.mock('../../components/ui/scroll-area', () => ({
 }))
 
 jest.mock('../../components/ui/dialog', () => ({
-  Dialog: ({ children, open }: any) => open ? <div data-testid="dialog">{children}</div> : null,
+  Dialog: ({ children }: any) => <div data-testid="dialog">{children}</div>,
+  DialogTrigger: ({ children, asChild }: any) => asChild ? children : <div data-testid="dialog-trigger">{children}</div>,
   DialogContent: ({ children }: any) => <div data-testid="dialog-content">{children}</div>,
   DialogHeader: ({ children }: any) => <div data-testid="dialog-header">{children}</div>,
   DialogTitle: ({ children }: any) => <h2 data-testid="dialog-title">{children}</h2>,
-  DialogDescription: ({ children }: any) => <p data-testid="dialog-description">{children}</p>,
-  DialogTrigger: ({ children, asChild }: any) => asChild ? children : <div data-testid="dialog-trigger">{children}</div>
+  DialogDescription: ({ children }: any) => <p data-testid="dialog-description">{children}</p>
 }))
 
 const mockProject = {
@@ -90,11 +127,16 @@ const mockProject = {
 }
 
 describe('AIChatInterface Component', () => {
-  const mockFetch = fetch as jest.MockedFunction<typeof fetch>
+  const mockFetch = realMockFetch as any
 
   beforeEach(() => {
     jest.clearAllMocks()
     mockFetch.mockReset()
+    mockConversationsResponse = null
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => []
+    } as any)
   })
 
   const renderComponent = (project = mockProject) => {
@@ -104,7 +146,7 @@ describe('AIChatInterface Component', () => {
   describe('Basic Rendering', () => {
     test('should render without crashing', () => {
       renderComponent()
-      expect(screen.getByTestId('card')).toBeInTheDocument()
+      expect(screen.getAllByTestId('card')[0]).toBeInTheDocument()
     })
 
     test('should render chat header', () => {
@@ -115,7 +157,7 @@ describe('AIChatInterface Component', () => {
     test('should render chat input', () => {
       renderComponent()
       expect(screen.getByTestId('chat-input')).toBeInTheDocument()
-      expect(screen.getByPlaceholderText('Ask me anything about your chat data...')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Ask me anything about your WhatsApp chat...')).toBeInTheDocument()
     })
 
     test('should render send button', () => {
@@ -124,11 +166,11 @@ describe('AIChatInterface Component', () => {
       expect(screen.getByTestId('send-icon')).toBeInTheDocument()
     })
 
-    test('should show project context information', () => {
+    test('should show project context information', async () => {
       renderComponent()
-      expect(screen.getByText(/100 messages/)).toBeInTheDocument()
-      expect(screen.getByText(/3 participants/)).toBeInTheDocument()
-      expect(screen.getByText(/3 keywords/)).toBeInTheDocument()
+      expect(await screen.findByText(/100 messages/)).toBeInTheDocument()
+      expect(await screen.findByText(/3 participants/)).toBeInTheDocument()
+      expect(await screen.findByText(/3 keywords/)).toBeInTheDocument()
     })
   })
 
@@ -177,6 +219,7 @@ describe('AIChatInterface Component', () => {
     test('should not send empty messages', async () => {
       const user = userEvent.setup()
       renderComponent()
+      mockFetch.mockClear()
       
       const sendButton = screen.getByRole('button', { name: /send/i })
       await user.click(sendButton)
@@ -187,6 +230,7 @@ describe('AIChatInterface Component', () => {
     test('should not send messages with only whitespace', async () => {
       const user = userEvent.setup()
       renderComponent()
+      mockFetch.mockClear()
       
       const input = screen.getByTestId('chat-input')
       const sendButton = screen.getByRole('button', { name: /send/i })
@@ -309,9 +353,14 @@ describe('AIChatInterface Component', () => {
       await user.click(sendButton)
 
       await waitFor(() => {
-        expect(screen.getByTestId('user-icon')).toBeInTheDocument()
-        expect(screen.getByTestId('bot-icon')).toBeInTheDocument()
+        expect(screen.getByText('Test')).toBeInTheDocument()
       })
+      await waitFor(() => {
+        expect(screen.getByText('AI response')).toBeInTheDocument()
+      })
+
+      expect(screen.getByTestId('user-icon')).toBeInTheDocument()
+      expect(screen.getAllByTestId('bot-icon').length).toBeGreaterThanOrEqual(1)
     })
 
     test('should preserve message order in conversation', async () => {
@@ -348,7 +397,7 @@ describe('AIChatInterface Component', () => {
       })
 
       // Check order
-      const messages = screen.getAllByText(/message|response/)
+      const messages = screen.getAllByText(/^(First message|First AI response|Second message|Second AI response)$/)
       expect(messages[0]).toHaveTextContent('First message')
       expect(messages[1]).toHaveTextContent('First AI response')
       expect(messages[2]).toHaveTextContent('Second message')
@@ -358,7 +407,8 @@ describe('AIChatInterface Component', () => {
 
   describe('Process WhatsApp Data Feature', () => {
     test('should show process data button', () => {
-      renderComponent()
+      const unprocessedProject = { ...mockProject, messageCount: 0 }
+      renderComponent(unprocessedProject)
       expect(screen.getByRole('button', { name: /process whatsapp data/i })).toBeInTheDocument()
     })
 
@@ -369,7 +419,8 @@ describe('AIChatInterface Component', () => {
         json: async () => ({ success: true, message: 'Data processed successfully' })
       } as Response)
 
-      renderComponent()
+      const unprocessedProject = { ...mockProject, messageCount: 0 }
+      renderComponent(unprocessedProject)
       
       const processButton = screen.getByRole('button', { name: /process whatsapp data/i })
       await user.click(processButton)
@@ -388,7 +439,8 @@ describe('AIChatInterface Component', () => {
       
       mockFetch.mockReturnValueOnce(mockPromise as any)
 
-      renderComponent()
+      const unprocessedProject = { ...mockProject, messageCount: 0 }
+      renderComponent(unprocessedProject)
       
       const processButton = screen.getByRole('button', { name: /process whatsapp data/i })
       await user.click(processButton)
@@ -403,7 +455,7 @@ describe('AIChatInterface Component', () => {
       })
 
       await waitFor(() => {
-        expect(processButton).not.toBeDisabled()
+        expect(screen.queryByRole('button', { name: /process whatsapp data/i })).not.toBeInTheDocument()
       })
     })
   })
@@ -487,23 +539,23 @@ describe('AIChatInterface Component', () => {
   })
 
   describe('Project Context Integration', () => {
-    test('should display project information correctly', () => {
+    test('should display project information correctly', async () => {
       renderComponent()
       
       expect(screen.getByText('Test Project')).toBeInTheDocument()
-      expect(screen.getByText(/100 messages/)).toBeInTheDocument()
-      expect(screen.getByText(/3 participants/)).toBeInTheDocument()
+      expect(await screen.findByText(/100 messages/)).toBeInTheDocument()
+      expect(await screen.findByText(/3 participants/)).toBeInTheDocument()
     })
 
-    test('should handle projects without analysis', () => {
+    test('should handle projects without analysis', async () => {
       const { analysis, ...projectWithoutAnalysis } = mockProject
       
-      renderComponent(projectWithoutAnalysis)
+      renderComponent(projectWithoutAnalysis as any)
       
-      expect(screen.getByText(/0 keywords/)).toBeInTheDocument()
+      expect(await screen.findByText(/0 keywords/)).toBeInTheDocument()
     })
 
-    test('should handle projects without participants', () => {
+    test('should handle projects without participants', async () => {
       const projectWithoutParticipants = {
         ...mockProject,
         participants: []
@@ -511,26 +563,21 @@ describe('AIChatInterface Component', () => {
       
       renderComponent(projectWithoutParticipants)
       
-      expect(screen.getByText(/0 participants/)).toBeInTheDocument()
+      expect(await screen.findByText(/0 participants/)).toBeInTheDocument()
     })
   })
 
   describe('Conversation Management', () => {
     test('should load previous conversations on mount', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          conversations: [
-            {
-              id: 'conv-1',
-              messages: [
-                { role: 'user', content: 'Previous question' },
-                { role: 'assistant', content: 'Previous answer' }
-              ]
-            }
+      mockConversationsResponse = [
+        {
+          id: 'conv-1',
+          messages: [
+            { id: '1', role: 'user', content: 'Previous question', timestamp: new Date().toISOString() },
+            { id: '2', role: 'assistant', content: 'Previous answer', timestamp: new Date().toISOString() }
           ]
-        })
-      } as Response)
+        }
+      ]
 
       renderComponent()
 
@@ -541,19 +588,11 @@ describe('AIChatInterface Component', () => {
 
     test('should save conversations after each exchange', async () => {
       const user = userEvent.setup()
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ conversations: [] })
-        } as Response) // Load conversations
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ response: 'AI response' })
-        } as Response) // Query response
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ success: true })
-        } as Response) // Save conversation
+      mockConversationsResponse = []
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: 'AI response' })
+      } as Response) // Query response
 
       renderComponent()
       
@@ -586,7 +625,7 @@ describe('AIChatInterface Component', () => {
       const input = screen.getByTestId('chat-input')
       const sendButton = screen.getByRole('button', { name: /send/i })
       
-      await user.type(input, longMessage)
+      fireEvent.change(input, { target: { value: longMessage } })
       await user.click(sendButton)
 
       expect(mockFetch).toHaveBeenCalledWith('/api/ai-chat/query', expect.objectContaining({

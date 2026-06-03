@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/firebase'
-import { collection, addDoc, doc, updateDoc, serverTimestamp, query, where, getDocs, orderBy } from 'firebase/firestore'
+import { supabase } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,20 +11,24 @@ export async function POST(request: NextRequest) {
 
     // Save the conversation
     const conversationData = {
-      projectId,
+      project_id: projectId,
       messages: messages.map((msg: any) => ({
         ...msg,
-        timestamp: new Date(msg.timestamp)
-      })),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+        timestamp: new Date(msg.timestamp).toISOString()
+      }))
     }
 
-    const docRef = await addDoc(collection(db, 'ai_conversations'), conversationData)
+    const { data, error } = await supabase
+      .from('ai_conversations')
+      .insert(conversationData)
+      .select()
+      .single()
+
+    if (error) throw error
 
     return NextResponse.json({
       success: true,
-      conversationId: docRef.id,
+      conversationId: data.id,
       message: 'Conversation saved successfully'
     })
 
@@ -45,22 +48,23 @@ export async function GET(request: NextRequest) {
     }
 
     // Get all conversations for this project
-    const conversationsRef = collection(db, 'ai_conversations')
-    const q = query(
-      conversationsRef, 
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
-    )
-    
-    const querySnapshot = await getDocs(q)
-    const conversations = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-      updatedAt: doc.data().updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+    const { data, error } = await supabase
+      .from('ai_conversations')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+
+    const conversations = (data || []).map(conv => ({
+      id: conv.id,
+      projectId: conv.project_id,
+      messages: conv.messages || [],
+      createdAt: conv.created_at
     }))
 
-    return NextResponse.json({ conversations })
+    // Return the array directly to match component expectations
+    return NextResponse.json(conversations)
 
   } catch (error) {
     console.error('Error fetching conversations:', error)

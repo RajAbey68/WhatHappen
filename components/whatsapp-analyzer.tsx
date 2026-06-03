@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Upload, FileText, MessageSquare, BarChart3, Users, TrendingUp, Download, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Project } from '@/lib/firebase'
+import { Project } from '@/lib/supabase'
 
 interface WhatsAppAnalyzerProps {
   selectedProject: Project

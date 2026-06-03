@@ -1,5 +1,16 @@
 import '@testing-library/jest-dom'
 import React from 'react'
+import { TextEncoder, TextDecoder } from 'util'
+
+// Assign TextEncoder and TextDecoder globally
+global.TextEncoder = TextEncoder
+global.TextDecoder = TextDecoder as any
+
+if (typeof window !== 'undefined') {
+  (window as any).TextEncoder = TextEncoder;
+  (window as any).TextDecoder = TextDecoder;
+}
+
 
 // Extend Jest matchers
 declare global {
@@ -147,11 +158,36 @@ class MockFile {
   }
 }
 
+// FormData mock for testing
+class MockFormData {
+  private _data = new Map<string, any>()
+  append(key: string, value: any) {
+    this._data.set(key, value)
+  }
+  get(key: string) {
+    return this._data.get(key)
+  }
+  has(key: string) {
+    return this._data.has(key)
+  }
+}
+
 // Assign to global
 global.Response = MockResponse as any
 global.Request = MockRequest as any
 global.Headers = MockHeaders as any
 global.File = MockFile as any
+global.FormData = MockFormData as any
+
+if (typeof window !== 'undefined') {
+  (window as any).Response = MockResponse;
+  (window as any).Request = MockRequest;
+  (window as any).Headers = MockHeaders;
+  (window as any).File = MockFile;
+  (window as any).FormData = MockFormData;
+  window.HTMLElement.prototype.scrollIntoView = jest.fn();
+}
+
 
 // Mock next/navigation
 jest.mock('next/navigation', () => ({
