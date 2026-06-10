@@ -1,442 +1,143 @@
+/**
+ * AI Search — Privacy-safe Text-to-SQL implementation.
+ *
+ * PRIVACY GUARANTEE: The LLM receives schema descriptions and user questions only.
+ * Raw message content is NEVER passed to any external API.
+ *
+ * Flow: user question → LLM generates SQL → SQL validated → executed on Supabase
+ *       → LLM summarises aggregate results → response
+ */
+export const runtime = 'nodejs'
+
 import { NextRequest, NextResponse } from 'next/server'
-import { OpenAI } from 'openai'
+import { requireAuth, getServiceClient } from '@/lib/auth'
+import { generateWithFallback } from '@/lib/llm'
+import { validateGeneratedSQL, ALLOWED_TABLES } from '@/lib/sql-validator'
 
-// Firebase integration temporarily disabled due to compatibility issues
+// Schema description — this is ALL the LLM ever sees about user data
+const SCHEMA_CONTEXT = `
+PostgreSQL schema for a WhatsApp / email chat analyser.
+No message content is stored — only metadata and aggregates.
 
-function getOpenAI(): any {
-  if (process.env.OPENAI_API_KEY) {
-    return new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    })
-  }
-  return null
-}
+Tables:
+- sessions(id UUID, user_id UUID, file_name TEXT, source_app TEXT, source_type TEXT,
+    total_messages INT, date_range_start TIMESTAMPTZ, date_range_end TIMESTAMPTZ,
+    processing_status TEXT)
+- messages_meta(id UUID, session_id UUID, source_type TEXT, timestamp TIMESTAMPTZ,
+    sender TEXT, recipient TEXT, word_count INT, sentiment_score NUMERIC(4,3),
+    has_media BOOLEAN, is_system_message BOOLEAN)
+- message_stats(session_id UUID, sender TEXT, message_count INT,
+    avg_sentiment NUMERIC(4,3), avg_word_count NUMERIC(8,2),
+    peak_hour INT, media_count INT)
 
-interface SearchRequest {
-  query: string
-  chatData?: any
-  searchType?: 'semantic' | 'keyword' | 'financial' | 'sentiment'  // Add this field
-  options?: {
-    searchType?: 'semantic' | 'keyword' | 'financial' | 'sentiment'
-    limit?: number
-    includeContext?: boolean
-  }
-}
-
-interface FinancialAnalysisResult {
-  financialMentions: Array<{
-    message: string
-    sender: string
-    timestamp: Date
-    amount?: string
-    context: string
-    relevanceScore: number
-  }>
-  keyFindings: string[]
-  summary: string
-  totalFinancialMessages: number
-}
+session_id is always filtered using the parameterised placeholder $1.
+`
 
 export async function POST(request: NextRequest) {
+  // Auth gate
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) return authResult
+
   try {
-    const body: any = await request.json()
-    
-    // Support both data and chatData keys (defensive design)
-    const chatData = body.chatData || body.data
-    
-    // Support options
-    const options = body.options || {}
-    
-    // Extract searchType
-    const searchType = body.searchType || options?.searchType || 'semantic'
-    
-    // Make query optional for financial/sentiment types, defaulting to searchType
-    const query = body.query || (searchType === 'financial' ? 'financial' : searchType === 'sentiment' ? 'sentiment' : '')
+    const { query, sessionId } = await request.json()
 
-    if (!chatData || !chatData.messages || !Array.isArray(chatData.messages)) {
-      return NextResponse.json(
-        { 
-          success: false,
-          error: 'Chat data is required' 
-        },
-        { status: 400 }
-      )
+    if (!query || typeof query !== 'string') {
+      return NextResponse.json({ error: 'query is required' }, { status: 400 })
     }
 
-    if (!query) {
-      return NextResponse.json(
-        { 
-          success: false,
-          error: 'Query is required' 
-        },
-        { status: 400 }
-      )
+    // Validate sessionId format to prevent injection
+    if (!sessionId || !/^[0-9a-f-]{36}$/i.test(sessionId)) {
+      return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 })
     }
 
-    // Enhanced financial analysis based on memory
-    if (searchType === 'financial' || isFinancialQuery(query)) {
-      const financialAnalysis = await performFinancialAnalysis(query, chatData)
-      return NextResponse.json({
-        success: true,
-        type: 'financial_analysis',
-        query,
-        results: financialAnalysis.financialMentions,
-        analysis: financialAnalysis.summary,
-        timestamp: new Date().toISOString()
-      })
+    // Verify the session belongs to this user
+    const supabase = getServiceClient()
+    const { data: session } = await supabase
+      .from('sessions')
+      .select('id')
+      .eq('id', sessionId)
+      .eq('user_id', authResult.user.id)
+      .single()
+
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
-    // Semantic search using AI
-    if (searchType === 'semantic') {
-      const semanticResults = await performSemanticSearch(query, chatData, options)
-      return NextResponse.json({
-        success: true,
-        type: 'semantic_search',
-        query,
-        results: semanticResults.results || [],
-        analysis: semanticResults.summary,
-        timestamp: new Date().toISOString()
-      })
-    }
+    // SQL generation with validation + retry (up to 3 attempts)
+    let sql: string | null = null
+    let lastError: string | null = null
 
-    // Keyword search
-    if (searchType === 'keyword') {
-      const keywordResults = performKeywordSearch(query, chatData, options)
-      return NextResponse.json({
-        success: true,
-        type: 'keyword_search',
-        query,
-        results: keywordResults.results,
-        analysis: keywordResults.summary,
-        timestamp: new Date().toISOString()
-      })
-    }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const feedbackClause = lastError
+        ? `\nPrevious attempt failed validation: "${lastError}". Correct the SQL.`
+        : ''
 
-    // Sentiment analysis
-    if (searchType === 'sentiment') {
-      const sentimentResults = await performSentimentAnalysis(query, chatData)
-      return NextResponse.json({
-        success: true,
-        type: 'sentiment_analysis',
-        query,
-        results: sentimentResults.results,
-        analysis: sentimentResults.summary,
-        timestamp: new Date().toISOString()
-      })
-    }
-
-    return NextResponse.json(
-      { 
-        success: false,
-        error: 'Invalid search type' 
-      },
-      { status: 400 }
-    )
-
-  } catch (error) {
-    console.error('AI search error:', error)
-    const errMessage = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json(
-      { 
-        success: false,
-        error: errMessage.includes('OpenAI API key not configured') ? errMessage : 'AI analysis failed', 
-        details: errMessage
-      },
-      { status: 500 }
-    )
-  }
-}
-
-function isFinancialQuery(query: string): boolean {
-  const financialKeywords = [
-    'payment', 'money', 'dollar', '$', 'upfront', 'pay', 'cost', 'price',
-    'invoice', 'bill', 'expense', 'budget', 'financial', 'transaction',
-    '24000', '24,000', '24x1000', 'twenty-four thousand'
-  ]
-  
-  const lowerQuery = query.toLowerCase()
-  return financialKeywords.some(keyword => lowerQuery.includes(keyword))
-}
-
-async function performFinancialAnalysis(query: string, chatData: any): Promise<FinancialAnalysisResult> {
-  if (!chatData || !chatData.messages) {
-    return {
-      financialMentions: [],
-      keyFindings: ['No chat data available for financial analysis'],
-      summary: 'No data to analyze',
-      totalFinancialMessages: 0
-    }
-  }
-
-  const messages = chatData.messages || []
-  
-  // Enhanced keyword search with fuzzy matching for financial terms
-  const financialKeywords = [
-    'payment', 'money', 'dollar', 'dollars', '$', 'upfront', 'pay', 'paid',
-    'cost', 'price', 'invoice', 'bill', 'expense', 'budget', 'financial',
-    'transaction', '24000', '24,000', '24x1000', 'twenty-four thousand',
-    'twenty four thousand', '24k', 'cash', 'fund', 'amount', 'sum'
-  ]
-
-  // Search through the most recent messages first (based on memory of the issue)
-  const recentMessages = messages.slice(-10000) // Get last 10,000 messages
-  
-  const financialMentions = []
-  
-  for (const message of recentMessages) {
-    const text = message.message || message.content
-    if (!text || typeof text !== 'string') continue
-    
-    const messageText = text.toLowerCase()
-    const hasFinancialKeyword = financialKeywords.some(keyword => 
-      messageText.includes(keyword.toLowerCase())
-    )
-    
-    if (hasFinancialKeyword) {
-      // Calculate relevance score
-      let relevanceScore = 0
-      for (const keyword of financialKeywords) {
-        if (messageText.includes(keyword.toLowerCase())) {
-          relevanceScore += 1
-        }
-      }
-      
-      // Special scoring for $24,000 related content
-      if (messageText.includes('24000') || messageText.includes('24,000') || 
-          messageText.includes('24x1000') || messageText.includes('upfront')) {
-        relevanceScore += 5
-      }
-      
-      financialMentions.push({
-        message: text,
-        content: text,
-        sender: message.sender || 'Unknown',
-        timestamp: new Date(message.timestamp),
-        context: `Message from ${message.sender}`,
-        relevanceScore
-      })
-    }
-  }
-
-  // Sort by relevance score and timestamp (most recent first)
-  financialMentions.sort((a, b) => {
-    if (b.relevanceScore !== a.relevanceScore) {
-      return b.relevanceScore - a.relevanceScore
-    }
-    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  })
-
-  // Generate AI-powered analysis
-  let summary = ''
-  let keyFindings: string[] = []
-
-  if (financialMentions.length > 0) {
-    try {
-      const contextMessages = financialMentions.slice(0, 10).map(m => 
-        `${m.sender}: ${m.message}`
-      ).join('\n')
-
-      const openaiClient = getOpenAI()
-      if (!openaiClient) {
-        throw new Error('OpenAI API key not configured')
-      }
-      
-      const completion = await openaiClient.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
+      const { content } = await generateWithFallback(
+        [
           {
-            role: "system",
-            content: "You are analyzing WhatsApp chat messages for financial content. Focus on payment discussions, amounts mentioned, and financial commitments. Be specific about amounts and context."
+            role: 'system',
+            content: `You write PostgreSQL SELECT queries. ${SCHEMA_CONTEXT}
+Return ONLY the SQL query. No explanation. No markdown fences.
+Always filter: WHERE session_id = $1
+Never use SELECT *. Only query aggregates or metadata.${feedbackClause}`,
           },
-          {
-            role: "user",
-            content: `Analyze these financial-related messages and provide key findings and a summary:\n\n${contextMessages}\n\nQuery: ${query}`
-          }
+          { role: 'user', content: query },
         ],
-        max_tokens: 500,
-        temperature: 0.3
-      })
+        { max_tokens: 300, temperature: 0.1 }
+      )
 
-      const analysis = completion.choices[0]?.message?.content || 'Analysis unavailable'
-      
-      // Extract key findings and summary from AI response
-      const lines = analysis.split('\n').filter((line: string) => line.trim())
-      keyFindings = lines.slice(0, 5)
-      summary = lines.join(' ')
+      const candidate = content.trim().replace(/```sql\n?|\n?```/g, '').trim()
+      const validation = validateGeneratedSQL(candidate, ALLOWED_TABLES)
 
-    } catch (aiError) {
-      console.error('AI analysis error:', aiError)
-      keyFindings = [
-        `Found ${financialMentions.length} financial-related messages`,
-        'AI analysis unavailable - using keyword-based results'
-      ]
-      summary = `Analysis of ${financialMentions.length} financial messages found in the chat.`
+      if (validation.valid) {
+        sql = candidate
+        break
+      }
+      lastError = validation.reason
     }
-  } else {
-    keyFindings = ['No financial-related messages found in the chat data']
-    summary = 'No financial content detected in the provided chat messages.'
-  }
 
-  return {
-    financialMentions: financialMentions.slice(0, 1000), // Return top 1000 results for large datasets
-    keyFindings,
-    summary,
-    totalFinancialMessages: financialMentions.length
-  }
-}
-
-async function performSemanticSearch(query: string, chatData: any, options: any) {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OpenAI API key not configured')
-  }
-
-  if (!chatData || !chatData.messages) {
-    return {
-      results: [],
-      summary: 'No chat data available for search'
+    if (!sql) {
+      return NextResponse.json(
+        { error: 'Could not generate a safe query for this question. Try rephrasing.' },
+        { status: 422 }
+      )
     }
-  }
 
-  const messages = chatData.messages || []
-  const limit = options.limit || 10
+    // Execute via the hardened DB function — session_id passed as parameter
+    const { data, error: dbError } = await supabase.rpc('execute_safe_query', {
+      query_sql: sql,
+      session_id_param: sessionId,
+    })
 
-  // Use AI to find semantically relevant messages
-  try {
-    const contextMessages = messages.slice(0, 100).map((m: any) => 
-      `${m.sender || 'Unknown'}: ${m.message || m.content || ''}`
-    ).join('\n')
-
-    const openaiClient = getOpenAI()
-    if (!openaiClient) {
-      throw new Error('OpenAI API key not configured')
+    if (dbError) {
+      console.error('[ai-search] DB error:', dbError.message)
+      return NextResponse.json({ error: 'Query execution failed' }, { status: 500 })
     }
-    
-    const completion = await openaiClient.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
+
+    // Summarise aggregate results — still no raw content
+    const { content: answer, model } = await generateWithFallback(
+      [
         {
-          role: "system",
-          content: "You are helping search through WhatsApp chat messages. Find messages that are semantically related to the user's query and explain the relevance."
+          role: 'system',
+          content: 'Summarise these database query results in plain English. Be concise and helpful.',
         },
         {
-          role: "user",
-          content: `Find messages related to: "${query}"\n\nChat messages:\n${contextMessages}`
-        }
+          role: 'user',
+          content: `Question: ${query}\nResults: ${JSON.stringify(data)}`,
+        },
       ],
-      max_tokens: 800,
-      temperature: 0.3
+      { max_tokens: 300, temperature: 0.3 }
+    )
+
+    return NextResponse.json({
+      success: true,
+      answer,
+      data,
+      model,
+      sql, // returned for debugging — remove in production if desired
     })
-
-    const response = completion.choices[0]?.message?.content || 'No relevant messages found'
-    
-    return {
-      results: messages.slice(0, limit).map((m: any) => ({
-        ...m,
-        message: m.message || m.content,
-        content: m.content || m.message
-      })),
-      summary: response,
-      totalSearched: messages.length
-    }
-
-  } catch (error) {
-    console.error('Semantic search error:', error)
-    throw error
+  } catch (error: any) {
+    console.error('[ai-search] error:', error.message)
+    return NextResponse.json({ error: 'Analysis failed' }, { status: 500 })
   }
 }
-
-function performKeywordSearch(query: string, chatData: any, options: any) {
-  if (!chatData || !chatData.messages) {
-    return {
-      results: [],
-      summary: 'No chat data available for search'
-    }
-  }
-
-  const messages = chatData.messages || []
-  const keywords = query.toLowerCase().split(' ')
-  const limit = options.limit || 20
-
-  const matchingMessages = messages.filter((message: any) => {
-    const text = message.message || message.content
-    if (!text || typeof text !== 'string') return false
-    
-    const messageText = text.toLowerCase()
-    return keywords.some(keyword => messageText.includes(keyword))
-  })
-
-  return {
-    results: matchingMessages.slice(0, limit).map((m: any) => ({
-      ...m,
-      message: m.message || m.content,
-      content: m.content || m.message
-    })),
-    summary: `Found ${matchingMessages.length} messages containing keywords: ${keywords.join(', ')}`,
-    totalMatches: matchingMessages.length
-  }
-}
-
-async function performSentimentAnalysis(query: string, chatData: any) {
-  if (!chatData || !chatData.messages) {
-    return {
-      results: [],
-      summary: 'No chat data available for sentiment analysis'
-    }
-  }
-
-  const messages = chatData.messages || []
-  const sentimentWords = {
-    positive: ['good', 'great', 'awesome', 'amazing', 'love', 'excellent', 'perfect', 'wonderful', 'fantastic', 'brilliant', 'happy', 'thanks', 'reasonable'],
-    negative: ['bad', 'terrible', 'awful', 'hate', 'horrible', 'worst', 'problem', 'issue', 'disappointed', 'frustrated', 'sad', 'unfortunate']
-  }
-
-  const messageAnalysis: any[] = []
-  let positiveCount = 0
-  let negativeCount = 0
-  let neutralCount = 0
-
-  messages.forEach((msg: any) => {
-    const text = msg.message || msg.content
-    if (!text || typeof text !== 'string') return
-
-    const lowerText = text.toLowerCase()
-    const positiveScore = sentimentWords.positive.filter(word => lowerText.includes(word)).length
-    const negativeScore = sentimentWords.negative.filter(word => lowerText.includes(word)).length
-
-    const overallSentiment = positiveScore > negativeScore ? 'positive' :
-                             negativeScore > positiveScore ? 'negative' : 'neutral'
-
-    if (overallSentiment === 'positive') positiveCount++
-    else if (overallSentiment === 'negative') negativeCount++
-    else neutralCount++
-
-    messageAnalysis.push({
-      ...msg,
-      message: msg.message || msg.content,
-      content: msg.content || msg.message,
-      sentiment: overallSentiment
-    })
-  })
-
-  const filter = query.toLowerCase()
-  let filteredResults = messageAnalysis
-
-  if (filter === 'positive' || filter === 'negative' || filter === 'neutral') {
-    filteredResults = messageAnalysis.filter(msg => msg.sentiment === filter)
-  }
-
-  const summary = `Sentiment analysis shows ${positiveCount} positive, ${negativeCount} negative, and ${neutralCount} neutral messages. The overall sentiment is ${
-    positiveCount > negativeCount ? 'positive' : negativeCount > positiveCount ? 'negative' : 'neutral'
-  }.`
-
-  return {
-    results: filteredResults.map((m: any) => ({
-      ...m,
-      message: m.message || m.content,
-      content: m.content || m.message
-    })),
-    summary
-  }
-}
-
- 

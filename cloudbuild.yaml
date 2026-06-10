@@ -1,0 +1,51 @@
+steps:
+  # Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/whathappen:$COMMIT_SHA'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_SUPABASE_URL=$_SUPABASE_URL'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_SUPABASE_ANON_KEY=$_SUPABASE_ANON_KEY'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_APP_URL=$_APP_URL'
+      - '.'
+
+  # Push to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/whathappen:$COMMIT_SHA']
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - whathappen
+      - '--image=gcr.io/$PROJECT_ID/whathappen:$COMMIT_SHA'
+      - '--region=europe-west1'
+      - '--platform=managed'
+      - '--max-instances=10'
+      - '--min-instances=0'
+      - '--memory=2Gi'
+      - '--cpu=2'
+      - '--timeout=60'
+      - '--allow-unauthenticated'
+      - '--set-secrets=OPENROUTER_API_KEY=openrouter-key:latest'
+      - '--set-secrets=SUPABASE_SERVICE_ROLE_KEY=supabase-service-key:latest'
+      - '--set-secrets=GCS_BUCKET=gcs-bucket-name:latest'
+      - '--set-env-vars=NEXT_PUBLIC_SUPABASE_URL=$_SUPABASE_URL'
+      - '--set-env-vars=NEXT_PUBLIC_SUPABASE_ANON_KEY=$_SUPABASE_ANON_KEY'
+      - '--set-env-vars=NEXT_PUBLIC_APP_URL=$_APP_URL'
+
+substitutions:
+  _SUPABASE_URL: 'https://pomgvxdokjmxyfbgazls.supabase.co'
+  _APP_URL: 'https://whathappen-HASH-ew.a.run.app'  # update after first deploy
+
+images:
+  - 'gcr.io/$PROJECT_ID/whathappen:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

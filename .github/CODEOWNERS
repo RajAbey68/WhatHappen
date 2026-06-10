@@ -1,0 +1,6 @@
+# Human review required for security-critical paths
+/app/api/ai-search/        @RajAbey68
+/lib/sql-validator.ts      @RajAbey68
+/lib/auth.ts               @RajAbey68
+/migrations/               @RajAbey68
+/app/api/upload-url/       @RajAbey68
