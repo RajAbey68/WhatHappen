@@ -4,18 +4,20 @@ steps:
     args:
       - build
       - '-t'
-      - 'gcr.io/$PROJECT_ID/whathappen:$COMMIT_SHA'
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:$COMMIT_SHA'
       - '--build-arg'
-      - 'NEXT_PUBLIC_SUPABASE_URL=$_SUPABASE_URL'
+      - 'NEXT_PUBLIC_SUPABASE_URL=https://pomgvxdokjmxyfbgazls.supabase.co'
       - '--build-arg'
-      - 'NEXT_PUBLIC_SUPABASE_ANON_KEY=$_SUPABASE_ANON_KEY'
+      - 'NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvbWd2eGRva2pteHlmYmdhemxzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNjU1OTAsImV4cCI6MjA5NjY0MTU5MH0.jnpG78rmOH1Dint18ForByuzH5y9rdBH9wX4kGs_slI'
       - '--build-arg'
-      - 'NEXT_PUBLIC_APP_URL=$_APP_URL'
+      - 'NEXT_PUBLIC_APP_URL=https://whathappen-116263110764.europe-west1.run.app'
       - '.'
 
   # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/whathappen:$COMMIT_SHA']
+    args:
+      - push
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:$COMMIT_SHA'
 
   # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -24,7 +26,7 @@ steps:
       - run
       - deploy
       - whathappen
-      - '--image=gcr.io/$PROJECT_ID/whathappen:$COMMIT_SHA'
+      - '--image=europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:$COMMIT_SHA'
       - '--region=europe-west1'
       - '--platform=managed'
       - '--max-instances=10'
@@ -33,19 +35,15 @@ steps:
       - '--cpu=2'
       - '--timeout=60'
       - '--allow-unauthenticated'
-      - '--set-secrets=OPENROUTER_API_KEY=openrouter-key:latest'
+      - '--set-secrets=DEEPSEEK_API_KEY=deepseek-api-key:latest'
       - '--set-secrets=SUPABASE_SERVICE_ROLE_KEY=supabase-service-key:latest'
       - '--set-secrets=GCS_BUCKET=gcs-bucket-name:latest'
-      - '--set-env-vars=NEXT_PUBLIC_SUPABASE_URL=$_SUPABASE_URL'
-      - '--set-env-vars=NEXT_PUBLIC_SUPABASE_ANON_KEY=$_SUPABASE_ANON_KEY'
-      - '--set-env-vars=NEXT_PUBLIC_APP_URL=$_APP_URL'
-
-substitutions:
-  _SUPABASE_URL: 'https://pomgvxdokjmxyfbgazls.supabase.co'
-  _APP_URL: 'https://whathappen-HASH-ew.a.run.app'  # update after first deploy
+      - '--set-env-vars=NEXT_PUBLIC_SUPABASE_URL=https://pomgvxdokjmxyfbgazls.supabase.co'
+      - '--set-env-vars=NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvbWd2eGRva2pteHlmYmdhemxzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNjU1OTAsImV4cCI6MjA5NjY0MTU5MH0.jnpG78rmOH1Dint18ForByuzH5y9rdBH9wX4kGs_slI'
+      - '--set-env-vars=NEXT_PUBLIC_APP_URL=https://whathappen-116263110764.europe-west1.run.app'
 
 images:
-  - 'gcr.io/$PROJECT_ID/whathappen:$COMMIT_SHA'
+  - 'europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:$COMMIT_SHA'
 
 options:
   logging: CLOUD_LOGGING_ONLY
