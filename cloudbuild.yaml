@@ -1,10 +1,13 @@
+substitutions:
+  _IMAGE_TAG: latest
+
 steps:
   # Build Docker image
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - build
       - '-t'
-      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:$COMMIT_SHA'
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:${_IMAGE_TAG}'
       - '--build-arg'
       - 'NEXT_PUBLIC_SUPABASE_URL=https://pomgvxdokjmxyfbgazls.supabase.co'
       - '--build-arg'
@@ -17,7 +20,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - push
-      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:$COMMIT_SHA'
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:${_IMAGE_TAG}'
 
   # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -26,7 +29,7 @@ steps:
       - run
       - deploy
       - whathappen
-      - '--image=europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:$COMMIT_SHA'
+      - '--image=europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:${_IMAGE_TAG}'
       - '--region=europe-west1'
       - '--platform=managed'
       - '--max-instances=10'
@@ -43,7 +46,7 @@ steps:
       - '--set-env-vars=NEXT_PUBLIC_APP_URL=https://whathappen-116263110764.europe-west1.run.app'
 
 images:
-  - 'europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:$COMMIT_SHA'
+  - 'europe-west1-docker.pkg.dev/$PROJECT_ID/whathappen/app:${_IMAGE_TAG}'
 
 options:
   logging: CLOUD_LOGGING_ONLY
