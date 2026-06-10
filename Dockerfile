@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --only=production
+# Install ALL deps (including devDeps) so Next.js build has autoprefixer/postcss
+RUN npm ci
 
 COPY . .
 
@@ -28,6 +29,9 @@ ENV PORT=8080
 ENV NODE_ENV=production
 
 RUN npm run build
+
+# Prune devDependencies after build to keep image lean
+RUN npm prune --omit=dev
 
 EXPOSE 8080
 
