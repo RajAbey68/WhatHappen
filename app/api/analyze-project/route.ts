@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { decryptText } from '@/lib/crypto'
 
 export async function POST(request: NextRequest) {
+  const _auth = await requireAuth(request)
+  if (_auth instanceof NextResponse) return _auth
   try {
     const { projectId, analysisType = 'comprehensive', passphrase } = await request.json()
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 
 interface WhatsAppMessage {
@@ -23,6 +24,8 @@ interface ProcessingResult {
 }
 
 export async function POST(request: NextRequest) {
+  const _auth = await requireAuth(request)
+  if (_auth instanceof NextResponse) return _auth
   try {
     const contentType = request.headers.get('content-type') || ''
     

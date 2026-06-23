@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { OpenAI } from 'openai'
 import { supabase } from '@/lib/supabase'
 
@@ -22,6 +23,8 @@ function getOpenAI(): OpenAI | null {
 }
 
 export async function POST(request: NextRequest) {
+  const _auth = await requireAuth(request)
+  if (_auth instanceof NextResponse) return _auth
   try {
     const body = await request.json()
     const projectId = body.projectId

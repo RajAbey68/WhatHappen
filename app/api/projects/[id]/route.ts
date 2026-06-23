@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 
 function mapDbProject(dbProj: any) {
@@ -34,6 +35,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const _auth = await requireAuth(request)
+  if (_auth instanceof NextResponse) return _auth
   try {
     const { data, error } = await supabase
       .from('projects')
@@ -57,6 +60,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const _auth = await requireAuth(request)
+  if (_auth instanceof NextResponse) return _auth
   try {
     const body = await request.json()
     const updateData = {
@@ -86,6 +91,8 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const _auth = await requireAuth(request)
+  if (_auth instanceof NextResponse) return _auth
   try {
     const { error } = await supabase
       .from('projects')

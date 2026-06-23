@@ -1,6 +1,7 @@
 export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { parse as csvParse } from 'csv-parse/sync'
 import { v4 as uuidv4 } from 'uuid'
 const Sentiment = require('sentiment')
@@ -62,6 +63,8 @@ interface ChatAnalysis {
 }
 
 export async function POST(request: NextRequest) {
+  const _auth = await requireAuth(request)
+  if (_auth instanceof NextResponse) return _auth
   try {
     const formData = await request.formData()
     const file = formData.get('file')

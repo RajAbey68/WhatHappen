@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 
 function mapDbProject(dbProj: any) {
@@ -17,7 +18,9 @@ function mapDbProject(dbProj: any) {
 }
 
 // GET - List all projects
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const _auth = await requireAuth(request)
+  if (_auth instanceof NextResponse) return _auth
   try {
     const { data, error } = await supabase
       .from('projects')
@@ -36,6 +39,8 @@ export async function GET() {
 
 // POST - Create new project
 export async function POST(request: NextRequest) {
+  const _auth = await requireAuth(request)
+  if (_auth instanceof NextResponse) return _auth
   let body
   try {
     body = await request.json()

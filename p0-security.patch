@@ -1,0 +1,461 @@
+diff --git a/__tests__/api/auth-gate.test.ts b/__tests__/api/auth-gate.test.ts
+new file mode 100644
+index 0000000..86c78b3
+--- /dev/null
++++ b/__tests__/api/auth-gate.test.ts
+@@ -0,0 +1,17 @@
++/** P0: legacy routes must reject unauthenticated requests (fail closed). */
++import { NextResponse } from 'next/server'
++const noAuthReq = () => ({ headers: { get: () => null }, json: async () => ({}) }) as any
++describe('legacy routes are auth-gated', () => {
++  const routes: [string, string][] = [
++    ['../../app/api/projects/route', 'POST'],
++    ['../../app/api/process-file/route', 'POST'],
++    ['../../app/api/process-whatsapp-complete/route', 'POST'],
++    ['../../app/api/ai-chat/query/route', 'POST'],
++    ['../../app/api/analyze-project/route', 'POST'],
++    ['../../app/api/generate-document/route', 'POST'],
++  ]
++  test.each(routes)('%s %s returns 401 without a token', async (mod, method) => {
++    const res = await (await import(mod))[method](noAuthReq())
++    expect(res.status).toBe(401)
++  })
++})
+diff --git a/__tests__/lib/sql-validator.hardening.test.ts b/__tests__/lib/sql-validator.hardening.test.ts
+new file mode 100644
+index 0000000..cc65a6e
+--- /dev/null
++++ b/__tests__/lib/sql-validator.hardening.test.ts
+@@ -0,0 +1,22 @@
++import { validateGeneratedSQL, ALLOWED_TABLES } from '@/lib/sql-validator'
++
++const reject = (sql: string) => expect(validateGeneratedSQL(sql, ALLOWED_TABLES).valid).toBe(false)
++const accept = (sql: string) => expect(validateGeneratedSQL(sql, ALLOWED_TABLES).valid).toBe(true)
++
++describe('validateGeneratedSQL — P0 hardening', () => {
++  it('accepts a valid session-scoped aggregation', () =>
++    accept('SELECT sender, COUNT(*) FROM messages_meta WHERE session_id = $1 GROUP BY sender'))
++
++  it('rejects block-comment obfuscation', () =>
++    reject('SELECT COUNT(*) FROM messages_meta WHERE session_id = $1 /* hi */'))
++  it('rejects current_setting() info disclosure', () =>
++    reject("SELECT current_setting('is_superuser') FROM sessions WHERE id = $1"))
++  it('rejects any pg_* function beyond the legacy blocklist', () =>
++    reject('SELECT pg_read_server_files() FROM sessions WHERE id = $1'))
++  it('rejects a query with no session scope ($1)', () =>
++    reject('SELECT sender, COUNT(*) FROM messages_meta GROUP BY sender'))
++  it('rejects a tableless probe (SELECT 1)', () => reject('SELECT 1'))
++  it('rejects schema-qualified tables', () => reject('SELECT * FROM auth.users WHERE id = $1'))
++  it('rejects SELECT ... INTO writes', () =>
++    reject('SELECT * INTO evil FROM sessions WHERE id = $1'))
++})
+diff --git a/app/api/ai-chat/[projectId]/route.ts b/app/api/ai-chat/[projectId]/route.ts
+index 76db38a..e5a7e2c 100644
+--- a/app/api/ai-chat/[projectId]/route.ts
++++ b/app/api/ai-chat/[projectId]/route.ts
+@@ -1,4 +1,5 @@
+ import { NextRequest, NextResponse } from 'next/server'
++import { requireAuth } from '@/lib/auth'
+ import { supabase } from '@/lib/supabase'
+ 
+ function mapDbProject(dbProj: any) {
+@@ -20,6 +21,8 @@ export async function GET(
+   request: NextRequest,
+   { params }: { params: { projectId: string } }
+ ) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const { projectId } = params
+ 
+diff --git a/app/api/ai-chat/query/route.ts b/app/api/ai-chat/query/route.ts
+index 78e0245..04f6f46 100644
+--- a/app/api/ai-chat/query/route.ts
++++ b/app/api/ai-chat/query/route.ts
+@@ -1,4 +1,5 @@
+ import { NextRequest, NextResponse } from 'next/server'
++import { requireAuth } from '@/lib/auth'
+ import { OpenAI } from 'openai'
+ import { supabase } from '@/lib/supabase'
+ 
+@@ -22,6 +23,8 @@ function getOpenAI(): OpenAI | null {
+ }
+ 
+ export async function POST(request: NextRequest) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const body = await request.json()
+     const projectId = body.projectId
+diff --git a/app/api/ai-chat/save/route.ts b/app/api/ai-chat/save/route.ts
+index 29c9e03..f790cf2 100644
+--- a/app/api/ai-chat/save/route.ts
++++ b/app/api/ai-chat/save/route.ts
+@@ -1,7 +1,10 @@
+ import { NextRequest, NextResponse } from 'next/server'
++import { requireAuth } from '@/lib/auth'
+ import { supabase } from '@/lib/supabase'
+ 
+ export async function POST(request: NextRequest) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const { projectId, messages } = await request.json()
+ 
+@@ -39,6 +42,8 @@ export async function POST(request: NextRequest) {
+ }
+ 
+ export async function GET(request: NextRequest) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const url = new URL(request.url)
+     const projectId = url.searchParams.get('projectId')
+diff --git a/app/api/analyze-project/route.ts b/app/api/analyze-project/route.ts
+index feb042f..dccee7f 100644
+--- a/app/api/analyze-project/route.ts
++++ b/app/api/analyze-project/route.ts
+@@ -1,8 +1,11 @@
+ import { NextRequest, NextResponse } from 'next/server'
++import { requireAuth } from '@/lib/auth'
+ import { supabase } from '@/lib/supabase'
+ import { decryptText } from '@/lib/crypto'
+ 
+ export async function POST(request: NextRequest) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const { projectId, analysisType = 'comprehensive', passphrase } = await request.json()
+ 
+diff --git a/app/api/generate-document/route.ts b/app/api/generate-document/route.ts
+index b6a3cc3..d93be0c 100644
+--- a/app/api/generate-document/route.ts
++++ b/app/api/generate-document/route.ts
+@@ -1,4 +1,5 @@
+ import { NextRequest, NextResponse } from 'next/server'
++import { requireAuth } from '@/lib/auth'
+ import { supabase } from '@/lib/supabase'
+ import { decryptText } from '@/lib/crypto'
+ import PDFDocument from 'pdfkit'
+@@ -19,6 +20,8 @@ function mapDbProject(dbProj: any) {
+ }
+ 
+ export async function POST(request: NextRequest) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const { projectId, documentType = 'summary', format = 'pdf', passphrase } = await request.json()
+ 
+diff --git a/app/api/process-file/route.ts b/app/api/process-file/route.ts
+index 7546bc7..5f24618 100644
+--- a/app/api/process-file/route.ts
++++ b/app/api/process-file/route.ts
+@@ -1,6 +1,7 @@
+ export const runtime = 'nodejs'
+ 
+ import { NextRequest, NextResponse } from 'next/server'
++import { requireAuth } from '@/lib/auth'
+ import { parse as csvParse } from 'csv-parse/sync'
+ import { v4 as uuidv4 } from 'uuid'
+ const Sentiment = require('sentiment')
+@@ -62,6 +63,8 @@ interface ChatAnalysis {
+ }
+ 
+ export async function POST(request: NextRequest) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const formData = await request.formData()
+     const file = formData.get('file')
+diff --git a/app/api/process-whatsapp-complete/route.ts b/app/api/process-whatsapp-complete/route.ts
+index 5b8d3ec..0970bbe 100644
+--- a/app/api/process-whatsapp-complete/route.ts
++++ b/app/api/process-whatsapp-complete/route.ts
+@@ -1,4 +1,5 @@
+ import { NextRequest, NextResponse } from 'next/server'
++import { requireAuth } from '@/lib/auth'
+ import { supabase } from '@/lib/supabase'
+ 
+ interface WhatsAppMessage {
+@@ -23,6 +24,8 @@ interface ProcessingResult {
+ }
+ 
+ export async function POST(request: NextRequest) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const contentType = request.headers.get('content-type') || ''
+     
+diff --git a/app/api/projects/[id]/route.ts b/app/api/projects/[id]/route.ts
+index 84e60c0..cb2360c 100644
+--- a/app/api/projects/[id]/route.ts
++++ b/app/api/projects/[id]/route.ts
+@@ -1,4 +1,5 @@
+ import { NextRequest, NextResponse } from 'next/server'
++import { requireAuth } from '@/lib/auth'
+ import { supabase } from '@/lib/supabase'
+ 
+ function mapDbProject(dbProj: any) {
+@@ -34,6 +35,8 @@ export async function GET(
+   request: NextRequest,
+   { params }: { params: { id: string } }
+ ) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const { data, error } = await supabase
+       .from('projects')
+@@ -57,6 +60,8 @@ export async function PUT(
+   request: NextRequest,
+   { params }: { params: { id: string } }
+ ) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const body = await request.json()
+     const updateData = {
+@@ -86,6 +91,8 @@ export async function DELETE(
+   request: NextRequest,
+   { params }: { params: { id: string } }
+ ) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const { error } = await supabase
+       .from('projects')
+diff --git a/app/api/projects/route.ts b/app/api/projects/route.ts
+index 03e01da..466eaba 100644
+--- a/app/api/projects/route.ts
++++ b/app/api/projects/route.ts
+@@ -1,4 +1,5 @@
+ import { NextRequest, NextResponse } from 'next/server'
++import { requireAuth } from '@/lib/auth'
+ import { supabase } from '@/lib/supabase'
+ 
+ function mapDbProject(dbProj: any) {
+@@ -17,7 +18,9 @@ function mapDbProject(dbProj: any) {
+ }
+ 
+ // GET - List all projects
+-export async function GET() {
++export async function GET(request: NextRequest) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   try {
+     const { data, error } = await supabase
+       .from('projects')
+@@ -36,6 +39,8 @@ export async function GET() {
+ 
+ // POST - Create new project
+ export async function POST(request: NextRequest) {
++  const _auth = await requireAuth(request)
++  if (_auth instanceof NextResponse) return _auth
+   let body
+   try {
+     body = await request.json()
+diff --git a/jest.config.js b/jest.config.js
+index 69cd3c9..3a6ec3a 100644
+--- a/jest.config.js
++++ b/jest.config.js
+@@ -10,7 +10,7 @@ const customJestConfig = {
+   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+   testEnvironment: 'jest-environment-jsdom',
+   moduleNameMapper: {
+-    '^@/(.*)$': '<rootDir>/src/$1',
++    '^@/(.*)$': '<rootDir>/$1',
+   },
+   testMatch: [
+     '**/__tests__/**/*.[jt]s?(x)',
+diff --git a/lib/sql-validator.ts b/lib/sql-validator.ts
+index ce6b77f..94654f4 100644
+--- a/lib/sql-validator.ts
++++ b/lib/sql-validator.ts
+@@ -1,72 +1,65 @@
+ /**
+- * Light-weight SQL validator for LLM-generated queries.
+- * Rejects dangerous patterns before any DB execution.
+- * This is a defence-in-depth layer on top of the read-only Postgres role
+- * and the execute_safe_query stored function.
++ * Hardened SQL validator v2 for LLM-generated queries (P0 security).
++ *
++ * Defence-in-depth in front of the read-only Postgres role and the
++ * execute_safe_query() SECURITY DEFINER function. The app's text-to-SQL only
++ * needs FLAT single-table aggregates, so we restrict the grammar to exactly
++ * that: one SELECT, one allow-listed table, no CTEs, no subqueries, no UNION.
++ *
++ * LIMITATION (tracked, roadmap P0-2): regex is not a SQL parser. The authoritative
++ * session scoping must be enforced in execute_safe_query() by injecting the
++ * session filter itself, NOT by trusting a `$1` in the model's SQL. This layer
++ * reduces attack surface; it is not the last line of defence.
+  */
+ 
+-const BLOCKED_PATTERNS = [
+-  /pg_sleep/i,
+-  /pg_read_file/i,
+-  /pg_catalog/i,
+-  /pg_class/i,
+-  /information_schema/i,
+-  /COPY\s/i,
+-  /\bUNION\b/i,
+-  /--/,        // SQL comment — could be used to truncate parameterised parts
+-  /;\s*\w/,   // statement chaining: SELECT ...; DROP ...
+-  /DROP\s/i,
+-  /INSERT\s/i,
+-  /UPDATE\s/i,
+-  /DELETE\s/i,
+-  /TRUNCATE\s/i,
+-  /ALTER\s/i,
+-  /CREATE\s/i,
+-  /GRANT\s/i,
+-  /REVOKE\s/i,
+-  /1\s*\/\s*0/,            // division-by-zero error extraction
+-  /CASE\s+WHEN.*pg_/i,     // timing-attack via CASE+pg_sleep
++const BLOCKED_PATTERNS: RegExp[] = [
++  /\bpg_[a-z0-9_]+/i, /information_schema/i,
++  /\bcurrent_setting\b/i, /\bset_config\b/i, /\bdblink\b/i,
++  /\blo_import\b/i, /\blo_export\b/i, /\bCOPY\b/i,
++  /\bquery_to_xml\b/i, /\btable_to_xml\b/i, /\bcursor_to_xml\b/i,
++  /\bxmlelement\b/i, /\bxmlforest\b/i,
++  /\bUNION\b/i, /\bWITH\b/i,            // no UNION, no CTEs
++  /--/, /\/\*/, /\*\//,                 // no comments
++  /;\s*\S/,                             // no statement chaining
++  /\(\s*SELECT/i,                       // no subqueries
++  /\bDROP\b/i, /\bINSERT\b/i, /\bUPDATE\b/i, /\bDELETE\b/i, /\bTRUNCATE\b/i,
++  /\bALTER\b/i, /\bCREATE\b/i, /\bGRANT\b/i, /\bREVOKE\b/i, /\bMERGE\b/i, /\bINTO\b/i,
++  /1\s*\/\s*0/, /\bCASE\s+WHEN\b[\s\S]*\bpg_/i,
+ ]
+ 
+-export const ALLOWED_TABLES = [
+-  'sessions',
+-  'messages_meta',
+-  'message_stats',
+-  'llm_usage',
+-]
+-
+-export interface ValidationResult {
+-  valid: boolean
+-  reason: string
+-}
++export const ALLOWED_TABLES = ['sessions', 'messages_meta', 'message_stats', 'llm_usage']
++export interface ValidationResult { valid: boolean; reason: string }
++const MAX_SQL_LENGTH = 2000
+ 
+-export function validateGeneratedSQL(
+-  sql: string,
+-  tables: string[] = ALLOWED_TABLES
+-): ValidationResult {
+-  const trimmed = sql.trim()
++export function validateGeneratedSQL(sql: string, tables: string[] = ALLOWED_TABLES): ValidationResult {
++  const trimmed = (sql ?? '').trim()
++  if (trimmed.length === 0) return { valid: false, reason: 'Empty query' }
++  if (trimmed.length > MAX_SQL_LENGTH) return { valid: false, reason: `Query exceeds ${MAX_SQL_LENGTH} characters` }
++  if (!/^SELECT\b/i.test(trimmed)) return { valid: false, reason: 'Query must start with SELECT' }
+ 
+-  // Must start with SELECT
+-  if (!trimmed.toUpperCase().startsWith('SELECT')) {
+-    return { valid: false, reason: 'Query must start with SELECT' }
++  // exactly one SELECT — kills nested/derived selects and stacked reads
++  if ((trimmed.match(/\bSELECT\b/gi) || []).length !== 1) {
++    return { valid: false, reason: 'Only a single flat SELECT is permitted' }
+   }
+-
+-  // Block dangerous patterns
+   for (const pattern of BLOCKED_PATTERNS) {
+-    if (pattern.test(trimmed)) {
+-      return { valid: false, reason: `Blocked pattern detected: ${pattern}` }
+-    }
++    if (pattern.test(trimmed)) return { valid: false, reason: `Blocked pattern detected: ${pattern}` }
+   }
+ 
+-  // Only allowed tables may appear after FROM or JOIN
+-  const tableRegex = /(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi
+-  let match
+-  while ((match = tableRegex.exec(trimmed)) !== null) {
+-    const table = match[1].toLowerCase()
+-    if (!tables.map(t => t.toLowerCase()).includes(table)) {
+-      return { valid: false, reason: `Unknown table referenced: ${table}` }
+-    }
++  const tableRegex = /(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_."]*)/gi
++  const allow = tables.map(t => t.toLowerCase())
++  let m: RegExpExecArray | null, sawTable = false
++  while ((m = tableRegex.exec(trimmed)) !== null) {
++    sawTable = true
++    const raw = m[1].toLowerCase().replace(/"/g, '')
++    if (raw.includes('.')) return { valid: false, reason: `Schema-qualified table not allowed: ${m[1]}` }
++    if (!allow.includes(raw)) return { valid: false, reason: `Unknown table referenced: ${raw}` }
+   }
++  if (!sawTable) return { valid: false, reason: 'Query must read from an allowed table' }
+ 
++  // session scope heuristic: $1 must appear after a WHERE (regex layer only;
++  // authoritative enforcement is in execute_safe_query — see file header).
++  if (!/\bWHERE\b[\s\S]*\$1/i.test(trimmed)) {
++    return { valid: false, reason: 'Query must be session-scoped: $1 must appear in a WHERE clause' }
++  }
+   return { valid: true, reason: '' }
+ }
+diff --git a/migrations/002_harden_execute_safe_query.sql b/migrations/002_harden_execute_safe_query.sql
+new file mode 100644
+index 0000000..0776e3a
+--- /dev/null
++++ b/migrations/002_harden_execute_safe_query.sql
+@@ -0,0 +1,60 @@
++-- WhatHappen migration 002 — harden execute_safe_query() (P0 four-eyes fix)
++--
++-- Finding (independent review): session scoping must be enforced by the database,
++-- not trusted from the model's SQL. A crafted `WHERE 'a'='$1' OR 1=1` previously
++-- widened results. Fix: shadow the base tables with session-filtered CTEs of the
++-- same name, so any validated (unqualified) SELECT can only ever read THIS session's
++-- rows — independent of its own WHERE clause.
++--
++-- Layering: (1) app-side validateGeneratedSQL  (2) ai-search route verifies the
++-- session belongs to the caller BEFORE calling this  (3) this function.
++
++CREATE OR REPLACE FUNCTION execute_safe_query(query_sql TEXT, session_id_param UUID)
++RETURNS JSONB
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path = ''
++AS $$
++DECLARE
++  result JSONB;
++  scoped_sql TEXT;
++BEGIN
++  IF session_id_param IS NULL THEN
++    RAISE EXCEPTION 'session_id_param is required';
++  END IF;
++
++  IF btrim(query_sql) !~* '^SELECT\s' THEN
++    RAISE EXCEPTION 'Only SELECT queries permitted';
++  END IF;
++
++  -- Defence-in-depth blocklist (app-side validator is the first layer).
++  IF query_sql ~* '(;|--|/\*|\*/|\mpg_\w|information_schema|\mCOPY\M|\mUNION\M|\mWITH\M|\mINTO\M|\mINSERT\M|\mUPDATE\M|\mDELETE\M|\mDROP\M|\mALTER\M|\mCREATE\M|\mGRANT\M|\mREVOKE\M|\mTRUNCATE\M|dblink|current_setting|set_config|query_to_xml|lo_import|lo_export)' THEN
++    RAISE EXCEPTION 'Blocked pattern in query';
++  END IF;
++
++  -- Reject schema-qualified table references (they would dodge the CTE shadow).
++  IF query_sql ~* '\m(public|pg_catalog|auth|information_schema)\.' THEN
++    RAISE EXCEPTION 'Schema-qualified references are not permitted';
++  END IF;
++
++  -- Force session scope: pre-filtered CTEs shadow the real tables by name.
++  scoped_sql := format(
++      'WITH sessions AS (SELECT * FROM public.sessions WHERE id = %1$L), '
++      || 'messages_meta AS (SELECT * FROM public.messages_meta WHERE session_id = %1$L), '
++      || 'message_stats AS (SELECT * FROM public.message_stats WHERE session_id = %1$L) '
++      || 'SELECT jsonb_agg(row_to_json(t)) FROM ( %2$s ) t',
++      session_id_param, query_sql
++  );
++
++  -- Read-only + bounded execution. (DEFINER owns the tables, so the CTE filter —
++  -- not RLS — is what guarantees single-session results here.)
++  PERFORM set_config('statement_timeout', '5000', true);
++  PERFORM set_config('default_transaction_read_only', 'on', true);
++
++  EXECUTE scoped_sql INTO result;
++  RETURN COALESCE(result, '[]'::JSONB);
++END;
++$$;
++
++-- Keep execution limited to the application roles only.
++REVOKE ALL ON FUNCTION execute_safe_query(TEXT, UUID) FROM PUBLIC;

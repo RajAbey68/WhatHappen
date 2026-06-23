@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { decryptText } from '@/lib/crypto'
 import PDFDocument from 'pdfkit'
@@ -19,6 +20,8 @@ function mapDbProject(dbProj: any) {
 }
 
 export async function POST(request: NextRequest) {
+  const _auth = await requireAuth(request)
+  if (_auth instanceof NextResponse) return _auth
   try {
     const { projectId, documentType = 'summary', format = 'pdf', passphrase } = await request.json()
 
