@@ -79,7 +79,7 @@ export async function generateWithFallback(
       const content = response.choices[0]?.message?.content
       if (!content) continue
 
-      logLLMUsage(model, response.usage).catch(() => {})
+      logLLMUsage(model, response.usage)
       return { content, model }
     } catch (err: any) {
       console.error(`[llm] ${model} failed: ${err.message}`)
@@ -89,18 +89,13 @@ export async function generateWithFallback(
   throw new Error('LLM request failed — all models exhausted')
 }
 
-async function logLLMUsage(model: string, usage?: OpenAI.CompletionUsage) {
-  if (!usage || !process.env.NEXT_PUBLIC_SUPABASE_URL) return
-  try {
-    const { createClient } = await import('@supabase/supabase-js')
-    const sb = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-    await sb.from('llm_usage').insert({
-      model,
-      prompt_tokens: usage.prompt_tokens,
-      completion_tokens: usage.completion_tokens,
-    })
-  } catch { /* non-critical */ }
+function logLLMUsage(model: string, usage?: OpenAI.CompletionUsage) {
+  if (!usage) return
+  // P0: the service-role key has been removed from the app. Telemetry no longer
+  // writes to the DB from here (that path needed SERVICE_ROLE and bypassed RLS).
+  // Re-add DB telemetry later via a dedicated, non-tenant insert grant or an
+  // edge function — never by reintroducing the service-role key into app code.
+  console.info(
+    `[llm] usage model=${model} prompt=${usage.prompt_tokens ?? 0} completion=${usage.completion_tokens ?? 0}`
+  )
 }

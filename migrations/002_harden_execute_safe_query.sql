@@ -70,3 +70,24 @@ BEGIN
   RETURN COALESCE(result, '[]'::JSONB);
 END;
 $$;
+
+-- 3. P0 grants: the app now calls the DB AS the authenticated user (RLS-enforced),
+-- not via the service-role key. Ensure that role can reach what it needs.
+-- (sessions: list + insert by the user; the metadata tables are read only through
+-- execute_safe_query as the read-only role, so they need no direct grant here.)
+GRANT SELECT, INSERT ON sessions TO authenticated;
+GRANT EXECUTE ON FUNCTION execute_safe_query(text, uuid) TO authenticated;
+
+-- The SECURITY DEFINER function runs as its owner (postgres) and does
+-- `SET LOCAL ROLE whathappen_readonly`. SET ROLE requires the owner to be a
+-- MEMBER of the target role, so grant it. Without this the function raises
+-- "permission denied to set role" at runtime. (Independent review: Gemini.)
+GRANT whathappen_readonly TO postgres;
+
+-- Explicit INSERT policy for sessions. A FOR ALL policy's USING expression also
+-- serves as the WITH CHECK when none is given (so migration 001 already permits
+-- this), but we state it explicitly to remove any doubt for INSERTs by the user.
+DROP POLICY IF EXISTS users_insert_own_sessions ON sessions;
+CREATE POLICY users_insert_own_sessions
+  ON sessions FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = user_id);
