@@ -134,7 +134,7 @@ Never use SELECT *. Only query aggregates or metadata.${feedbackClause}`,
       answer,
       data,
       model,
-      sql, // returned for debugging — remove in production if desired
+      // SEC-3/SEC-8: do NOT return the generated SQL to the client.
     })
   } catch (error: any) {
     console.error('[ai-search] error:', error.message)
