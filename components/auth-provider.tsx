@@ -19,6 +19,8 @@ interface AuthContextValue {
   user: User | null
   loading: boolean
   signInWithGoogle: () => Promise<void>
+  /** Email magic-link sign-in. Needs no OAuth secret. Returns an error string or null. */
+  signInWithEmail: (email: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
 
@@ -61,6 +63,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }
 
+  const signInWithEmail = async (
+    email: string
+  ): Promise<{ error: string | null }> => {
+    const { error } = await supabaseBrowser.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo:
+          typeof window !== 'undefined' ? window.location.origin : undefined,
+      },
+    })
+    return { error: error ? error.message : null }
+  }
+
   const signOut = async (): Promise<void> => {
     await supabaseBrowser.auth.signOut()
   }
@@ -72,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         loading,
         signInWithGoogle,
+        signInWithEmail,
         signOut,
       }}
     >

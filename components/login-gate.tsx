@@ -1,16 +1,19 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useAuth } from '@/components/auth-provider'
 
 /**
- * Gates the whole app behind Google sign-in. While the session is loading we
- * show a spinner; with no session we show the sign-in screen; once signed in we
- * render the app. This is the client-side half of authentication — the server
- * middleware independently rejects any /api call without a valid token.
+ * Gates the whole app behind sign-in. Offers two methods:
+ *  - Google OAuth (needs the provider configured in Supabase), and
+ *  - Email magic-link (needs no OAuth secret — works out of the box).
+ * The server middleware independently rejects any /api call without a valid token.
  */
 export function LoginGate({ children }: { children: ReactNode }) {
-  const { session, loading, signInWithGoogle } = useAuth()
+  const { session, loading, signInWithGoogle, signInWithEmail } = useAuth()
+  const [email, setEmail] = useState('')
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
 
   if (loading) {
     return (
@@ -20,29 +23,77 @@ export function LoginGate({ children }: { children: ReactNode }) {
     )
   }
 
-  if (!session) {
-    return (
-      <div className="flex min-h-screen items-center justify-center p-6">
-        <div className="w-full max-w-sm rounded-2xl border bg-white/80 p-8 text-center shadow-sm backdrop-blur">
-          <h1 className="text-xl font-semibold text-slate-800">WhatHappen</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            Sign in to analyze your chats. Your account keeps your data private to you.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              void signInWithGoogle()
-            }}
-            className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            <GoogleIcon /> Continue with Google
-          </button>
-        </div>
-      </div>
-    )
+  if (session) {
+    return <>{children}</>
   }
 
-  return <>{children}</>
+  const onEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email.trim()) return
+    setStatus('sending')
+    setErrorMsg('')
+    const { error } = await signInWithEmail(email.trim())
+    if (error) {
+      setStatus('error')
+      setErrorMsg(error)
+    } else {
+      setStatus('sent')
+    }
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center p-6">
+      <div className="w-full max-w-sm rounded-2xl border bg-white/80 p-8 text-center shadow-sm backdrop-blur">
+        <h1 className="text-xl font-semibold text-slate-800">WhatHappen</h1>
+        <p className="mt-2 text-sm text-slate-500">
+          Sign in to analyze your chats. Your account keeps your data private to you.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => {
+            void signInWithGoogle()
+          }}
+          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+        >
+          <GoogleIcon /> Continue with Google
+        </button>
+
+        <div className="my-5 flex items-center gap-3">
+          <span className="h-px flex-1 bg-slate-200" />
+          <span className="text-xs uppercase tracking-wide text-slate-400">or</span>
+          <span className="h-px flex-1 bg-slate-200" />
+        </div>
+
+        {status === 'sent' ? (
+          <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            Check your email — we sent a magic sign-in link to <strong>{email}</strong>.
+          </p>
+        ) : (
+          <form onSubmit={onEmailSubmit} className="space-y-3 text-left">
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none focus:border-slate-400"
+            />
+            <button
+              type="submit"
+              disabled={status === 'sending'}
+              className="w-full rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-700 disabled:opacity-60"
+            >
+              {status === 'sending' ? 'Sending…' : 'Email me a magic link'}
+            </button>
+            {status === 'error' && (
+              <p className="text-sm text-red-600">{errorMsg}</p>
+            )}
+          </form>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function GoogleIcon() {
