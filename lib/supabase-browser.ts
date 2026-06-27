@@ -11,15 +11,20 @@ import { createClient } from '@supabase/supabase-js'
  * obtains is what authenticates API calls (see auth-provider.tsx) and what RLS
  * uses server-side.
  */
-export const supabaseBrowser = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  {
-    auth: {
-      flowType: 'implicit',
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
-  }
-)
+// Fallback placeholders keep createClient from throwing during the build's
+// static prerender when the env vars aren't present (e.g. the Preview
+// environment). At runtime in the browser the real NEXT_PUBLIC_* values are
+// inlined. Mirrors the pattern in lib/supabase.ts.
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key'
+
+export const supabaseBrowser = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    flowType: 'implicit',
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+})
