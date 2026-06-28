@@ -27,6 +27,10 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [isDataProcessed, setIsDataProcessed] = useState(!!selectedProject?.messageCount)
   const [showProcessDialog, setShowProcessDialog] = useState(false)
+  const [showQueryDialog, setShowQueryDialog] = useState(false)
+  const [queryInput, setQueryInput] = useState('')
+  const [queryResult, setQueryResult] = useState('')
+  const [isQueryLoading, setIsQueryLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -164,6 +168,36 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
     }
   }
 
+  const handleDatabaseQuery = async () => {
+    if (!queryInput.trim()) return
+
+    setIsQueryLoading(true)
+    setQueryResult('')
+
+    try {
+      const response = await fetch('/api/ai-chat/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          message: queryInput
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setQueryResult(data.response || 'No answer returned')
+      } else {
+        throw new Error('Failed to query database')
+      }
+    } catch (error) {
+      console.error('Error querying database:', error)
+      setQueryResult('Sorry, I could not query the database right now.')
+    } finally {
+      setIsQueryLoading(false)
+    }
+  }
+
   const suggestedQuestions = [
     "How many messages are in this chat?",
     "Who are the most active participants?",
@@ -192,53 +226,88 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
               </div>
             </div>
             
-            <Dialog open={showProcessDialog} onOpenChange={setShowProcessDialog}>
-              {!isDataProcessed && (
-                <>
-                  <DialogTrigger asChild>
-                    <Button 
-                      className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
-                      disabled={isLoading}
-                      onClick={processWhatsAppData}
-                    >
-                      <Database className="h-4 w-4 mr-2" />
-                      Process WhatsApp Data
+            <div className="flex items-center gap-2">
+              <Dialog open={showQueryDialog} onOpenChange={setShowQueryDialog}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" disabled={isLoading || !selectedProject}>
+                    <Database className="h-4 w-4 mr-2" />
+                    Query Database
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Query stored messages</DialogTitle>
+                    <DialogDescription>
+                      Ask about invoice, payment, receipt, or any other stored chat content.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <Textarea
+                      value={queryInput}
+                      onChange={(e) => setQueryInput(e.target.value)}
+                      placeholder="Example: find invoice discussions or show payment mentions"
+                      className="min-h-[90px]"
+                    />
+                    <Button onClick={handleDatabaseQuery} disabled={isQueryLoading || !queryInput.trim()} className="w-full">
+                      {isQueryLoading ? 'Searching...' : 'Search database'}
                     </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Process WhatsApp Data</DialogTitle>
-                      <DialogDescription>
-                        Load your WhatsApp messages into AI context for intelligent querying.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="p-4 bg-blue-50 rounded-lg">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <MessageSquare className="h-5 w-5 text-blue-500" />
-                          <span className="font-medium">Chat Overview</span>
-                        </div>
-                        <div className="text-sm text-slate-600">
-                          • {selectedProject.messageCount?.toLocaleString()} messages
-                          • {selectedProject.participants?.length || 0} participants  
-                          • {selectedProject.analysis?.keywords?.length || 0} keywords
-                          • {selectedProject.dateRange?.start && selectedProject.dateRange?.end ? 
-                              `${Math.ceil((new Date(selectedProject.dateRange.end).getTime() - new Date(selectedProject.dateRange.start).getTime()) / (1000 * 60 * 60 * 24))} days`
-                              : 'Date range available'}
-                        </div>
+                    {queryResult && (
+                      <div className="rounded-lg border bg-slate-50 p-3 text-sm whitespace-pre-wrap">
+                        {queryResult}
                       </div>
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog open={showProcessDialog} onOpenChange={setShowProcessDialog}>
+                {!isDataProcessed && (
+                  <>
+                    <DialogTrigger asChild>
                       <Button 
-                        onClick={processWhatsAppData} 
+                        className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
                         disabled={isLoading}
-                        className="w-full"
+                        onClick={processWhatsAppData}
                       >
-                        {isLoading ? 'Processing...' : 'Load Data into AI'}
+                        <Database className="h-4 w-4 mr-2" />
+                        Process WhatsApp Data
                       </Button>
-                    </div>
-                  </DialogContent>
-                </>
-              )}
-            </Dialog>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Process WhatsApp Data</DialogTitle>
+                        <DialogDescription>
+                          Load your WhatsApp messages into AI context for intelligent querying.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="p-4 bg-blue-50 rounded-lg">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <MessageSquare className="h-5 w-5 text-blue-500" />
+                            <span className="font-medium">Chat Overview</span>
+                          </div>
+                          <div className="text-sm text-slate-600">
+                            • {selectedProject.messageCount?.toLocaleString()} messages
+                            • {selectedProject.participants?.length || 0} participants  
+                            • {selectedProject.analysis?.keywords?.length || 0} keywords
+                            • {selectedProject.dateRange?.start && selectedProject.dateRange?.end ? 
+                                `${Math.ceil((new Date(selectedProject.dateRange.end).getTime() - new Date(selectedProject.dateRange.start).getTime()) / (1000 * 60 * 60 * 24))} days`
+                                : 'Date range available'}
+                          </div>
+                        </div>
+                        <Button 
+                          onClick={processWhatsAppData} 
+                          disabled={isLoading}
+                          className="w-full"
+                        >
+                          {isLoading ? 'Processing...' : 'Load Data into AI'}
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </>
+                )}
+              </Dialog>
+            </div>
           </div>
         </CardHeader>
       </Card>

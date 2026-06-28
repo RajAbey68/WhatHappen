@@ -49,7 +49,12 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
       'application/json': ['.json'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/pdf': ['.pdf'],
-      'text/csv': ['.csv']
+      'text/csv': ['.csv'],
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/gif': ['.gif'],
+      'image/webp': ['.webp'],
+      'image/bmp': ['.bmp']
     },
     multiple: true
   })

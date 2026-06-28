@@ -29,6 +29,28 @@ function analyzeSentiment(text) {
   return { score, comparative, tokens, words, positive, negative };
 }
 
+// Extract URLs and normalized domains, and provide a cleaned text version
+function processMessageText(rawText) {
+  const urlRegex = /(https?:\/\/[^\s]+)/gi;
+  const urls = rawText.match(urlRegex) || [];
+
+  // Remove URLs from the text used for word-frequency analysis
+  const textForAnalysis = rawText.replace(urlRegex, '');
+
+  // Clean punctuation for downstream tokenization
+  const cleanedText = textForAnalysis.replace(/[^\w\s]/g, '').toLowerCase();
+
+  const domains = urls.map(u => {
+    try {
+      return new URL(u).hostname.replace(/^www\./, '');
+    } catch (e) {
+      return null;
+    }
+  }).filter(Boolean);
+
+  return { cleanedText, urls, domains };
+}
+
 const STOPWORDS = new Set([
   'the', 'and', 'you', 'that', 'this', 'have', 'with', 'just', 'like', 'what',
   'your', 'will', 'here', 'there', 'about', 'some', 'they', 'them', 'for', 'but',
@@ -165,18 +187,25 @@ self.onmessage = function (e) {
             messageType = 'system';
           }
 
-          let sentimentAnalysis = null;
-          if (messageType === 'text') {
-            sentimentAnalysis = analyzeSentiment(message);
-          }
+            let sentimentAnalysis = null;
+            // Preserve raw message for sentiment/LLM context, but extract URLs/domains
+            const processed = processMessageText(message);
+            if (messageType === 'text') {
+              sentimentAnalysis = analyzeSentiment(message);
+            }
 
-          currentMessage = {
-            timestamp,
-            sender: sender.trim(),
-            message: message.trim(),
-            messageType,
-            sentiment: sentimentAnalysis
-          };
+            currentMessage = {
+              timestamp,
+              sender: sender.trim(),
+              message: message.trim(),
+              messageType,
+              sentiment: sentimentAnalysis,
+              // New structured metadata
+              urls: processed.urls,
+              domains: processed.domains,
+              hasLinks: (processed.urls && processed.urls.length > 0),
+              cleanedText: processed.cleanedText
+            };
         } catch (error) {
           currentMessage = null;
         }
@@ -267,8 +296,8 @@ function analyzeChat(messages) {
         sentimentCount++;
       }
 
-      const words = message.message.toLowerCase()
-        .replace(/[^\w\s]/g, '')
+      const sourceText = (message.cleanedText && typeof message.cleanedText === 'string') ? message.cleanedText : message.message.toLowerCase().replace(/[^\w\s]/g, '');
+      const words = sourceText
         .split(/\s+/)
         .filter(word => word.length >= 3 && !STOPWORDS.has(word));
       

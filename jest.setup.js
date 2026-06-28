@@ -1,18 +1,43 @@
 import '@testing-library/jest-dom'
+import 'openai/shims/node'
+import { TextEncoder, TextDecoder } from 'util'
+
+if (!global.TextEncoder) {
+  global.TextEncoder = TextEncoder
+}
+
+if (!global.TextDecoder) {
+  global.TextDecoder = TextDecoder
+}
 
 // Mock next/server for API route testing
 jest.mock('next/server', () => ({
   NextRequest: class {
-    constructor(url, options) {
+    constructor(url, options = {}) {
+
       this.url = url
-      this.method = options?.method || 'GET'
-      this.body = options?.body
-      this.headers = new Map(Object.entries(options?.headers || {}))
+      this.method = options.method || 'GET'
+      this.body = options.body
+      this.headers = new Map(Object.entries(options.headers || {}))
+    }
+
+    async json() {
+      if (typeof this.body === 'string') {
+        return JSON.parse(this.body)
+      }
+      if (this.body && typeof this.body === 'object') {
+        return this.body
+      }
+      return {}
     }
   },
   NextResponse: class {
-    static json(data, init) {
-      return { json: () => Promise.resolve(data), ...init }
+    static json(data, init = {}) {
+      return {
+        json: () => Promise.resolve(data),
+        status: init?.status || 200,
+        ...init,
+      }
     }
   },
 }))
@@ -43,6 +68,8 @@ jest.mock('next/image', () => ({
   },
 }))
 
+global.fetch = global.fetch || jest.fn()
+
 // Suppress ReactDOM warnings
 const originalError = console.error
 beforeAll(() => {
@@ -60,3 +87,8 @@ beforeAll(() => {
 afterAll(() => {
   console.error = originalError
 })
+
+// Polyfill scrollIntoView for JSDOM environment used by Jest
+if (typeof global.Element !== 'undefined' && !global.Element.prototype.scrollIntoView) {
+  global.Element.prototype.scrollIntoView = function() {}
+}
