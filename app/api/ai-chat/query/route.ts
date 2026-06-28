@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { OpenAI } from 'openai'
-import { supabase } from '@/lib/supabase'
+import { requireAuth, getUserClient } from '@/lib/auth'
 
 // Model is env-overridable; default upgraded off the dated gpt-3.5-turbo.
 // NOTE (architecture): the house default stack is Claude via Supabase Edge
@@ -21,6 +21,16 @@ type StoredMessage = {
   metadata?: Record<string, unknown> | null
 }
 
+type ProjectContextDetails = {
+  id: string
+  name?: string | null
+  description?: string | null
+  messageCount?: number | null
+  participants?: string[] | null
+  dateRange?: { start?: string; end?: string } | null
+  analysis?: { keywords?: string[] } | null
+}
+
 function getOpenAI(): OpenAI | null {
   const key = process.env.OPENAI_API_KEY
   if (key && key !== 'your_openai_api_key_here') {
@@ -29,7 +39,9 @@ function getOpenAI(): OpenAI | null {
   return null
 }
 
-async function fetchStoredMessages(projectId: string): Promise<StoredMessage[]> {
+async function fetchStoredMessages(projectId: string, token: string): Promise<StoredMessage[]> {
+  const supabase = getUserClient(token)
+
   try {
     const { data, error } = await supabase
       .from('messages')
@@ -40,7 +52,7 @@ async function fetchStoredMessages(projectId: string): Promise<StoredMessage[]> 
 
     if (error) throw error
     return Array.isArray(data) ? data : []
-  } catch (error) {
+  } catch {
     try {
       const { data, error: fallbackError } = await supabase
         .from('messages')
@@ -119,6 +131,11 @@ function buildStoredMessageContext(messages: StoredMessage[], query: string): st
 }
 
 export async function POST(request: NextRequest) {
+  const authResult = await requireAuth(request)
+  if (!('token' in authResult)) return authResult
+
+  const userSupabase = getUserClient(authResult.token)
+
   try {
     const body = await request.json()
     const projectId = body.projectId
@@ -154,27 +171,28 @@ export async function POST(request: NextRequest) {
 
     // Build context for AI from Supabase project data
     let projectContext = ''
-    let projectDetails: any = null
-    try {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('id', projectId)
-        .single()
+    const { data: projectData, error: projectError } = await userSupabase
+      .from('projects')
+      .select('*')
+      .eq('id', projectId)
+      .eq('user_id', authResult.user.id)
+      .single()
 
-      if (error) throw error
+    if (projectError || !projectData) {
+      return NextResponse.json({ error: 'Project not found or not authorized' }, { status: 404 })
+    }
 
-      if (data) {
-        projectDetails = {
-          id: data.id,
-          name: data.name,
-          description: data.description,
-          messageCount: data.message_count,
-          participants: data.participants,
-          dateRange: data.date_range,
-          analysis: data.analysis
-        }
-        projectContext = `
+    const projectDetails: ProjectContextDetails = {
+      id: projectData.id,
+      name: projectData.name,
+      description: projectData.description,
+      messageCount: projectData.message_count,
+      participants: projectData.participants,
+      dateRange: projectData.date_range,
+      analysis: projectData.analysis,
+    }
+
+    projectContext = `
 Chat Meta-Context:
 - Project Name: ${projectDetails.name || 'Unknown'}
 - Participants: ${projectDetails.participants?.join(', ') || 'Unknown'}
@@ -182,12 +200,8 @@ Chat Meta-Context:
 - Date Range: ${projectDetails.dateRange ? `${projectDetails.dateRange.start} to ${projectDetails.dateRange.end}` : 'Unknown'}
 - Key Topics/Keywords: ${projectDetails.analysis?.keywords?.slice(0, 15).join(', ') || 'None identified'}
 `
-      }
-    } catch (err) {
-      console.warn('Could not fetch project details from database, using empty context:', err)
-    }
 
-    const storedMessages = await fetchStoredMessages(projectId)
+    const storedMessages = await fetchStoredMessages(projectId, authResult.token)
     const storedMessageContext = buildStoredMessageContext(storedMessages, message)
 
     const systemPrompt = `You are a professional AI assistant specialized in analyzing WhatsApp chat logs.

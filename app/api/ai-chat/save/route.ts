@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { requireAuth, getUserClient } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
+  const authResult = await requireAuth(request)
+  if (!('token' in authResult)) return authResult
+
   try {
+    const supabase = getUserClient(authResult.token)
     const { projectId, messages } = await request.json()
 
     if (!projectId || !messages) {
@@ -12,9 +16,9 @@ export async function POST(request: NextRequest) {
     // Save the conversation
     const conversationData = {
       project_id: projectId,
-      messages: messages.map((msg: any) => ({
+      messages: messages.map((msg: { timestamp?: string } & Record<string, unknown>) => ({
         ...msg,
-        timestamp: new Date(msg.timestamp).toISOString()
+        timestamp: new Date(msg.timestamp || Date.now()).toISOString()
       }))
     }
 
@@ -39,7 +43,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const authResult = await requireAuth(request)
+  if (!('token' in authResult)) return authResult
+
   try {
+    const supabase = getUserClient(authResult.token)
     const url = new URL(request.url)
     const projectId = url.searchParams.get('projectId')
 
