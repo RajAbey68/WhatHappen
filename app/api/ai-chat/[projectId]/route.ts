@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { requireAuth, getUserClient } from '@/lib/auth'
 
 function mapDbProject(dbProj: any) {
   if (!dbProj) return null
@@ -20,7 +20,11 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { projectId: string } }
 ) {
+  const authResult = await requireAuth(request)
+  if (!('token' in authResult)) return authResult
+
   try {
+    const supabase = getUserClient(authResult.token)
     const { projectId } = params
 
     // Get project details
@@ -28,6 +32,7 @@ export async function GET(
       .from('projects')
       .select('*')
       .eq('id', projectId)
+      .eq('user_id', authResult.user.id)
       .single()
 
     if (projError || !dbProj) {

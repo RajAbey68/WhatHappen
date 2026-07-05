@@ -10,7 +10,7 @@
 export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth, getServiceClient } from '@/lib/auth'
+import { requireAuth, getUserClient } from '@/lib/auth'
 import { generateWithFallback } from '@/lib/llm'
 import { validateGeneratedSQL, ALLOWED_TABLES } from '@/lib/sql-validator'
 
@@ -50,8 +50,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 })
     }
 
-    // Verify the session belongs to this user
-    const supabase = getServiceClient()
+    // Verify the session belongs to this user. P0: run AS the user, so RLS (not
+    // just this filter) enforces that only the caller's own sessions are visible.
+    const supabase = getUserClient(authResult.token)
     const { data: session } = await supabase
       .from('sessions')
       .select('id')
@@ -134,7 +135,7 @@ Never use SELECT *. Only query aggregates or metadata.${feedbackClause}`,
       answer,
       data,
       model,
-      sql, // returned for debugging — remove in production if desired
+      // SEC-3/SEC-8: do NOT return the generated SQL to the client.
     })
   } catch (error: any) {
     console.error('[ai-search] error:', error.message)

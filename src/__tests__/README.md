@@ -243,7 +243,7 @@ moduleNameMapper: {
 1. **Test Isolation**: Each test should be independent
 2. **Clear Test Names**: Use descriptive test titles
 3. **Arrange-Act-Assert**: Follow AAA pattern
-4. **Mock External APIs**: Mock OpenAI, Firebase, etc.
+4. **Mock External APIs**: Mock OpenAI, Supabase, etc.
 5. **Test Edge Cases**: Empty inputs, large files, special characters
 6. **Use Fixtures**: Create reusable test data
 7. **Avoid Implementation Details**: Test behavior, not implementation

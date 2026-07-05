@@ -7,7 +7,7 @@ export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
-import { requireAuth, getServiceClient } from '@/lib/auth'
+import { requireAuth, getUserClient } from '@/lib/auth'
 import { v4 as uuidv4 } from 'uuid'
 
 const MAX_FILE_BYTES = 500 * 1024 * 1024 // 500 MB
@@ -21,7 +21,7 @@ const ALLOWED_MIMES = new Set([
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+  const { user, token } = authResult
 
   const { fileName, fileSize, mimeType, sourceApp = 'whathappen' } = await request.json()
 
@@ -47,7 +47,8 @@ export async function POST(request: NextRequest) {
   const sessionId = uuidv4()
   const gcsPath = `uploads/${user.id}/${sessionId}/${fileName}`
 
-  const supabase = getServiceClient()
+  // P0: run AS the user; RLS WITH CHECK (auth.uid() = user_id) authorizes this insert.
+  const supabase = getUserClient(token)
   const { error: dbError } = await supabase.from('sessions').insert({
     id: sessionId,
     user_id: user.id,

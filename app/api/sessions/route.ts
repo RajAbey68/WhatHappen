@@ -2,14 +2,16 @@
 export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth, getServiceClient } from '@/lib/auth'
+import { requireAuth, getUserClient } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+  const { user, token } = authResult
 
-  const supabase = getServiceClient()
+  // P0: run AS the user so RLS enforces tenancy. The .eq('user_id') below is now
+  // redundant defence-in-depth, not the security boundary.
+  const supabase = getUserClient(token)
   const { data, error } = await supabase
     .from('sessions')
     .select('id, file_name, source_app, source_type, total_messages, processing_status, date_range_start, date_range_end, created_at')

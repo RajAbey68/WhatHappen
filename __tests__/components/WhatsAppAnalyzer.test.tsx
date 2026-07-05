@@ -10,11 +10,14 @@ jest.mock('lucide-react', () => ({
   BarChart3: (props: any) => <div data-testid="chart-icon" {...props} />,
   FileText: (props: any) => <div data-testid="file-icon" {...props} />,
   Bot: (props: any) => <div data-testid="bot-icon" {...props} />,
-  Database: (props: any) => <div data-testid="database-icon" {...props} />
+  Database: (props: any) => <div data-testid="database-icon" {...props} />,
+  Key: (props: any) => <div data-testid="key-icon" {...props} />,
+  Shield: (props: any) => <div data-testid="shield-icon" {...props} />,
+  RefreshCw: (props: any) => <div data-testid="refresh-icon" {...props} />
 }))
 
 // Mock the sub-components
-jest.mock('../../components/project-selector', () => ({
+jest.mock('@/components/project-selector', () => ({
   ProjectSelector: ({ onProjectSelect, selectedProject }: any) => (
     <div data-testid="project-selector">
       <div data-testid="selected-project-id">{selectedProject?.id || 'none'}</div>
@@ -43,7 +46,7 @@ jest.mock('../../components/project-selector', () => ({
   )
 }))
 
-jest.mock('../../components/file-upload', () => ({
+jest.mock('@/components/file-upload', () => ({
   FileUpload: ({ onFileProcessed }: any) => (
     <div data-testid="file-upload-mock">
       <button 
@@ -61,7 +64,7 @@ jest.mock('../../components/file-upload', () => ({
   )
 }))
 
-jest.mock('../../components/ai-chat-interface', () => ({
+jest.mock('@/components/ai-chat-interface', () => ({
   AIChatInterface: ({ selectedProject }: any) => (
     <div data-testid="ai-chat-interface-mock">
       Chatting about {selectedProject?.name}
@@ -69,8 +72,14 @@ jest.mock('../../components/ai-chat-interface', () => ({
   )
 }))
 
+jest.mock('@/components/database-viewer', () => ({
+  DatabaseViewer: ({ selectedProject }: any) => (
+    <div data-testid="database-viewer-mock">Database viewer for {selectedProject?.name}</div>
+  )
+}))
+
 // Mock shadcn/ui components
-jest.mock('../../components/ui/card', () => ({
+jest.mock('@/components/ui/card', () => ({
   Card: ({ children, className, ...props }: any) => <div className={className} data-testid="card" {...props}>{children}</div>,
   CardContent: ({ children, className, ...props }: any) => <div className={className} data-testid="card-content" {...props}>{children}</div>,
   CardHeader: ({ children, className, ...props }: any) => <div className={className} data-testid="card-header" {...props}>{children}</div>,
@@ -78,7 +87,7 @@ jest.mock('../../components/ui/card', () => ({
   CardDescription: ({ children, className, ...props }: any) => <p className={className} data-testid="card-description" {...props}>{children}</p>
 }))
 
-jest.mock('../../components/ui/badge', () => ({
+jest.mock('@/components/ui/badge', () => ({
   Badge: ({ children, className, ...props }: any) => (
     <span data-testid="badge" className={className} {...props}>
       {children}
@@ -86,7 +95,7 @@ jest.mock('../../components/ui/badge', () => ({
   )
 }))
 
-jest.mock('../../components/ui/tabs', () => ({
+jest.mock('@/components/ui/tabs', () => ({
   Tabs: ({ children, defaultValue, className, ...props }: any) => (
     <div data-testid="tabs" data-default-value={defaultValue} className={className} {...props}>
       {children}
@@ -114,12 +123,29 @@ jest.mock('../../components/ui/tabs', () => ({
   )
 }))
 
+jest.mock('@/components/ui/dialog', () => ({
+  Dialog: ({ children }: any) => <div data-testid="dialog">{children}</div>,
+  DialogTrigger: ({ children, asChild }: any) => asChild ? children : <button data-testid="dialog-trigger">{children}</button>,
+  DialogContent: ({ children }: any) => <div data-testid="dialog-content">{children}</div>,
+  DialogHeader: ({ children }: any) => <div data-testid="dialog-header">{children}</div>,
+  DialogTitle: ({ children }: any) => <h3 data-testid="dialog-title">{children}</h3>,
+  DialogDescription: ({ children }: any) => <p data-testid="dialog-description">{children}</p>,
+  DialogFooter: ({ children }: any) => <div data-testid="dialog-footer">{children}</div>
+}))
+
+jest.mock('@/components/ui/bottom-sheet', () => ({
+  BottomSheet: ({ children }: any) => <div data-testid="bottom-sheet">{children}</div>,
+  BottomSheetContent: ({ children }: any) => <div data-testid="bottom-sheet-content">{children}</div>,
+  BottomSheetHeader: ({ children }: any) => <div data-testid="bottom-sheet-header">{children}</div>,
+  BottomSheetTitle: ({ children }: any) => <h3 data-testid="bottom-sheet-title">{children}</h3>
+}))
+
 describe('WhatsAppAnalyzer Main Page Component', () => {
   describe('Initial Default State (No Project Selected)', () => {
     test('should render headers and description text', () => {
       render(<Home />)
-      expect(screen.getByText('WhatsApp Analyzer')).toBeInTheDocument()
-      expect(screen.getByText(/Professional WhatsApp chat analysis with AI-powered insights/i)).toBeInTheDocument()
+      expect(screen.getByText('WhatHappen')).toBeInTheDocument()
+      expect(screen.getByText(/Zero-Knowledge WhatsApp Analyzer/i)).toBeInTheDocument()
     })
 
     test('should render project selector interface in default state', () => {
@@ -182,10 +208,10 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       await user.click(selectBtn)
 
       expect(screen.getByTestId('tabs')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-upload')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-ai-chat')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-analysis')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-documents')).toBeInTheDocument()
+      expect(screen.getAllByTestId('tab-trigger-upload').length).toBeGreaterThan(0)
+      expect(screen.getAllByTestId('tab-trigger-ai-chat').length).toBeGreaterThan(0)
+      expect(screen.getAllByTestId('tab-trigger-analysis').length).toBeGreaterThan(0)
+      expect(screen.getAllByTestId('tab-trigger-documents').length).toBeGreaterThan(0)
     })
 
     test('should enable AI Chat, Analysis and Documents tabs when messageCount > 0', async () => {
@@ -195,9 +221,9 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       const selectBtn = screen.getByTestId('select-project-btn')
       await user.click(selectBtn)
 
-      expect(screen.getByTestId('tab-trigger-ai-chat')).not.toBeDisabled()
-      expect(screen.getByTestId('tab-trigger-analysis')).not.toBeDisabled()
-      expect(screen.getByTestId('tab-trigger-documents')).not.toBeDisabled()
+      screen.getAllByTestId('tab-trigger-ai-chat').forEach((el) => expect(el).not.toBeDisabled())
+      screen.getAllByTestId('tab-trigger-analysis').forEach((el) => expect(el).not.toBeDisabled())
+      screen.getAllByTestId('tab-trigger-documents').forEach((el) => expect(el).not.toBeDisabled())
     })
 
     test('should render sub-components inside tab contents when selected', async () => {

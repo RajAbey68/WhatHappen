@@ -1,0 +1,103 @@
+'use client'
+
+// Side-effect import: installs the same-origin /api token interceptor at module
+// load, before any component mounts. See lib/fetch-patch.ts.
+import '@/lib/fetch-patch'
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react'
+import type { Session, User } from '@supabase/supabase-js'
+import { supabaseBrowser } from '@/lib/supabase-browser'
+
+interface AuthContextValue {
+  session: Session | null
+  user: User | null
+  loading: boolean
+  signInWithGoogle: () => Promise<void>
+  /** Email magic-link sign-in. Needs no OAuth secret. Returns an error string or null. */
+  signInWithEmail: (email: string) => Promise<{ error: string | null }>
+  signOut: () => Promise<void>
+}
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+
+    // Resolves after the implicit-flow hash (if any) has been parsed, so we
+    // don't flash the sign-in screen on return from Google.
+    supabaseBrowser.auth.getSession().then(({ data }) => {
+      if (!active) return
+      setSession(data.session)
+      setLoading(false)
+    })
+
+    const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_event, s) => {
+      if (!active) return
+      setSession(s)
+      setLoading(false)
+    })
+
+    return () => {
+      active = false
+      sub.subscription.unsubscribe()
+    }
+  }, [])
+
+  const signInWithGoogle = async (): Promise<void> => {
+    await supabaseBrowser.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo:
+          typeof window !== 'undefined' ? window.location.origin : undefined,
+      },
+    })
+  }
+
+  const signInWithEmail = async (
+    email: string
+  ): Promise<{ error: string | null }> => {
+    const { error } = await supabaseBrowser.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo:
+          typeof window !== 'undefined' ? window.location.origin : undefined,
+      },
+    })
+    return { error: error ? error.message : null }
+  }
+
+  const signOut = async (): Promise<void> => {
+    await supabaseBrowser.auth.signOut()
+  }
+
+  return (
+    <AuthContext.Provider
+      value={{
+        session,
+        user: session?.user ?? null,
+        loading,
+        signInWithGoogle,
+        signInWithEmail,
+        signOut,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext)
+  if (!ctx) throw new Error('useAuth must be used within <AuthProvider>')
+  return ctx
+}

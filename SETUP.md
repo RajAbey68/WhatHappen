@@ -12,13 +12,17 @@ Create a `.env.local` file in the root directory with these variables:
 # OpenAI Configuration (Required for AI Chat)
 OPENAI_API_KEY=your_openai_api_key_here
 
-# Firebase Configuration (Required for data storage)
-NEXT_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+# Supabase Configuration (Required for authentication + data storage)
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+
+# Optional: OpenRouter/DeepSeek routing for AI services
+OPENROUTER_API_KEY=your_openrouter_api_key
+DEEPSEEK_API_KEY=your_deepseek_api_key
+
+# Optional: Cloud Storage for large uploads
+GCS_BUCKET=your_gcs_bucket_name
 
 # Optional: Additional AI capabilities
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
@@ -31,12 +35,13 @@ ANTHROPIC_API_KEY=your_anthropic_api_key_here
 2. Create a new API key
 3. Add it to your `.env.local` file
 
-#### Firebase Project:
-1. Visit https://console.firebase.google.com
-2. Create a new project or use existing
-3. Go to Project Settings > General > Your apps
-4. Add web app if not exists
-5. Copy the config values to `.env.local`
+#### Supabase Project:
+1. Visit https://supabase.com/dashboard
+2. Create a new project or use an existing project
+3. Go to Settings > API
+4. Copy `Project URL` into `NEXT_PUBLIC_SUPABASE_URL`
+5. Copy `anon public` key into `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+6. Copy `service_role` key into `SUPABASE_SERVICE_ROLE_KEY`
 
 ### 3. Start the Application
 

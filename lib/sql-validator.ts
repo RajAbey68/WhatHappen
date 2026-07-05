@@ -6,6 +6,7 @@
  */
 
 const BLOCKED_PATTERNS = [
+  /\bSELECT\s+\*/i,        // no SELECT * — force explicit columns (SEC-3)
   /pg_sleep/i,
   /pg_read_file/i,
   /pg_catalog/i,
@@ -49,6 +50,14 @@ export function validateGeneratedSQL(
   // Must start with SELECT
   if (!trimmed.toUpperCase().startsWith('SELECT')) {
     return { valid: false, reason: 'Query must start with SELECT' }
+  }
+
+  // SEC-3: tenancy filter is mandatory. The query must constrain to the caller's
+  // session via the bound $1 placeholder. The DB function execute_safe_query ALSO
+  // enforces this (RLS + parameter binding); rejecting here gives a clearer error
+  // and is defence-in-depth, not the sole control.
+  if (!/session_id/i.test(trimmed) || !trimmed.includes('$1')) {
+    return { valid: false, reason: 'Query must filter on session_id = $1' }
   }
 
   // Block dangerous patterns
