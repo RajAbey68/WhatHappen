@@ -11,9 +11,6 @@ import { v4 as uuidv4 } from 'uuid'
 const Sentiment = require('sentiment')
 const execFileAsync = promisify(execFile)
 
-// Firebase integration temporarily disabled due to compatibility issues
-// Will be re-enabled once Node.js/Firebase compatibility is resolved
-
 // Conditional imports to avoid build-time issues
 let mammoth: any = null
 let pdfParse: any = null
