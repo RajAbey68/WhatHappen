@@ -100,14 +100,15 @@ async function uploadFile(
   content: string | Buffer,
   contentType: string = 'text/plain',
 ): Promise<{ status: number; data: any }> {
-  const contentStr = typeof content === 'string' ? content : content.toString('utf-8')
-
-  // Build multipart body for either mode
-  const { body, boundary } = buildMultipart({
-    file: { value: contentStr, filename: fileName, contentType },
-  })
+  const isBinary = Buffer.isBuffer(content)
 
   if (IS_SERVER_MODE) {
+    // Server mode: use multipart fetch
+    // For binary content, base64-encode into the form-data body
+    const contentStr = isBinary ? content.toString('base64') : (content as string)
+    const { body, boundary } = buildMultipart({
+      file: { value: contentStr, filename: fileName, contentType },
+    })
     const res = await fetch(`${API_BASE}/api/process-file`, {
       method: 'POST',
       headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
@@ -116,8 +117,12 @@ async function uploadFile(
     return { status: res.status, data: await res.json() }
   }
 
-  // Direct mode: use native FormData + File (Node 20+), create a standard Request
-  const file = new File([contentStr], fileName, { type: contentType })
+  // Direct mode: use native FormData + File (Node 20+)
+  const file = new File(
+    isBinary ? [content] : [content as string],
+    fileName,
+    { type: contentType },
+  )
   const formData = new FormData()
   formData.append('file', file)
   const request = new Request('http://localhost:3000/api/process-file', {
@@ -125,8 +130,7 @@ async function uploadFile(
     body: formData,
   })
 
-  // Import and call the handler. We need to make it look like a NextRequest,
-  // but NextRequest extends Request, so a plain Request with formData() works.
+  // Import and call the handler. NextRequest extends Request, so a standard Request works.
   const { POST } = await import('../../app/api/process-file/route')
   const response = await POST(request as any)
   const respData = await response.json()
@@ -429,14 +433,15 @@ function createCorruptZipBuffer(): Buffer {
       return
     }
 
-    // Direct mode: mock request with no file
+    // Direct mode: POST with empty FormData (no 'file' field)
+    const formData = new FormData()
+    formData.append('dummy', 'value')
+    const request = new Request('http://localhost:3000/api/process-file', {
+      method: 'POST',
+      body: formData,
+    })
     const { POST } = await import('../../app/api/process-file/route')
-    const mockRequest = {
-      formData: async () => ({
-        get: () => null,
-      }),
-    } as any
-    const response = await POST(mockRequest)
+    const response = await POST(request as any)
     const respData = await response.json()
     assert(response.status === 400, `Expected 400, got ${response.status}: ${JSON.stringify(respData)}`)
     assert(respData.error?.toLowerCase().includes('no file'), `Error should mention 'no file': ${respData.error}`)
