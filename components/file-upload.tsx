@@ -27,7 +27,7 @@ interface UploadedFile {
 export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploadProps) {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
-  const [aggregatedData, setAggregatedData] = useState<any>(null)
+  const setAggregatedData = useState<any>(null)[1]
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map(file => ({
@@ -38,7 +38,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
     
     setUploadedFiles(prev => [...prev, ...newFiles])
     processFiles(newFiles)
-  }, [projectId, passphrase])
+  }, [projectId, passphrase, processFiles])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -55,6 +55,9 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
   })
 
   const processFiles = async (files: UploadedFile[]) => {
+=======
+  const processFiles = useCallback(async (files: UploadedFile[]) => {
+>>>>>>> Stashed changes
     setIsProcessing(true)
     const processedResults: any[] = []
     
@@ -250,7 +253,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
     }
 
     setIsProcessing(false)
-  }
+  }, [onFileProcessed, projectId, passphrase, setAggregatedData])
 
   const aggregateMultipleFiles = (results: any[]) => {
     const aggregated = {
@@ -306,7 +309,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
     const combinedWordFreq: any = {}
     const combinedMessagesByParticipant: any = {}
     const combinedHourlyDist: any = {}
-    let allDates: Date[] = []
+    const allDates: Date[] = []
 
     results.forEach(result => {
       // Total messages
@@ -375,6 +378,36 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
     return aggregated
   }
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    const newFiles = acceptedFiles.map(file => ({
+      file,
+      status: 'pending' as const,
+      progress: 0
+    }))
+    
+    setUploadedFiles(prev => [...prev, ...newFiles])
+    processFiles(newFiles)
+  }, [processFiles])
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'text/plain': ['.txt'],
+      'application/zip': ['.zip'],
+      'application/x-zip-compressed': ['.zip'],
+      'application/json': ['.json'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/pdf': ['.pdf'],
+      'text/csv': ['.csv'],
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/gif': ['.gif'],
+      'image/webp': ['.webp'],
+      'image/bmp': ['.bmp']
+    },
+    multiple: true
+  })
 
   const removeFile = (fileToRemove: File) => {
     setUploadedFiles(prev => prev.filter(f => f.file !== fileToRemove))
