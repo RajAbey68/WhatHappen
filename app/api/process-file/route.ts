@@ -11,6 +11,7 @@ const Sentiment = require('sentiment')
 // Conditional imports to avoid build-time issues
 let mammoth: any = null
 let pdfParse: any = null
+let AdmZip: any = null
 
 async function getMammoth() {
   if (!mammoth) {
@@ -24,6 +25,13 @@ async function getPdfParse() {
     pdfParse = await import('pdf-parse')
   }
   return pdfParse
+}
+
+async function getAdmZip() {
+  if (!AdmZip) {
+    AdmZip = (await import('adm-zip')).default
+  }
+  return AdmZip
 }
 
 // Initialize sentiment analyzer
@@ -61,6 +69,29 @@ interface ChatAnalysis {
   averageMessageLength: number
 }
 
+/**
+ * Helper: convert a Buffer to a base64 data URL suitable for the Gemini Vision API.
+ */
+function bufferToBase64(buffer: Buffer, mimeType: string): string {
+  return `data:${mimeType};base64,${buffer.toString('base64')}`
+}
+
+/**
+ * Helper: get MIME type from image extension.
+ */
+function imageExtToMime(ext: string): string {
+  const map: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.heic': 'image/heic',
+    '.heif': 'image/heif',
+    '.gif': 'image/gif',
+  }
+  return map[ext.toLowerCase()] || 'image/jpeg'
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -76,7 +107,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Safety check: Limit file size to 10MB
+    // Safety check: Limit file size to 10MB (larger files go through upload-url → GCS)
     const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
@@ -89,7 +120,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Safety check: Validate file extension
-    const allowedExtensions = ['.txt', '.docx', '.pdf', '.csv', '.json']
+    const allowedExtensions = [
+      '.txt', '.docx', '.pdf', '.csv', '.json',
+      '.zip', '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif',
+    ]
     const lowerName = file.name.toLowerCase()
     const hasAllowedExtension = allowedExtensions.some(ext => lowerName.endsWith(ext))
     if (!hasAllowedExtension) {
@@ -112,10 +146,108 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    let fileContent: string = ''
 
-    // Process different file types
-    if (file.name.endsWith('.txt')) {
+    let fileContent: string = ''
+    let ocrText: string = ''
+    let ocrImagesProcessed: number = 0
+
+    // ── ZIP handling ──────────────────────────────────────────────────────
+    // WhatsApp exports are often ZIP archives containing the chat .txt/.json
+    // alongside media files (images, videos). We extract the chat file and
+    // run OCR on any images found.
+    if (file.name.endsWith('.zip')) {
+      try {
+        const AdmZipModule = await getAdmZip()
+        const zip = new AdmZipModule(fileBuffer)
+        const entries = zip.getEntries()
+
+        // Separate chat files and image files from the ZIP
+        const chatFiles: Array<{ name: string; data: Buffer }> = []
+        const imageFiles: Array<{ name: string; data: Buffer }> = []
+
+        for (const entry of entries) {
+          if (entry.isDirectory) continue
+          const name = entry.entryName || entry.getEntryName?.() || ''
+          const lower = name.toLowerCase()
+          const data: Buffer | null = entry.getData()
+
+          if (!data) continue
+
+          if (lower.endsWith('.txt') || lower.endsWith('.json') || lower.endsWith('.csv')) {
+            chatFiles.push({ name: lower, data })
+          } else if (isImageExtension(lower)) {
+            imageFiles.push({ name, data })
+          }
+        }
+
+        // Process the best chat file found (prefer .txt, then .json, then .csv)
+        if (chatFiles.length > 0) {
+          let bestChat: { name: string; data: Buffer } | null = null
+          for (const ext of ['.txt', '.json', '.csv']) {
+            bestChat = chatFiles.find(c => c.name.endsWith(ext)) || null
+            if (bestChat) break
+          }
+          if (!bestChat) bestChat = chatFiles[0] // fallback
+
+          // Set file name to the inner chat file name for downstream parsing
+          ;(file as any).name = bestChat.name
+          fileContent = bestChat.data.toString('utf-8')
+        }
+
+        // Run OCR on all images found in the ZIP
+        if (imageFiles.length > 0) {
+          const { extractImageText } = await import('@/lib/gemini-ocr')
+          const ocrResults: string[] = []
+
+          for (const img of imageFiles) {
+            const ext = getExtension(img.name)
+            const mimeType = imageExtToMime(ext)
+            const base64 = bufferToBase64(img.data, mimeType)
+
+            const result = await extractImageText(base64)
+            if (result.success && result.extractedText) {
+              ocrResults.push(
+                `[Image: ${img.name}]\n${result.extractedText}`
+              )
+              ocrImagesProcessed++
+            }
+          }
+
+          ocrText = ocrResults.join('\n\n')
+        }
+
+        // If no chat file found in the ZIP, try OCR on its own
+        if (!fileContent && imageFiles.length > 0) {
+          fileContent = `[ZIP upload with ${imageFiles.length} image(s)]\n\nOCR Extracted Text:\n${ocrText}`
+        }
+
+        // Fallback: if no chat file and no images, read the ZIP as text
+        if (!fileContent) {
+          fileContent = `[ZIP archive: ${entries.length} entries. No chat files or images found.]`
+        }
+      } catch (zipErr) {
+        console.error('ZIP extraction error:', zipErr)
+        fileContent = `[Failed to extract ZIP archive: ${zipErr instanceof Error ? zipErr.message : String(zipErr)}]`
+      }
+    // ── Direct image upload ────────────────────────────────────────────────
+    } else if (isImageExtension(file.name)) {
+      const ext = getExtension(file.name)
+      const mimeType = imageExtToMime(ext)
+      const base64 = bufferToBase64(fileBuffer, mimeType)
+
+      const { extractImageText } = await import('@/lib/gemini-ocr')
+      const result = await extractImageText(base64)
+      if (result.success && result.extractedText) {
+        fileContent = `[Uploaded image: ${file.name}]\n\nOCR Extracted Text:\n${result.extractedText}`
+        ocrText = result.extractedText
+        ocrImagesProcessed = 1
+      } else {
+        fileContent = `[Uploaded image: ${file.name}]\n\nOCR failed: ${result.error || 'No text extracted'}]`
+        ocrText = ''
+        ocrImagesProcessed = 0
+      }
+    // ── Standard file types ────────────────────────────────────────────────
+    } else if (file.name.endsWith('.txt')) {
       fileContent = fileBuffer.toString('utf-8')
     } else if (file.name.endsWith('.docx')) {
       const mammothModule = await getMammoth()
@@ -183,8 +315,12 @@ export async function POST(request: NextRequest) {
       messages = parseWhatsAppChat(fileContent)
     }
     
+    // If we have OCR text from images and there are media-omitted messages,
+    // enrich them with the OCR data
+    const enrichedMessages = enrichMediaMessages(messages, ocrText)
+    
     // Perform analysis
-    const analysis = analyzeChat(messages)
+    const analysis = analyzeChat(enrichedMessages)
 
     // Generate unique IDs for tracking
     const fileId = uuidv4()
@@ -197,9 +333,9 @@ export async function POST(request: NextRequest) {
       fileName: file.name,
       fileSize: file.size,
       processedAt: new Date().toISOString(),
-      totalMessages: messages.length,
+      totalMessages: enrichedMessages.length,
       participants: analysis.participants.map(name => ({ name })),
-      messages: messages.slice(0, 100), // Return first 100 messages for preview
+      messages: enrichedMessages.slice(0, 100), // Return first 100 messages for preview
       analysis,
       sentimentAnalysis: {
         byParticipant: analysis.messagesByParticipant,
@@ -216,7 +352,10 @@ export async function POST(request: NextRequest) {
       wordFrequency: analysis.topWords.reduce((acc: Record<string, number>, item: { word: string; count: number }) => {
         acc[item.word] = item.count
         return acc
-      }, {})
+      }, {}),
+      // OCR data for AI search/chat pipeline
+      ocrText: ocrText || undefined,
+      ocrImagesProcessed,
     }
 
     return NextResponse.json({
@@ -234,6 +373,60 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Check if a filename has a supported image extension.
+ */
+function isImageExtension(name: string): boolean {
+  const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.gif']
+  const lower = name.toLowerCase()
+  return imageExts.some(ext => lower.endsWith(ext))
+}
+
+/**
+ * Get the extension from a filename (lowercased).
+ */
+function getExtension(name: string): string {
+  const idx = name.lastIndexOf('.')
+  return idx >= 0 ? name.slice(idx).toLowerCase() : ''
+}
+
+/**
+ * Enrich media-omitted messages with OCR text where applicable.
+ * When images were found and OCR'd, replace "<Media omitted>" placeholders
+ * with the actual OCR text so the analysis pipeline can use it.
+ */
+function enrichMediaMessages(
+  messages: ProcessedMessage[],
+  ocrText: string
+): ProcessedMessage[] {
+  if (!ocrText) return messages
+
+  const ocrBlocks = ocrText.split(/\n\n/)
+  let ocrIndex = 0
+
+  return messages.map((msg) => {
+    if (
+      msg.messageType === 'media' &&
+      (msg.message.includes('<Media omitted>') ||
+       msg.message.includes('image omitted') ||
+       msg.message.includes('video omitted'))
+    ) {
+      const block = ocrBlocks[ocrIndex]
+      if (block) {
+        ocrIndex++
+        return {
+          ...msg,
+          message: `${msg.message}\n\n[OCR Extracted Text]\n${block}`,
+          messageType: 'text', // Promote to text so it gets analyzed
+        }
+      }
+    }
+    return msg
+  })
 }
 
 function parseWhatsAppChat(content: string): ProcessedMessage[] {
