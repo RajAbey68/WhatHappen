@@ -1,5 +1,40 @@
 import '@testing-library/jest-dom'
 
+// Polyfill jsdom's Blob/File with missing async methods
+// jsdom 26.x does not implement Blob.arrayBuffer(), Blob.text(), or Blob.stream()
+if (typeof Blob !== 'undefined' && !Blob.prototype.arrayBuffer) {
+  Blob.prototype.arrayBuffer = function () {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsArrayBuffer(this)
+    })
+  }
+}
+if (typeof Blob !== 'undefined' && !Blob.prototype.text) {
+  Blob.prototype.text = function () {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsText(this)
+    })
+  }
+}
+if (typeof Blob !== 'undefined' && !Blob.prototype.stream) {
+  Blob.prototype.stream = function () {
+    const blob = this
+    return new ReadableStream({
+      async start(controller) {
+        const text = await blob.text()
+        controller.enqueue(new TextEncoder().encode(text))
+        controller.close()
+      },
+    })
+  }
+}
+
 // Mock next/server for API route testing
 jest.mock('next/server', () => ({
   NextRequest: class {
@@ -12,7 +47,7 @@ jest.mock('next/server', () => ({
   },
   NextResponse: class {
     static json(data, init) {
-      return { json: () => Promise.resolve(data), ...init }
+      return { status: 200, json: () => Promise.resolve(data), ...init }
     }
   },
 }))
