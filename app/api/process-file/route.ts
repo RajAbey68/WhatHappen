@@ -226,8 +226,15 @@ export async function POST(request: NextRequest) {
           fileContent = `[ZIP archive: ${entries.length} entries. No chat files or images found.]`
         }
       } catch (zipErr) {
+        // Fix #2: Corrupted ZIP should return 400 error
         console.error('ZIP extraction error:', zipErr)
-        fileContent = `[Failed to extract ZIP archive: ${zipErr instanceof Error ? zipErr.message : String(zipErr)}]`
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Corrupted or invalid ZIP file: ${zipErr instanceof Error ? zipErr.message : String(zipErr)}`
+          },
+          { status: 400 }
+        )
       }
     // ── Direct image upload ────────────────────────────────────────────────
     } else if (isImageExtension(file.name)) {
@@ -254,9 +261,43 @@ export async function POST(request: NextRequest) {
       const result = await mammothModule.extractRawText({ buffer: fileBuffer })
       fileContent = result.value
     } else if (file.name.endsWith('.pdf')) {
-      const pdfParseModule = await getPdfParse()
-      const pdfData = await pdfParseModule.default(fileBuffer)
-      fileContent = pdfData.text
+      // Fix #3: PDF files should be sent to OCR microservice
+      const mimeType = 'application/pdf'
+      const base64 = fileBuffer.toString('base64')
+
+      try {
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 30000)
+
+        const ocrResponse = await fetch(
+          `${process.env.OCR_MICROSERVICE_URL || 'http://localhost:3099'}/ocr/pdf`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdfBase64: base64 }),
+            signal: controller.signal,
+          }
+        )
+
+        clearTimeout(timeout)
+
+        if (ocrResponse.ok) {
+          const ocrData = await ocrResponse.json()
+          fileContent = ocrData.text || ''
+          ocrText = ocrData.text || ''
+          ocrImagesProcessed = ocrData.pages?.length || 1
+        } else {
+          // Fallback to pdf-parse if microservice fails
+          const pdfParseModule = await getPdfParse()
+          const pdfData = await pdfParseModule.default(fileBuffer)
+          fileContent = pdfData.text
+        }
+      } catch {
+        // Fallback to pdf-parse if microservice is unreachable
+        const pdfParseModule = await getPdfParse()
+        const pdfData = await pdfParseModule.default(fileBuffer)
+        fileContent = pdfData.text
+      }
     } else if (file.name.endsWith('.csv')) {
       const records = csvParse(fileBuffer.toString('utf-8'), {
         columns: true,
