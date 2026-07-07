@@ -30,7 +30,7 @@ interface AnalysisResult {
 
 export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
   const [isUploading, setIsUploading] = useState(false)
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
+  const setAnalysis = useState<AnalysisResult | null>(null)[1]
   const [isAnalyzing, setIsAnalyzing] = useState(false)
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -62,7 +62,7 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
     } finally {
       setIsUploading(false)
     }
-  }, [selectedProject])
+  }, [selectedProject, setAnalysis])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -268,7 +268,7 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
                 </CardHeader>
                 <CardContent>
                   <div className="flex flex-wrap gap-2">
-                    {selectedProject.participants.map((participant, index) => (
+                    {selectedProject.participants.map((participant) => (
                       <span
                         key={participant}
                         className="px-3 py-1 bg-gradient-to-r from-blue-100 to-purple-100 text-blue-800 rounded-full text-sm font-medium border border-blue-200"
