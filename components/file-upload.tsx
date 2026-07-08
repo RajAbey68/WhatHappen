@@ -21,10 +21,19 @@ async function stripVideosFromZip(file: File): Promise<File> {
   
   let videoFilesRemoved = 0
   let originalFileCount = 0
+  let totalDecompressedBytes = 0
+  
+  const MAX_ZIP_ENTRIES = 1000
+  const MAX_TOTAL_DECOMPRESSED = 200 * 1024 * 1024 // 200MB
+  
+  const entries = Object.entries(loadedZip.files)
+  if (entries.length > MAX_ZIP_ENTRIES) {
+    throw new Error(`ZIP archive has too many entries (${entries.length}). Maximum allowed: ${MAX_ZIP_ENTRIES}.`)
+  }
   
   const videoExtensions = ['.mp4', '.mov', '.avi', '.3gp', '.mkv', '.webm', '.ogg']
   
-  for (const [relativePath, zipEntry] of Object.entries(loadedZip.files)) {
+  for (const [relativePath, zipEntry] of entries) {
     if (zipEntry.dir) continue
     originalFileCount++
     
@@ -35,6 +44,12 @@ async function stripVideosFromZip(file: File): Promise<File> {
     }
     
     const content = await zipEntry.async('blob')
+    totalDecompressedBytes += content.size
+    
+    if (totalDecompressedBytes > MAX_TOTAL_DECOMPRESSED) {
+      throw new Error(`ZIP archive decompresses to too much data. Maximum allowed: ${MAX_TOTAL_DECOMPRESSED / 1024 / 1024} MB.`)
+    }
+    
     newZip.file(relativePath, content)
   }
   
@@ -272,6 +287,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
               let isDone = false
               let attempts = 0
+              let consecutiveErrors = 0
               while (!isDone && attempts < 60) {
                 await new Promise(resolve => setTimeout(resolve, 2000))
                 attempts++
@@ -284,8 +300,13 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
                 if (pollError) {
                   console.error('Polling error:', pollError.message)
+                  consecutiveErrors++
+                  if (consecutiveErrors >= 5) {
+                    throw new Error(`Database connection failed: ${pollError.message}`)
+                  }
                   continue
                 }
+                consecutiveErrors = 0
 
                 if (session.processing_status === 'processing' && session.processing_error) {
                   setUploadedFiles(prev => 
@@ -390,8 +411,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           body: JSON.stringify({
             projectId: projectId,
             chatData: resultData,
-            messages: finalMessages,
-            passphrase: passphrase ? encryptText(passphrase, passphrase) : undefined
+            messages: finalMessages
           }),
           signal,
         })
