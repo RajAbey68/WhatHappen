@@ -139,7 +139,6 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
   const processFiles = async (files: UploadedFile[]) => {
     setIsProcessing(true)
-    const processedResults: any[] = []
     abortControllerRef.current = new AbortController()
     const { signal } = abortControllerRef.current
     
@@ -445,7 +444,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                 : f
             )
           )
-          break
+          return null
         }
 
         setUploadedFiles(prev => 
