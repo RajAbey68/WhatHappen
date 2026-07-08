@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -8,7 +8,7 @@ import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Upload, File, CheckCircle, XCircle, Loader2, FileText, Archive, Code, Sparkles } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
-import { encryptText } from '@/lib/crypto'
+import { encryptText, encryptTextBatch } from '@/lib/crypto'
 import JSZip from 'jszip'
 import { AgentBuilder } from './agent-builder'
 import { AgentConfig } from '@/lib/types/agent'
@@ -62,6 +62,10 @@ interface UploadedFile {
   processingStep?: string
 }
 
+// Files larger than this go through the GCS signed-URL path (upload-url API)
+const GCS_THRESHOLD = 10 * 1024 * 1024 // 10 MB — matches process-file limit
+const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500 MB hard cap
+
 export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploadProps) {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
@@ -71,6 +75,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
     jurisdiction: 'UK',
     regulator: 'NONE'
   })
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map(file => ({
@@ -94,11 +99,34 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
       'application/pdf': ['.pdf'],
       'text/csv': ['.csv']
     },
-    multiple: true
+    multiple: true,
+    maxSize: MAX_FILE_SIZE,
+    onDropRejected: (rejectedFiles) => {
+      rejectedFiles.forEach((rejected) => {
+        toast({
+          title: "File too large",
+          description: `${rejected.file.name} exceeds the 500MB limit (${(rejected.file.size / 1024 / 1024).toFixed(1)} MB).`,
+          variant: "destructive",
+        })
+      })
+    }
   })
+
+  const updateProgress = (file: File, progress: number) => {
+    setUploadedFiles(prev => 
+      prev.map(f => 
+        f.file === file 
+          ? { ...f, progress }
+          : f
+      )
+    )
+  }
 
   const processFiles = async (files: UploadedFile[]) => {
     setIsProcessing(true)
+    const processedResults: any[] = []
+    abortControllerRef.current = new AbortController()
+    const { signal } = abortControllerRef.current
     
     let authHeader: Record<string, string> = {}
     try {
@@ -134,13 +162,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
             reader.readAsText(currentFile)
           })
 
-          setUploadedFiles(prev => 
-            prev.map(f => 
-              f.file === uploadedFile.file 
-                ? { ...f, progress: 10 }
-                : f
-            )
-          )
+          updateProgress(uploadedFile.file, 10)
 
           resultData = await new Promise((resolve, reject) => {
             const worker = new Worker('/workers/parser.js')
@@ -148,13 +170,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
             worker.onmessage = (e) => {
               const { type, percent, data, error } = e.data
               if (type === 'progress') {
-                setUploadedFiles(prev => 
-                  prev.map(f => 
-                    f.file === uploadedFile.file 
-                      ? { ...f, progress: 10 + Math.round(percent * 0.85) }
-                      : f
-                  )
-                )
+                updateProgress(uploadedFile.file, 10 + Math.round(percent * 0.85))
               } else if (type === 'complete') {
                 worker.terminate()
                 resolve(data)
@@ -343,7 +359,28 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           }
         }
 
-        const { supabase } = await import('@/lib/supabase')
+        // Encrypt messages if passphrase is provided (batch — derives key ONCE)
+        let finalMessages = resultData.messages || []
+        if (passphrase && finalMessages.length > 0) {
+          updateProgress(uploadedFile.file, 95)
+          
+          // Collect all texts to encrypt (sender + message per row)
+          const senders = finalMessages.map((msg: any) => msg.sender || 'Unknown')
+          const messages = finalMessages.map((msg: any) => msg.message || '')
+
+          // Two batch calls — each derives PBKDF2 key only once
+          const [encSenders, encMessages] = await Promise.all([
+            encryptTextBatch(senders, passphrase),
+            encryptTextBatch(messages, passphrase),
+          ])
+
+          finalMessages = finalMessages.map((msg: any, i: number) => ({
+            ...msg,
+            sender: JSON.stringify(encSenders[i]),
+            message: JSON.stringify(encMessages[i]),
+          }))
+        }
+
         const completeResponse = await fetch('/api/process-whatsapp-complete', {
           method: 'POST',
           headers: { 
@@ -353,8 +390,10 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           body: JSON.stringify({
             projectId: projectId,
             chatData: resultData,
+            messages: finalMessages,
             passphrase: passphrase ? encryptText(passphrase, passphrase) : undefined
-          })
+          }),
+          signal,
         })
 
         if (!completeResponse.ok) {
@@ -378,6 +417,17 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
         return resultData
 
       } catch (error) {
+        if (signal.aborted) {
+          setUploadedFiles(prev => 
+            prev.map(f => 
+              f.file === uploadedFile.file 
+                ? { ...f, status: 'error', progress: 0, error: 'Upload cancelled' }
+                : f
+            )
+          )
+          break
+        }
+
         setUploadedFiles(prev => 
           prev.map(f => 
             f.file === uploadedFile.file 
@@ -422,6 +472,109 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
     }
 
     setIsProcessing(false)
+    abortControllerRef.current = null
+  }
+
+  /**
+   * Upload large files via GCS signed URL:
+   * 1. POST /api/upload-url to get a signed write URL + sessionId
+   * 2. PUT the file directly to GCS
+   * 3. Poll /api/process-file?sessionId=... for processing status (or trigger async)
+   */
+  const uploadViaGCS = async (file: File, signal: AbortSignal): Promise<any> => {
+    // Step 1: Request a signed upload URL
+    const urlResponse = await fetch('/api/upload-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type || 'application/octet-stream',
+      }),
+      signal,
+    })
+
+    if (!urlResponse.ok) {
+      const err = await urlResponse.json().catch(() => ({}))
+      throw new Error(err.error || 'Failed to get upload URL')
+    }
+
+    const { sessionId, uploadUrl, gcsPath } = await urlResponse.json()
+    updateProgress(file, 15)
+
+    // Step 2: Upload directly to GCS (or local dev fallback)
+    if (gcsPath) {
+      // Real GCS upload with progress tracking via XMLHttpRequest
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('PUT', uploadUrl)
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const percent = 15 + Math.round((e.loaded / e.total) * 70) // 15% → 85%
+            updateProgress(file, percent)
+          }
+        }
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve()
+          else reject(new Error(`GCS upload failed: ${xhr.statusText}`))
+        }
+
+        xhr.onerror = () => reject(new Error('GCS upload network error'))
+        xhr.onabort = () => reject(new Error('Upload cancelled'))
+        signal.addEventListener('abort', () => xhr.abort())
+
+        xhr.send(file)
+      })
+    } else {
+      // Local dev fallback: POST to /api/process-file with sessionId
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('sessionId', sessionId)
+
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData,
+        signal,
+      })
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        throw new Error(err.error || 'Upload failed')
+      }
+
+      const result = await response.json()
+      if (!result.success) throw new Error(result.error || 'Processing failed')
+      return result.data
+    }
+
+    updateProgress(file, 90)
+
+    // Step 3: Trigger server-side processing of the uploaded GCS file
+    // The process-file route reads from GCS when sessionId is provided
+    const processResponse = await fetch('/api/process-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, gcsPath, fileName: file.name }),
+      signal,
+    })
+
+    if (!processResponse.ok) {
+      const err = await processResponse.json().catch(() => ({}))
+      throw new Error(err.error || 'Failed to process uploaded file')
+    }
+
+    const processResult = await processResponse.json()
+    if (!processResult.success) throw new Error(processResult.error || 'Processing failed')
+    return processResult.data
+  }
+
+  const cancelProcessing = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
   }
 
   const aggregateMultipleFiles = (results: any[]) => {
@@ -467,9 +620,9 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
     })
     aggregated.participants = Array.from(allParticipants).map(name => ({ name }))
 
-    // Aggregate messages (limited to first 100 from each file)
+    // Aggregate messages (limited to first 50 from each file)
     results.forEach(result => {
-      aggregated.messages.push(...result.messages.slice(0, 50)) // 50 from each file
+      aggregated.messages.push(...result.messages.slice(0, 50))
     })
 
     // Aggregate analysis data
@@ -667,7 +820,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
               <div className="p-2 rounded-xl bg-gradient-to-r from-blue-500 to-purple-600">
                 <File className="h-5 w-5 text-white" />
               </div>
-              <div>
+              <div className="flex-1">
                 <h3 className="text-lg font-semibold text-slate-800 dark:text-white">
                   Processing Files
                 </h3>
@@ -675,6 +828,17 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                   {uploadedFiles.filter(f => f.status === 'completed').length} of {uploadedFiles.length} files completed
                 </p>
               </div>
+              {isProcessing && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={cancelProcessing}
+                  className="text-red-600 hover:bg-red-50"
+                >
+                  <XCircle className="h-4 w-4 mr-1" />
+                  Cancel
+                </Button>
+              )}
             </div>
             
             <div className="space-y-4">
@@ -749,4 +913,4 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
       {uploadedFiles.length > 0 && <AgentDashboard />}
     </div>
   )
-} 
+}

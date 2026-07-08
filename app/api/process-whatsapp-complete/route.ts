@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
 
+// Allow up to 5 minutes for large file processing (requires Vercel Pro)
+export const maxDuration = 300
+
+// Batch size for Supabase inserts (PostgREST has practical row limits)
+const INSERT_BATCH_SIZE = 500
+
 interface WhatsAppMessage {
   timestamp: string
   sender: string
@@ -35,24 +41,28 @@ export async function POST(request: NextRequest) {
     if (contentType.includes('application/json')) {
       const body = await request.json()
       projectId = body.projectId
-      messages = body.messages
       
-      const clientAnalysis = body.analysis || {}
+      const chatData = body.chatData
+      messages = body.messages || chatData?.messages || []
+      
+      const clientAnalysis = body.analysis || chatData?.analysis || {}
+      const totalMessagesCount = body.messages ? body.messages.length : (chatData?.totalMessages || messages.length || 0)
+      
       dbAnalysis = {
         participants: clientAnalysis.participants || [],
         dateRange: clientAnalysis.dateRange || { start: '', end: '' },
-        sentiment: clientAnalysis.sentimentAnalysis || { positive: 0, negative: 0, neutral: 100 },
+        sentiment: clientAnalysis.sentimentAnalysis || clientAnalysis.sentiment || { positive: 0, negative: 0, neutral: 100 },
         keywords: clientAnalysis.keywords || [],
         insights: clientAnalysis.insights || []
       }
 
-      if (!projectId || !messages) {
-        return NextResponse.json({ error: 'Missing required JSON parameters' }, { status: 400 })
+      if (!projectId) {
+        return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
       }
 
       responsePayload = {
         success: true,
-        messageCount: messages.length
+        messageCount: totalMessagesCount
       }
     } else {
       // Legacy FormData fallback
@@ -85,26 +95,33 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Store messages in Supabase (bulk insert)
-    const messagesToInsert = messages.map(message => ({
-      project_id: projectId,
-      sender: message.sender,
-      message: message.message,
-      timestamp: message.timestamp,
-      processed: true
-    }))
+    // Store messages in Supabase if present (batched insert to avoid PostgREST row limits)
+    if (messages.length > 0) {
+      const messagesToInsert = messages.map(message => ({
+        project_id: projectId,
+        sender: message.sender,
+        message: message.message,
+        timestamp: message.timestamp,
+        processed: true
+      }))
 
-    const { error: msgInsertError } = await supabase
-      .from('messages')
-      .insert(messagesToInsert)
+      // Insert in batches of INSERT_BATCH_SIZE
+      for (let i = 0; i < messagesToInsert.length; i += INSERT_BATCH_SIZE) {
+        const batch = messagesToInsert.slice(i, i + INSERT_BATCH_SIZE)
+        const { error: batchError } = await supabase
+          .from('messages')
+          .insert(batch)
 
-    if (msgInsertError) throw msgInsertError
+        if (batchError) throw batchError
+      }
+    }
 
     // Update project with analysis
+    const totalMessagesCount = responsePayload.messageCount
     const { error: projectUpdateError } = await supabase
       .from('projects')
       .update({
-        message_count: messages.length,
+        message_count: totalMessagesCount,
         participants: dbAnalysis.participants,
         date_range: dbAnalysis.dateRange,
         analysis: {
@@ -159,10 +176,15 @@ function parseWhatsAppChat(text: string): WhatsAppMessage[] {
 
 function generateComprehensiveAnalysis(messages: WhatsAppMessage[]): ProcessingResult {
   const participants = Array.from(new Set(messages.map(m => m.sender)))
-  const senderCounts = participants.map(participant => ({
-    name: participant,
-    count: messages.filter(m => m.sender === participant).length
-  })).sort((a, b) => b.count - a.count)
+  
+  // O(n) single-pass sender counting (was O(n²) with filter per participant)
+  const senderCountMap = new Map<string, number>()
+  for (const msg of messages) {
+    senderCountMap.set(msg.sender, (senderCountMap.get(msg.sender) || 0) + 1)
+  }
+  const senderCounts = Array.from(senderCountMap.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
 
   // Date range analysis
   const dates = messages.map(m => m.timestamp).filter(Boolean)
@@ -219,6 +241,9 @@ function generateComprehensiveAnalysis(messages: WhatsAppMessage[]): ProcessingR
   // Messages by day grouping
   const messagesByDay = groupMessagesByDay(messages)
 
+  // Guard against division by zero for empty message arrays
+  const total = messages.length || 1
+
   return {
     totalMessages: messages.length,
     participants,
@@ -227,9 +252,9 @@ function generateComprehensiveAnalysis(messages: WhatsAppMessage[]): ProcessingR
     messagesByDay,
     keywords,
     sentimentAnalysis: {
-      positive: Math.round((positive / messages.length) * 100),
-      negative: Math.round((negative / messages.length) * 100),
-      neutral: Math.round((neutral / messages.length) * 100)
+      positive: Math.round((positive / total) * 100),
+      negative: Math.round((negative / total) * 100),
+      neutral: Math.round((neutral / total) * 100)
     },
     financialTerms
   }
@@ -268,7 +293,7 @@ function generateInsights(analysis: ProcessingResult): string[] {
   // Activity insights
   const mostActive = analysis.topSenders[0]
   if (mostActive) {
-    const percentage = Math.round((mostActive.count / analysis.totalMessages) * 100)
+    const percentage = Math.round((mostActive.count / (analysis.totalMessages || 1)) * 100)
     insights.push(`${mostActive.name} is the most active participant with ${percentage}% of all messages`)
   }
 
@@ -291,4 +316,4 @@ function generateInsights(analysis: ProcessingResult): string[] {
   }
 
   return insights
-} 
+}

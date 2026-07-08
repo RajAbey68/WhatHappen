@@ -78,6 +78,58 @@ export async function encryptText(
   }
 }
 
+/**
+ * Encrypt a single string using a pre-derived key (avoids re-running PBKDF2 per message).
+ * Generates a fresh random IV for each call (required for AES-GCM security).
+ */
+export async function encryptTextWithKey(
+  text: string,
+  key: CryptoKey
+): Promise<{ ciphertext: string; iv: string }> {
+  const crypto = getCrypto()
+  const encoder = new TextEncoder()
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+
+  const encryptedBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    encoder.encode(text)
+  )
+
+  return {
+    ciphertext: bufferToHex(encryptedBuffer),
+    iv: bufferToHex(iv.buffer),
+  }
+}
+
+/**
+ * Batch-encrypt an array of texts using a single key derivation.
+ * Derives the PBKDF2 key ONCE and reuses it for all texts, generating a fresh
+ * IV per message. This is ~100x faster than calling encryptText() in a loop
+ * for large chats (avoids 100k PBKDF2 iterations per message).
+ *
+ * @returns Array of { ciphertext, iv, salt } — salt is the same for all (shared key)
+ */
+export async function encryptTextBatch(
+  texts: string[],
+  passphrase: string
+): Promise<Array<{ ciphertext: string; iv: string; salt: string }>> {
+  if (texts.length === 0) return []
+
+  const crypto = getCrypto()
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const key = await deriveKey(passphrase, salt)
+  const saltHex = bufferToHex(salt.buffer)
+
+  const results: Array<{ ciphertext: string; iv: string; salt: string }> = []
+  for (const text of texts) {
+    const { ciphertext, iv } = await encryptTextWithKey(text, key)
+    results.push({ ciphertext, iv, salt: saltHex })
+  }
+
+  return results
+}
+
 // Decrypt ciphertext using a passphrase
 export async function decryptText(
   ciphertext: string,

@@ -12,9 +12,13 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Allow large file uploads via Server Actions / API routes
   experimental: {
-    serverComponentsExternalPackages: ['pdfkit']
-  }
+    serverComponentsExternalPackages: ['pdfkit'],
+    serverActions: {
+      bodySizeLimit: '500mb',
+    },
+  },
 }
 
-export default nextConfig 
+export default nextConfig

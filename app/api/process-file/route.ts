@@ -1,5 +1,7 @@
 export const runtime = 'nodejs'
-export const maxDuration = 60
+
+// Allow up to 5 minutes for large file processing (requires Vercel Pro)
+export const maxDuration = 300
 
 import { NextRequest, NextResponse } from 'next/server'
 import { parse as csvParse } from 'csv-parse/sync'
@@ -250,9 +252,24 @@ export async function POST(request: NextRequest) {
         const zip = new AdmZipModule(fileBuffer)
         const entries = zip.getEntries()
 
+        // ZIP bomb protection: cap total entries and decompressed size
+        const MAX_ZIP_ENTRIES = 1000
+        const MAX_TOTAL_DECOMPRESSED = 200 * 1024 * 1024 // 200 MB
+
+        if (entries.length > MAX_ZIP_ENTRIES) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `ZIP archive has too many entries (${entries.length}). Maximum allowed: ${MAX_ZIP_ENTRIES}.`
+            },
+            { status: 400 }
+          )
+        }
+
         // Separate chat files and image files from the ZIP
         const chatFiles: Array<{ name: string; data: Buffer }> = []
         const imageFiles: Array<{ name: string; data: Buffer }> = []
+        let totalDecompressedSize = 0
 
         let totalUncompressedBytes = 0
         for (const entry of entries) {
@@ -268,6 +285,18 @@ export async function POST(request: NextRequest) {
           const data: Buffer | null = entry.getData()
 
           if (!data) continue
+
+          // ZIP bomb protection: track cumulative decompressed size
+          totalDecompressedSize += data.length
+          if (totalDecompressedSize > MAX_TOTAL_DECOMPRESSED) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: `ZIP archive decompresses to too much data (${(totalDecompressedSize / 1024 / 1024).toFixed(1)} MB). Maximum allowed: ${MAX_TOTAL_DECOMPRESSED / 1024 / 1024} MB.`
+              },
+              { status: 400 }
+            )
+          }
 
           if (lower.endsWith('.txt') || lower.endsWith('.json') || lower.endsWith('.csv')) {
             chatFiles.push({ name: lower, data })
