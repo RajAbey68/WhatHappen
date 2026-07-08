@@ -28,7 +28,10 @@ describe('/api/process-file', () => {
 
   const createMockRequest = (formData: FormData): NextRequest => {
     return {
-      formData: jest.fn().mockResolvedValue(formData)
+      formData: jest.fn().mockResolvedValue(formData),
+      nextUrl: {
+        searchParams: new URLSearchParams()
+      }
     } as unknown as NextRequest
   }
 

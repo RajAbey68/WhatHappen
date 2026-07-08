@@ -1,441 +1,115 @@
 import { POST } from '../../app/api/ai-search/route'
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
-// Mock OpenAI
-jest.mock('openai', () => {
-  const mockOpenAIInstance = jest.fn().mockImplementation(() => ({
-    chat: {
-      completions: {
-        create: jest.fn().mockResolvedValue({
-          choices: [{
-            message: {
-              content: 'Mocked AI response about financial analysis'
-            }
-          }]
-        })
-      }
+// Prefix mocks with 'mock' to allow Jest to hoist them safely without global pollution
+const mockRpc = jest.fn();
+const mockSingle = jest.fn();
+const mockEq2 = jest.fn().mockImplementation(() => ({
+  single: mockSingle
+}));
+const mockEq1 = jest.fn().mockImplementation(() => ({
+  eq: mockEq2
+}));
+const mockFrom = jest.fn().mockImplementation(() => ({
+  select: () => ({
+    eq: mockEq1
+  })
+}));
+
+jest.mock('../../lib/auth', () => ({
+  requireAuth: jest.fn().mockImplementation((request: NextRequest) => {
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      const res = NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      Object.setPrototypeOf(res, NextResponse.prototype)
+      return res
     }
-  }));
+    return { user: { id: 'mock-user-id', email: 'mock@example.com' } }
+  }),
+  getServiceClient: () => ({
+    from: mockFrom,
+    rpc: mockRpc
+  })
+}))
+
+jest.mock('../../lib/llm', () => ({
+  generateWithFallback: jest.fn().mockImplementation(async (messages: any[]) => {
+    const systemPrompt = messages[0]?.content || ''
+    if (systemPrompt.includes('PostgreSQL SELECT')) {
+      return { content: 'SELECT total_messages FROM sessions WHERE id = $1', model: 'mock-model' }
+    }
+    return { content: 'This is the summarized safe search answer.', model: 'mock-model' }
+  })
+}))
+
+const createMockRequest = (body: any, token: string | null = 'Bearer valid-token'): NextRequest => {
+  const headers = new Headers()
+  if (token) headers.set('authorization', token)
   return {
-    __esModule: true,
-    default: mockOpenAIInstance,
-    OpenAI: mockOpenAIInstance
-  };
-})
+    json: jest.fn().mockResolvedValue(body),
+    headers
+  } as unknown as NextRequest
+}
 
-describe('/api/ai-search', () => {
-  const createMockRequest = (body: any): NextRequest => {
-    return {
-      json: jest.fn().mockResolvedValue(body)
-    } as unknown as NextRequest
-  }
-
-  const mockChatData = {
-    messages: [
-      { timestamp: '2024-01-01T10:30:00Z', sender: 'John', content: 'I need to pay $500 for rent' },
-      { timestamp: '2024-01-01T10:31:00Z', sender: 'Jane', content: 'Can you lend me $200?' },
-      { timestamp: '2024-01-01T10:32:00Z', sender: 'John', content: 'I\'m so happy today!' },
-      { timestamp: '2024-01-01T10:33:00Z', sender: 'Jane', content: 'This is terrible news...' },
-      { timestamp: '2024-01-01T10:34:00Z', sender: 'Bob', content: 'Meeting at 3pm tomorrow' }
-    ],
-    participants: [
-      { name: 'John', messages: 2 },
-      { name: 'Jane', messages: 2 },
-      { name: 'Bob', messages: 1 }
-    ]
-  }
-
+describe('/api/ai-search API Route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    // Mock environment variable
-    process.env.OPENAI_API_KEY = 'test-api-key'
   })
 
-  describe('Financial Analysis', () => {
-    test('should perform financial search', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'financial',
-        query: 'money transactions'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      expect(result.results).toBeDefined()
-      expect(result.analysis).toBeDefined()
-    })
-
-    test('should find financial keywords', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'financial'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      // Should find messages with $500 and $200
-      expect(result.results.length).toBeGreaterThan(0)
-      expect(result.results.some((msg: any) => msg.content.includes('$500'))).toBe(true)
-      expect(result.results.some((msg: any) => msg.content.includes('$200'))).toBe(true)
-    })
-
-    test('should handle no financial data found', async () => {
-      const noFinancialData = {
-        messages: [
-          { timestamp: '2024-01-01T10:30:00Z', sender: 'John', content: 'Hello world' },
-          { timestamp: '2024-01-01T10:31:00Z', sender: 'Jane', content: 'How are you?' }
-        ]
-      }
-
-      const requestBody = {
-        data: noFinancialData,
-        searchType: 'financial'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      expect(result.results).toHaveLength(0)
-    })
+  test('returns 401 when unauthorized', async () => {
+    const request = createMockRequest({ query: 'test', sessionId: '12345678-1234-1234-1234-1234567890ab' }, null)
+    const response = await POST(request)
+    expect(response.status).toBe(401)
   })
 
-  describe('Semantic Search', () => {
-    test('should perform semantic search with query', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'semantic',
-        query: 'happy emotions'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      expect(result.results).toBeDefined()
-      expect(result.analysis).toBeDefined()
-    })
-
-    test('should find semantically related messages', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'semantic',
-        query: 'meeting appointment'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      // Should find the meeting message
-      expect(result.results.some((msg: any) => msg.content.includes('Meeting'))).toBe(true)
-    })
-
-    test('should handle empty query', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'semantic',
-        query: ''
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(400)
-      expect(result.success).toBe(false)
-      expect(result.error).toContain('Query is required')
-    })
+  test('returns 400 when query is missing', async () => {
+    const request = createMockRequest({ sessionId: '12345678-1234-1234-1234-1234567890ab' })
+    const response = await POST(request)
+    expect(response.status).toBe(400)
+    const data = await response.json()
+    expect(data.error).toBe('query is required')
   })
 
-  describe('Keyword Search', () => {
-    test('should perform keyword search', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'keyword',
-        query: 'happy'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      expect(result.results).toBeDefined()
-      expect(result.results.some((msg: any) => msg.content.includes('happy'))).toBe(true)
-    })
-
-    test('should be case insensitive', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'keyword',
-        query: 'HAPPY'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      expect(result.results.length).toBeGreaterThan(0)
-    })
-
-    test('should handle multiple keywords', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'keyword',
-        query: 'happy terrible'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      // Should find both positive and negative messages
-      expect(result.results.length).toBeGreaterThanOrEqual(2)
-    })
+  test('returns 400 when sessionId is invalid format', async () => {
+    const request = createMockRequest({ query: 'show stats', sessionId: 'invalid-id' })
+    const response = await POST(request)
+    expect(response.status).toBe(400)
+    const data = await response.json()
+    expect(data.error).toBe('Invalid session ID')
   })
 
-  describe('Sentiment Analysis', () => {
-    test('should perform sentiment analysis', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'sentiment',
-        query: 'positive'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      expect(result.results).toBeDefined()
-      expect(result.analysis).toBeDefined()
-      expect(result.analysis).toContain('sentiment')
-    })
-
-    test('should filter by sentiment type', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'sentiment',
-        query: 'negative'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      // Should find the "terrible" message
-      expect(result.results.some((msg: any) => msg.content.includes('terrible'))).toBe(true)
-    })
-
-    test('should handle unknown sentiment filter', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'sentiment',
-        query: 'unknown'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-    })
+  test('returns 404 when session does not exist or does not belong to user', async () => {
+    mockSingle.mockResolvedValue({ data: null, error: null })
+    const request = createMockRequest({ query: 'show stats', sessionId: '12345678-1234-1234-1234-1234567890ab' })
+    const response = await POST(request)
+    expect(response.status).toBe(404)
+    const data = await response.json()
+    expect(data.error).toBe('Session not found')
   })
 
-  describe('Error Handling', () => {
-    test('should handle missing data', async () => {
-      const requestBody = {
-        searchType: 'financial',
-        query: 'test'
-      }
+  test('executes search successfully and returns summary answer', async () => {
+    mockSingle.mockResolvedValue({ data: { id: '12345678-1234-1234-1234-1234567890ab' }, error: null })
+    mockRpc.mockResolvedValue({ data: [{ total_messages: 100 }], error: null })
 
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
+    const request = createMockRequest({ query: 'how many messages?', sessionId: '12345678-1234-1234-1234-1234567890ab' })
+    const response = await POST(request)
+    expect(response.status).toBe(200)
 
-      expect(response.status).toBe(400)
-      expect(result.success).toBe(false)
-      expect(result.error).toContain('Chat data is required')
-    })
-
-    test('should handle invalid search type', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'invalid',
-        query: 'test'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(400)
-      expect(result.success).toBe(false)
-      expect(result.error).toContain('Invalid search type')
-    })
-
-    test('should handle malformed data', async () => {
-      const requestBody = {
-        data: { invalid: 'structure' },
-        searchType: 'keyword',
-        query: 'test'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(400)
-      expect(result.success).toBe(false)
-    })
-
-    test('should handle OpenAI API errors', async () => {
-      // Mock OpenAI to throw an error
-      const OpenAI = require('openai').OpenAI
-      OpenAI.mockImplementation(() => ({
-        chat: {
-          completions: {
-            create: jest.fn().mockRejectedValue(new Error('OpenAI API Error'))
-          }
-        }
-      }))
-
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'semantic',
-        query: 'test'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(500)
-      expect(result.success).toBe(false)
-      expect(result.error).toContain('AI analysis failed')
-    })
-
-    test('should handle missing OpenAI API key', async () => {
-      delete process.env.OPENAI_API_KEY
-
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'semantic',
-        query: 'test'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(500)
-      expect(result.success).toBe(false)
-      expect(result.error).toContain('OpenAI API key not configured')
-    })
+    const data = await response.json()
+    expect(data.success).toBe(true)
+    expect(data.answer).toBe('This is the summarized safe search answer.')
+    expect(data.data).toEqual([{ total_messages: 100 }])
+    expect(data.sql).toBe('SELECT total_messages FROM sessions WHERE id = $1')
   })
 
-  describe('Performance and Edge Cases', () => {
-    test('should handle large datasets', async () => {
-      const largeData = {
-        messages: Array.from({ length: 10000 }, (_, i) => ({
-          timestamp: `2024-01-01T${String(i % 24).padStart(2, '0')}:30:00Z`,
-          sender: `User${i % 100}`,
-          content: `Message ${i} with various content including money $${i}`
-        }))
-      }
+  test('returns 500 when database rpc fails', async () => {
+    mockSingle.mockResolvedValue({ data: { id: '12345678-1234-1234-1234-1234567890ab' }, error: null })
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'Database error' } })
 
-      const requestBody = {
-        data: largeData,
-        searchType: 'financial'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-    })
-
-    test('should handle special characters in query', async () => {
-      const requestBody = {
-        data: mockChatData,
-        searchType: 'keyword',
-        query: '!@#$%^&*()_+-={}[]|\\:";\'<>?,./'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-    })
-
-    test('should handle Unicode characters', async () => {
-      const unicodeData = {
-        messages: [
-          { timestamp: '2024-01-01T10:30:00Z', sender: 'José', content: '¡Hola! 你好 こんにちは 🎉' },
-          { timestamp: '2024-01-01T10:31:00Z', sender: 'Müller', content: 'Guten Tag! العربية' }
-        ]
-      }
-
-      const requestBody = {
-        data: unicodeData,
-        searchType: 'keyword',
-        query: '你好'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-    })
-
-    test('should handle empty messages array', async () => {
-      const emptyData = {
-        messages: []
-      }
-
-      const requestBody = {
-        data: emptyData,
-        searchType: 'keyword',
-        query: 'test'
-      }
-
-      const request = createMockRequest(requestBody)
-      const response = await POST(request)
-      const result = await response.json()
-
-      expect(response.status).toBe(200)
-      expect(result.success).toBe(true)
-      expect(result.results).toHaveLength(0)
-    })
+    const request = createMockRequest({ query: 'how many messages?', sessionId: '12345678-1234-1234-1234-1234567890ab' })
+    const response = await POST(request)
+    expect(response.status).toBe(500)
+    const data = await response.json()
+    expect(data.error).toBe('Query execution failed')
   })
-}) 
+})

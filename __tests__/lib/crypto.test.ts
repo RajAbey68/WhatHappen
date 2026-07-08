@@ -1,4 +1,7 @@
 import { encryptText, decryptText, bufferToHex, hexToBuffer } from '../../lib/crypto'
+import { TextEncoder, TextDecoder } from 'util'
+global.TextEncoder = TextEncoder
+global.TextDecoder = TextDecoder as any
 
 describe('Cryptographic Utilities', () => {
   const passphrase = 'my-super-secret-passphrase'

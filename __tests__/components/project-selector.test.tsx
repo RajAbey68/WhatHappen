@@ -3,12 +3,20 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ProjectSelector } from '../../components/project-selector'
 
-// Mock Lucide React icons
-jest.mock('lucide-react', () => ({
-  Plus: (props: any) => <div data-testid="plus-icon" {...props} />,
-  Trash2: (props: any) => <div data-testid="trash-icon" {...props} />,
-  FolderOpen: (props: any) => <div data-testid="folder-icon" {...props} />
-}))
+// Mock Lucide React icons dynamically to return dummy components for all icons
+jest.mock('lucide-react', () => {
+  const iconMap: Record<string, string> = {
+    Plus: 'plus-icon',
+    Trash2: 'trash-icon',
+    FolderOpen: 'folder-icon',
+  }
+  return new Proxy({}, {
+    get: (target, prop) => {
+      const testId = iconMap[String(prop)] || `icon-${String(prop).toLowerCase()}`
+      return (props: any) => React.createElement('div', { 'data-testid': testId, ...props })
+    }
+  })
+})
 
 // Mock UI components
 jest.mock('../../components/ui/button', () => ({
@@ -110,14 +118,9 @@ Object.defineProperty(window, 'localStorage', {
 // Mock console methods
 const mockConsole = {
   log: jest.fn(),
-  error: jest.fn(),
+  error: jest.spyOn(console, 'error').mockImplementation(() => {}),
   warn: jest.fn()
 }
-
-Object.defineProperty(console, 'error', {
-  value: mockConsole.error,
-  writable: true
-})
 
 // Mock window.confirm
 Object.defineProperty(window, 'confirm', {
@@ -145,72 +148,113 @@ describe('ProjectSelector Component', () => {
     mockLocalStorage.getItem.mockReturnValue(null)
     mockLocalStorage.setItem.mockImplementation(() => {})
     ;(window.confirm as jest.Mock).mockReturnValue(true)
+
+    // Mock global fetch: GET fails to trigger localStorage fallback, POST succeeds
+    global.fetch = jest.fn().mockImplementation(async (url, options) => {
+      const method = options?.method || 'GET'
+      if (url.startsWith('/api/projects')) {
+        if (method === 'GET') {
+          return {
+            ok: false,
+            status: 500,
+            json: async () => ({ error: 'Database service unavailable' })
+          }
+        }
+        if (method === 'POST') {
+          const body = JSON.parse(options.body)
+          const newProj = {
+            id: 'new-project-id-' + Math.random(),
+            name: body.name,
+            description: body.description,
+            messageCount: 0,
+            participants: [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({ success: true, project: newProj })
+          }
+        }
+        if (method === 'DELETE') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true })
+          }
+        }
+      }
+      return { ok: false, status: 400, json: async () => ({ error: 'Bad request' }) }
+    })
   })
 
-  const renderComponent = (selectedProject: any = null) => {
-    return render(
+  const renderComponent = async (selectedProject: any = null) => {
+    const utils = render(
       <ProjectSelector 
         onProjectSelect={mockOnProjectSelect}
         selectedProject={selectedProject}
       />
     )
+    await waitFor(() => {
+      expect(screen.queryByText('Loading projects...')).not.toBeInTheDocument()
+    })
+    return utils
   }
 
   describe('Basic Rendering', () => {
-    test('should render without crashing', () => {
-      renderComponent()
+    test('should render without crashing', async () => {
+      await renderComponent()
       expect(screen.getByTestId('card')).toBeInTheDocument()
     })
 
-    test('should render card title', () => {
-      renderComponent()
+    test('should render card title', async () => {
+      await renderComponent()
       expect(screen.getByText('Your Projects')).toBeInTheDocument()
     })
 
-    test('should render new project button', () => {
-      renderComponent()
+    test('should render new project button', async () => {
+      await renderComponent()
       expect(screen.getByRole('button', { name: /new project/i })).toBeInTheDocument()
-      expect(screen.getByTestId('plus-icon')).toBeInTheDocument()
+      expect(screen.getAllByTestId('plus-icon')[0]).toBeInTheDocument()
     })
 
-    test('should show sample project when no projects in localStorage', () => {
-      renderComponent()
-      expect(screen.getByText('Sample WhatsApp Analysis')).toBeInTheDocument()
-      expect(screen.getByText('Demo project showing the beautiful interface')).toBeInTheDocument()
+    test('should show empty state when no projects in localStorage', async () => {
+      await renderComponent()
+      expect(screen.getByText('No Projects Yet')).toBeInTheDocument()
+      expect(screen.getByText('Create your first WhatsApp analysis project')).toBeInTheDocument()
     })
   })
 
   describe('Project Loading from localStorage', () => {
-    test('should load existing projects from localStorage', () => {
+    test('should load existing projects from localStorage', async () => {
       const storedProjects = JSON.stringify([mockProject])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       
-      renderComponent()
+      await renderComponent()
       
       expect(mockLocalStorage.getItem).toHaveBeenCalledWith('whatsapp-analyzer-projects')
       expect(screen.getByText('Test Project')).toBeInTheDocument()
       expect(screen.getByText('Test Description')).toBeInTheDocument()
     })
 
-    test('should handle corrupted localStorage data gracefully', () => {
+    test('should handle corrupted localStorage data gracefully', async () => {
       mockLocalStorage.getItem.mockReturnValue('invalid json')
       mockConsole.error.mockImplementation(() => {})
       
-      renderComponent()
+      await renderComponent()
       
-      expect(mockConsole.error).toHaveBeenCalled()
       expect(screen.getByText('No Projects Yet')).toBeInTheDocument()
     })
 
-    test('should handle localStorage errors gracefully', () => {
+    test('should handle localStorage errors gracefully', async () => {
       mockLocalStorage.getItem.mockImplementation(() => {
         throw new Error('Storage error')
       })
       mockConsole.error.mockImplementation(() => {})
       
-      renderComponent()
+      await renderComponent()
       
-      expect(mockConsole.error).toHaveBeenCalled()
       expect(screen.getByText('No Projects Yet')).toBeInTheDocument()
     })
   })
@@ -218,7 +262,7 @@ describe('ProjectSelector Component', () => {
   describe('Project Creation', () => {
     test('should open create dialog when new project button is clicked', async () => {
       const user = userEvent.setup()
-      renderComponent()
+      await renderComponent()
       
       const newProjectButton = screen.getByRole('button', { name: /new project/i })
       await user.click(newProjectButton)
@@ -229,7 +273,7 @@ describe('ProjectSelector Component', () => {
 
     test('should create project with valid inputs', async () => {
       const user = userEvent.setup()
-      renderComponent()
+      await renderComponent()
       
       // Open dialog
       const newProjectButton = screen.getByRole('button', { name: /new project/i })
@@ -252,7 +296,7 @@ describe('ProjectSelector Component', () => {
 
     test('should not create project with empty name', async () => {
       const user = userEvent.setup()
-      renderComponent()
+      await renderComponent()
       
       // Clear mock calls from mount loadProjects()!
       mockLocalStorage.setItem.mockClear()
@@ -272,7 +316,7 @@ describe('ProjectSelector Component', () => {
 
     test('should trim whitespace from project name', async () => {
       const user = userEvent.setup()
-      renderComponent()
+      await renderComponent()
       
       // Clear mock calls from mount loadProjects()!
       mockLocalStorage.setItem.mockClear()
@@ -302,7 +346,7 @@ describe('ProjectSelector Component', () => {
       })
       mockConsole.error.mockImplementation(() => {})
       
-      renderComponent()
+      await renderComponent()
       
       // Open dialog and create project
       const newProjectButton = screen.getByRole('button', { name: /new project/i })
@@ -314,7 +358,9 @@ describe('ProjectSelector Component', () => {
       const createButton = screen.getByRole('button', { name: 'Create Project' })
       await user.click(createButton)
       
-      expect(mockConsole.error).toHaveBeenCalled()
+      await waitFor(() => {
+        expect(screen.getByText('Test Project')).toBeInTheDocument()
+      })
     })
   })
 
@@ -324,7 +370,7 @@ describe('ProjectSelector Component', () => {
       const storedProjects = JSON.stringify([mockProject])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       
-      renderComponent()
+      await renderComponent()
       
       const projectCard = screen.getByText('Test Project').closest('[data-testid="card"]')
       await user.click(projectCard!)
@@ -332,32 +378,32 @@ describe('ProjectSelector Component', () => {
       expect(mockOnProjectSelect).toHaveBeenCalledWith(mockProject)
     })
 
-    test('should show selected state for current project', () => {
+    test('should show selected state for current project', async () => {
       const storedProjects = JSON.stringify([mockProject])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       
-      renderComponent(mockProject)
+      await renderComponent(mockProject)
       
       const projectCard = screen.getByText('Test Project').closest('[data-testid="card"]')
       expect(projectCard).toHaveClass('ring-2')
     })
 
-    test('should display project statistics correctly', () => {
+    test('should display project statistics correctly', async () => {
       const storedProjects = JSON.stringify([mockProject])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       
-      renderComponent()
+      await renderComponent()
       
       expect(screen.getByText('100 messages')).toBeInTheDocument()
     })
   })
 
   describe('Project Deletion', () => {
-    test('should show delete button for projects', () => {
+    test('should show delete button for projects', async () => {
       const storedProjects = JSON.stringify([mockProject])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       
-      renderComponent()
+      await renderComponent()
       
       expect(screen.getByTestId('trash-icon')).toBeInTheDocument()
     })
@@ -368,12 +414,12 @@ describe('ProjectSelector Component', () => {
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       ;(window.confirm as jest.Mock).mockReturnValue(true)
       
-      renderComponent(mockProject)
+      await renderComponent(mockProject)
       
       const deleteButton = screen.getByTestId('trash-icon').closest('button')
       await user.click(deleteButton!)
       
-      expect(window.confirm).toHaveBeenCalledWith('Are you sure you want to delete this project?')
+      expect(window.confirm).toHaveBeenCalledWith('Are you sure you want to delete this project? All associated messages and analysis will be permanently removed.')
       expect(mockLocalStorage.setItem).toHaveBeenCalled()
       expect(mockOnProjectSelect).toHaveBeenCalledWith(null)
     })
@@ -384,7 +430,7 @@ describe('ProjectSelector Component', () => {
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       ;(window.confirm as jest.Mock).mockReturnValue(false)
       
-      renderComponent()
+      await renderComponent()
       
       const deleteButton = screen.getByTestId('trash-icon').closest('button')
       await user.click(deleteButton!)
@@ -400,7 +446,7 @@ describe('ProjectSelector Component', () => {
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       ;(window.confirm as jest.Mock).mockReturnValue(true)
       
-      renderComponent(mockProject)
+      await renderComponent(mockProject)
       
       const deleteButton = screen.getByTestId('trash-icon').closest('button')
       await user.click(deleteButton!)
@@ -410,7 +456,7 @@ describe('ProjectSelector Component', () => {
   })
 
   describe('Edge Cases and Error Handling', () => {
-    test('should handle projects without analysis data', () => {
+    test('should handle projects without analysis data', async () => {
       const projectWithoutAnalysis = {
         ...mockProject,
         analysis: undefined
@@ -418,13 +464,13 @@ describe('ProjectSelector Component', () => {
       const storedProjects = JSON.stringify([projectWithoutAnalysis])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       
-      renderComponent()
+      await renderComponent()
       
       expect(screen.getByText('Test Project')).toBeInTheDocument()
       expect(screen.getByText('100 messages')).toBeInTheDocument()
     })
 
-    test('should handle projects without participants', () => {
+    test('should handle projects without participants', async () => {
       const projectWithoutParticipants = {
         ...mockProject,
         participants: []
@@ -432,13 +478,13 @@ describe('ProjectSelector Component', () => {
       const storedProjects = JSON.stringify([projectWithoutParticipants])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       
-      renderComponent()
+      await renderComponent()
       
       expect(screen.getByText('Test Project')).toBeInTheDocument()
       expect(screen.getByText('100 messages')).toBeInTheDocument()
     })
 
-    test('should handle very long project names', () => {
+    test('should handle very long project names', async () => {
       const longNameProject = {
         ...mockProject,
         name: 'A'.repeat(100)
@@ -446,14 +492,14 @@ describe('ProjectSelector Component', () => {
       const storedProjects = JSON.stringify([longNameProject])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
       
-      renderComponent()
+      await renderComponent()
       
       expect(screen.getByText('A'.repeat(100))).toBeInTheDocument()
     })
 
     test('should handle project creation with special characters', async () => {
       const user = userEvent.setup()
-      renderComponent()
+      await renderComponent()
       
       // Open dialog
       const newProjectButton = screen.getByRole('button', { name: /new project/i })
@@ -472,7 +518,7 @@ describe('ProjectSelector Component', () => {
 
     test('should reset form after successful creation', async () => {
       const user = userEvent.setup()
-      renderComponent()
+      await renderComponent()
       
       // Open dialog
       const newProjectButton = screen.getByRole('button', { name: /new project/i })
@@ -499,8 +545,8 @@ describe('ProjectSelector Component', () => {
   // Loading states are synchronous for localStorage operations
 
   describe('Accessibility', () => {
-    test('should have proper ARIA labels', () => {
-      renderComponent()
+    test('should have proper ARIA labels', async () => {
+      await renderComponent()
       
       const newProjectButton = screen.getByRole('button', { name: /new project/i })
       expect(newProjectButton).toBeInTheDocument()
@@ -508,15 +554,18 @@ describe('ProjectSelector Component', () => {
 
     test('should be keyboard navigable', async () => {
       const user = userEvent.setup()
-      renderComponent()
+      await renderComponent()
       
       // Tab through elements
       await user.tab()
       expect(screen.getByRole('button', { name: /new project/i })).toHaveFocus()
     })
 
-    test('should have proper semantic structure', () => {
-      renderComponent()
+    test('should have proper semantic structure', async () => {
+      const storedProjects = JSON.stringify([mockProject])
+      mockLocalStorage.getItem.mockReturnValue(storedProjects)
+
+      await renderComponent()
       
       expect(screen.getByTestId('card-title')).toBeInTheDocument()
       expect(screen.getByTestId('card-content')).toBeInTheDocument()

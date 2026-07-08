@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Project } from '@/lib/supabase'
-import { Upload, MessageSquare, BarChart3, FileText, Bot, Database, Key, Shield, RefreshCw } from 'lucide-react'
+import { Upload, MessageSquare, BarChart3, FileText, Bot, Database, Key, Shield, RefreshCw, Clock } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -586,6 +586,37 @@ export default function Home() {
                           ) : (
                             <div className="text-sm text-slate-600 text-center py-4">
                               No activity insights. Run AI analysis.
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      <Card className="rounded-2xl shadow-sm">
+                        <CardHeader>
+                          <CardTitle className="flex items-center">
+                            <Clock className="h-5 w-5 mr-2 text-blue-500" />
+                            Response Time Analysis
+                          </CardTitle>
+                          <CardDescription>Average reply speed per participant</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {selectedProject.analysis?.averageResponseTimes ? (
+                            <div className="space-y-2 text-sm text-slate-600">
+                              {Object.entries(selectedProject.analysis.averageResponseTimes).map(([participant, seconds]: [string, any]) => {
+                                const m = Math.floor(seconds / 60);
+                                const s = seconds % 60;
+                                const timeStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
+                                return (
+                                  <div key={participant} className="flex justify-between">
+                                    <span className="font-medium">{participant}</span>
+                                    <span className="font-bold text-blue-600">{timeStr}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-slate-600 text-center py-4">
+                              No response times. Run AI analysis.
                             </div>
                           )}
                         </CardContent>

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { getServiceClient } from '@/lib/auth'
 import { decryptText } from '@/lib/crypto'
-
+import { SwarmManager } from '@/lib/swarm/SwarmManager'
+import { AgentConfig } from '@/lib/types/agent'
 export async function POST(request: NextRequest) {
+  const supabase = getServiceClient()
   try {
     const { projectId, analysisType = 'comprehensive', passphrase } = await request.json()
 
@@ -69,22 +71,40 @@ export async function POST(request: NextRequest) {
     }
 
     // Perform different types of analysis
-    let analysisResult = {}
+    let analysisResult: any = {}
 
-    switch (analysisType) {
-      case 'sentiment':
-        analysisResult = performSentimentAnalysis(messages)
-        break
-      case 'financial':
-        analysisResult = performFinancialAnalysis(messages)
-        break
-      case 'timeline':
-        analysisResult = performTimelineAnalysis(messages)
-        break
-      case 'comprehensive':
-      default:
-        analysisResult = performComprehensiveAnalysis(messages)
-        break
+    if (analysisType === 'comprehensive_swarm') {
+      const config: AgentConfig = {
+        jurisdiction: 'UK',
+        regulator: 'FCA',
+        expertId: 'LEGAL_COUNSEL'
+      }
+      const swarm = new SwarmManager(messages, config)
+      const swarmResult = await swarm.analyze()
+      
+      analysisResult = {
+        type: 'comprehensive_swarm',
+        overall: swarmResult.ledger,
+        sentiment: swarmResult.sentimentTimeline,
+        synthesis: swarmResult.finalSynthesis,
+        generatedAt: new Date().toISOString()
+      }
+    } else {
+      switch (analysisType) {
+        case 'sentiment':
+          analysisResult = performSentimentAnalysis(messages)
+          break
+        case 'financial':
+          analysisResult = performFinancialAnalysis(messages)
+          break
+        case 'timeline':
+          analysisResult = performTimelineAnalysis(messages)
+          break
+        case 'comprehensive':
+        default:
+          analysisResult = performComprehensiveAnalysis(messages)
+          break
+      }
     }
 
     // Update project with new analysis
@@ -274,6 +294,42 @@ function performComprehensiveAnalysis(messages: any[]) {
     sentiment: performSentimentAnalysis(messages),
     financial: performFinancialAnalysis(messages),
     timeline: performTimelineAnalysis(messages),
+    averageResponseTimes: calculateResponseTimes(messages),
     generatedAt: new Date().toISOString()
   }
+}
+
+function calculateResponseTimes(messages: any[]) {
+  const responseTimesByParticipant: Record<string, number[]> = {}
+  let lastMessage: any = null
+
+  // Ensure messages are sorted by timestamp
+  const sorted = [...messages].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+  for (const message of sorted) {
+    const msgTime = new Date(message.timestamp).getTime()
+    if (isNaN(msgTime)) continue
+
+    if (lastMessage && lastMessage.sender !== message.sender) {
+      const lastTime = new Date(lastMessage.timestamp).getTime()
+      if (!isNaN(lastTime)) {
+        const diffMs = msgTime - lastTime
+        if (diffMs > 0 && diffMs < 12 * 60 * 60 * 1000) {
+          if (!responseTimesByParticipant[message.sender]) {
+            responseTimesByParticipant[message.sender] = []
+          }
+          responseTimesByParticipant[message.sender].push(diffMs / 1000)
+        }
+      }
+    }
+    lastMessage = message
+  }
+
+  const averageResponseTimes: Record<string, number> = {}
+  Object.entries(responseTimesByParticipant).forEach(([sender, times]) => {
+    const total = times.reduce((sum, t) => sum + t, 0)
+    averageResponseTimes[sender] = times.length > 0 ? Math.round(total / times.length) : 0
+  })
+
+  return averageResponseTimes
 } 

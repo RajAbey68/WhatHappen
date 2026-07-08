@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { getServiceClient } from '@/lib/auth'
 
 function mapDbProject(dbProj: any) {
   if (!dbProj) return null
@@ -20,6 +20,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { projectId: string } }
 ) {
+  const supabase = getServiceClient()
   try {
     const { projectId } = params
 

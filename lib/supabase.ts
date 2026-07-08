@@ -18,11 +18,18 @@ export interface Project {
     start: string
     end: string
   }
+  /** @deprecated Moved to the new Swarm architecture via `agents` and `project_agents` tables. */
+  agentConfig?: {
+    expertise: string
+    jurisdiction: string
+    regulator: string
+  }
   analysis?: {
     sentiment?: any
     keywords?: string[]
     financial?: any
     timeline?: any
+    averageResponseTimes?: Record<string, number>
   }
 }
 

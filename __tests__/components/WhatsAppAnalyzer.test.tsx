@@ -3,14 +3,46 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Home from '../../app/page'
 
-// Mock Lucide React icons
-jest.mock('lucide-react', () => ({
-  Upload: (props: any) => <div data-testid="upload-icon" {...props} />,
-  MessageSquare: (props: any) => <div data-testid="message-square-icon" {...props} />,
-  BarChart3: (props: any) => <div data-testid="chart-icon" {...props} />,
-  FileText: (props: any) => <div data-testid="file-icon" {...props} />,
-  Bot: (props: any) => <div data-testid="bot-icon" {...props} />,
-  Database: (props: any) => <div data-testid="database-icon" {...props} />
+// Mock Lucide React icons dynamically to return dummy components for all icons
+jest.mock('lucide-react', () => {
+  return new Proxy({}, {
+    get: (target, prop) => {
+      return (props: any) => React.createElement('div', { 'data-testid': `icon-${String(prop).toLowerCase()}`, ...props })
+    }
+  })
+})
+
+// Mock UI components that are used in Home
+jest.mock('../../components/database-viewer', () => ({
+  DatabaseViewer: () => <div data-testid="database-viewer-mock" />
+}))
+
+jest.mock('../../components/ui/bottom-sheet', () => ({
+  BottomSheet: ({ children }: any) => <div data-testid="bottom-sheet">{children}</div>,
+  BottomSheetContent: ({ children }: any) => <div data-testid="bottom-sheet-content">{children}</div>,
+  BottomSheetHeader: ({ children }: any) => <div data-testid="bottom-sheet-header">{children}</div>,
+  BottomSheetTitle: ({ children }: any) => <div data-testid="bottom-sheet-title">{children}</div>,
+}))
+
+jest.mock('../../components/ui/dialog', () => ({
+  Dialog: ({ children }: any) => <div data-testid="dialog">{children}</div>,
+  DialogContent: ({ children }: any) => <div data-testid="dialog-content">{children}</div>,
+  DialogDescription: ({ children }: any) => <div data-testid="dialog-description">{children}</div>,
+  DialogHeader: ({ children }: any) => <div data-testid="dialog-header">{children}</div>,
+  DialogTitle: ({ children }: any) => <div data-testid="dialog-title">{children}</div>,
+  DialogFooter: ({ children }: any) => <div data-testid="dialog-footer">{children}</div>,
+}))
+
+jest.mock('../../components/ui/input', () => ({
+  Input: (props: any) => <input data-testid="input" {...props} />
+}))
+
+jest.mock('../../components/ui/label', () => ({
+  Label: ({ children, ...props }: any) => <label {...props}>{children}</label>
+}))
+
+jest.mock('../../components/ui/button', () => ({
+  Button: ({ children, ...props }: any) => <button {...props}>{children}</button>
 }))
 
 // Mock the sub-components
@@ -118,8 +150,8 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
   describe('Initial Default State (No Project Selected)', () => {
     test('should render headers and description text', () => {
       render(<Home />)
-      expect(screen.getByText('WhatsApp Analyzer')).toBeInTheDocument()
-      expect(screen.getByText(/Professional WhatsApp chat analysis with AI-powered insights/i)).toBeInTheDocument()
+      expect(screen.getByText('WhatHappen')).toBeInTheDocument()
+      expect(screen.getByText(/Zero-Knowledge WhatsApp Analyzer/i)).toBeInTheDocument()
     })
 
     test('should render project selector interface in default state', () => {
@@ -182,10 +214,10 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       await user.click(selectBtn)
 
       expect(screen.getByTestId('tabs')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-upload')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-ai-chat')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-analysis')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-trigger-documents')).toBeInTheDocument()
+      expect(screen.getAllByTestId('tab-trigger-upload')[0]).toBeInTheDocument()
+      expect(screen.getAllByTestId('tab-trigger-ai-chat')[0]).toBeInTheDocument()
+      expect(screen.getAllByTestId('tab-trigger-analysis')[0]).toBeInTheDocument()
+      expect(screen.getAllByTestId('tab-trigger-documents')[0]).toBeInTheDocument()
     })
 
     test('should enable AI Chat, Analysis and Documents tabs when messageCount > 0', async () => {
@@ -195,9 +227,9 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       const selectBtn = screen.getByTestId('select-project-btn')
       await user.click(selectBtn)
 
-      expect(screen.getByTestId('tab-trigger-ai-chat')).not.toBeDisabled()
-      expect(screen.getByTestId('tab-trigger-analysis')).not.toBeDisabled()
-      expect(screen.getByTestId('tab-trigger-documents')).not.toBeDisabled()
+      expect(screen.getAllByTestId('tab-trigger-ai-chat')[0]).not.toBeDisabled()
+      expect(screen.getAllByTestId('tab-trigger-analysis')[0]).not.toBeDisabled()
+      expect(screen.getAllByTestId('tab-trigger-documents')[0]).not.toBeDisabled()
     })
 
     test('should render sub-components inside tab contents when selected', async () => {

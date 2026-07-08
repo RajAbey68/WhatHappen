@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { getServiceClient } from '@/lib/auth'
+import { supabase as anonSupabase } from '@/lib/supabase'
 
 function mapDbProject(dbProj: any) {
   if (!dbProj) return null
@@ -19,6 +20,7 @@ function mapDbProject(dbProj: any) {
 // GET - List all projects
 export async function GET() {
   try {
+    const supabase = getServiceClient()
     const { data, error } = await supabase
       .from('projects')
       .select('*')
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest) {
       analysis: null
     }
 
+    const supabase = getServiceClient()
     const { data, error } = await supabase
       .from('projects')
       .insert(projectData)

@@ -66,7 +66,16 @@ export async function POST(request: NextRequest) {
   if (process.env.GCS_BUCKET) {
     try {
       const { Storage } = await import('@google-cloud/storage')
-      const storage = new Storage()
+      
+      const storageOptions: any = {}
+      if (process.env.GCP_CLIENT_EMAIL && process.env.GCP_PRIVATE_KEY) {
+        storageOptions.projectId = process.env.GCP_PROJECT_ID || 'leadsync-489921'
+        storageOptions.credentials = {
+          client_email: process.env.GCP_CLIENT_EMAIL,
+          private_key: process.env.GCP_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        }
+      }
+      const storage = new Storage(storageOptions)
       const [signedUrl] = await storage
         .bucket(process.env.GCS_BUCKET)
         .file(gcsPath)

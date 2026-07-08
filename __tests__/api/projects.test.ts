@@ -21,6 +21,12 @@ jest.mock('../../lib/supabase', () => ({
   }
 }))
 
+jest.mock('../../lib/auth', () => ({
+  getServiceClient: () => ({
+    from: (...args: any[]) => (global as any).mockFrom(...args)
+  })
+}))
+
 const mockFrom = (global as any).mockFrom
 const mockOrder = (global as any).mockOrder
 const mockSingle = (global as any).mockSingle

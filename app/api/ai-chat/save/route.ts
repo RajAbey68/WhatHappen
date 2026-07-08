@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { getServiceClient } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
+  const supabase = getServiceClient()
   try {
     const { projectId, messages } = await request.json()
 
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const supabase = getServiceClient()
   try {
     const url = new URL(request.url)
     const projectId = url.searchParams.get('projectId')
@@ -56,7 +58,7 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error
 
-    const conversations = (data || []).map(conv => ({
+    const conversations = (data || []).map((conv: any) => ({
       id: conv.id,
       projectId: conv.project_id,
       messages: conv.messages || [],

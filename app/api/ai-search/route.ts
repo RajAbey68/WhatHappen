@@ -133,11 +133,12 @@ Never use SELECT *. Only query aggregates or metadata.${feedbackClause}`,
       success: true,
       answer,
       data,
+      results: data, // backwards compatibility alias for tests/clients
       model,
       sql, // returned for debugging — remove in production if desired
     })
   } catch (error: any) {
     console.error('[ai-search] error:', error.message)
-    return NextResponse.json({ error: 'Analysis failed' }, { status: 500 })
+    return NextResponse.json({ success: false, error: 'Analysis failed' }, { status: 500 })
   }
 }

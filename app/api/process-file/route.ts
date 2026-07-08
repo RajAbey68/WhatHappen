@@ -1,8 +1,10 @@
 export const runtime = 'nodejs'
+export const maxDuration = 60
 
 import { NextRequest, NextResponse } from 'next/server'
 import { parse as csvParse } from 'csv-parse/sync'
 import { v4 as uuidv4 } from 'uuid'
+import { getServiceClient } from '@/lib/auth'
 const Sentiment = require('sentiment')
 
 // Firebase integration temporarily disabled due to compatibility issues
@@ -67,6 +69,7 @@ interface ChatAnalysis {
   mediaMessages: number
   textMessages: number
   averageMessageLength: number
+  averageResponseTimes?: Record<string, number>
 }
 
 /**
@@ -93,23 +96,101 @@ function imageExtToMime(ext: string): string {
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const formData = await request.formData()
-    const file = formData.get('file')
+  const startTime = Date.now()
+  const sessionId = request.nextUrl.searchParams.get('sessionId')
+  let supabase: any = null
 
-    if (!file || !(file instanceof File)) {
+  let file: any = null
+  let fileBuffer: Buffer
+
+  const updateSessionProgress = async (step: string) => {
+    if (sessionId) {
+      if (!supabase) {
+        supabase = getServiceClient()
+      }
+      try {
+        await supabase
+          .from('sessions')
+          .update({
+            processing_status: 'processing',
+            processing_error: step
+          })
+          .eq('id', sessionId)
+      } catch (err: any) {
+        console.error(`[process-file] Failed to update session progress to "${step}":`, err.message)
+      }
+    }
+  }
+
+  try {
+    const formData = await request.formData().catch(() => null)
+    if (formData) {
+      file = formData.get('file')
+    }
+
+    if (file && file instanceof File) {
+      // Direct file payload processing
+      fileBuffer = Buffer.from(await file.arrayBuffer())
+    } else if (sessionId) {
+      // Retrieve metadata from Supabase session
+      supabase = getServiceClient()
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single()
+
+      if (sessionError || !sessionData) {
+        return NextResponse.json(
+          { success: false, error: `Session not found: ${sessionError?.message || 'unknown'}` },
+          { status: 404 }
+        )
+      }
+
+      // Download file from GCS
+      const { Storage } = await import('@google-cloud/storage')
+      const storageOptions: any = {}
+      if (process.env.GCP_CLIENT_EMAIL && process.env.GCP_PRIVATE_KEY) {
+        storageOptions.projectId = process.env.GCP_PROJECT_ID || 'leadsync-489921'
+        storageOptions.credentials = {
+          client_email: process.env.GCP_CLIENT_EMAIL,
+          private_key: process.env.GCP_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        }
+      }
+      const storage = new Storage(storageOptions)
+      const bucketName = process.env.GCS_BUCKET || 'whathappen-uploads-leadsync-489921'
+      const gcsPath = `uploads/${sessionData.user_id}/${sessionId}/${sessionData.file_name}`
+
+      try {
+        console.log(`[process-file] Downloading GCS file: gs://${bucketName}/${gcsPath}`)
+        await updateSessionProgress('Downloading file from storage...')
+        const [downloadedBuffer] = await storage.bucket(bucketName).file(gcsPath).download()
+        fileBuffer = downloadedBuffer
+        file = {
+          name: sessionData.file_name,
+          size: sessionData.file_size_bytes,
+        }
+      } catch (err: any) {
+        console.error('[process-file] GCS download failed:', err.message)
+        await supabase
+          .from('sessions')
+          .update({ processing_status: 'error', processing_error: `GCS download failed: ${err.message}` })
+          .eq('id', sessionId)
+        return NextResponse.json(
+          { success: false, error: `Failed to download file from GCS: ${err.message}` },
+          { status: 500 }
+        )
+      }
+    } else {
       return NextResponse.json(
-        { 
-          success: false,
-          error: 'No file provided' 
-        },
+        { success: false, error: 'No file provided and no valid sessionId' },
         { status: 400 }
       )
     }
 
-    // Safety check: Limit file size to 10MB (larger files go through upload-url → GCS)
+    // Safety check: Limit file size to 10MB (larger files go through upload-url → GCS, unless sessionId fallback is present)
     const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
-    if (file.size > MAX_FILE_SIZE) {
+    if (!sessionId && file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
         {
           success: false,
@@ -136,7 +217,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const fileBuffer = Buffer.from(await file.arrayBuffer())
     if (fileBuffer.length === 0) {
       return NextResponse.json(
         { 
@@ -145,6 +225,14 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       )
+    }
+
+    if (sessionId) {
+      supabase = getServiceClient()
+      await supabase
+        .from('sessions')
+        .update({ processing_status: 'processing' })
+        .eq('id', sessionId)
     }
 
     let fileContent: string = ''
@@ -156,6 +244,7 @@ export async function POST(request: NextRequest) {
     // alongside media files (images, videos). We extract the chat file and
     // run OCR on any images found.
     if (file.name.endsWith('.zip')) {
+      await updateSessionProgress('Extracting ZIP archive...')
       try {
         const AdmZipModule = await getAdmZip()
         const zip = new AdmZipModule(fileBuffer)
@@ -165,8 +254,15 @@ export async function POST(request: NextRequest) {
         const chatFiles: Array<{ name: string; data: Buffer }> = []
         const imageFiles: Array<{ name: string; data: Buffer }> = []
 
+        let totalUncompressedBytes = 0
         for (const entry of entries) {
           if (entry.isDirectory) continue
+          
+          totalUncompressedBytes += entry.header?.size || 0
+          if (totalUncompressedBytes > 300 * 1024 * 1024) { // 300MB limit
+            throw new Error('ZIP bomb protection: Uncompressed size exceeds 300MB limit')
+          }
+
           const name = entry.entryName || entry.getEntryName?.() || ''
           const lower = name.toLowerCase()
           const data: Buffer | null = entry.getData()
@@ -194,25 +290,34 @@ export async function POST(request: NextRequest) {
           fileContent = bestChat.data.toString('utf-8')
         }
 
-        // Run OCR on all images found in the ZIP
+        // Run OCR on images found in the ZIP (cap to 5 and process in parallel to avoid timeouts)
         if (imageFiles.length > 0) {
+          await updateSessionProgress('Running OCR on images...')
           const { extractImageText } = await import('@/lib/gemini-ocr')
-          const ocrResults: string[] = []
-
-          for (const img of imageFiles) {
-            const ext = getExtension(img.name)
-            const mimeType = imageExtToMime(ext)
-            const base64 = bufferToBase64(img.data, mimeType)
-
-            const result = await extractImageText(base64)
-            if (result.success && result.extractedText) {
-              ocrResults.push(
-                `[Image: ${img.name}]\n${result.extractedText}`
-              )
-              ocrImagesProcessed++
+          
+          const MAX_OCR_IMAGES = 5
+          const imagesToProcess = imageFiles.slice(0, MAX_OCR_IMAGES)
+          
+          console.log(`[process-file] Running parallel OCR on ${imagesToProcess.length} of ${imageFiles.length} images`)
+          
+          const ocrPromises = imagesToProcess.map(async (img) => {
+            try {
+              const ext = getExtension(img.name)
+              const mimeType = imageExtToMime(ext)
+              const base64 = bufferToBase64(img.data, mimeType)
+              const result = await extractImageText(base64)
+              if (result.success && result.extractedText) {
+                ocrImagesProcessed++
+                return `[Image: ${img.name}]\n${result.extractedText}`
+              }
+            } catch (err: any) {
+              console.error(`OCR failed for image ${img.name}:`, err.message)
             }
-          }
+            return null
+          })
 
+          const results = await Promise.all(ocrPromises)
+          const ocrResults = results.filter(Boolean) as string[]
           ocrText = ocrResults.join('\n\n')
         }
 
@@ -228,16 +333,24 @@ export async function POST(request: NextRequest) {
       } catch (zipErr) {
         // Fix #2: Corrupted ZIP should return 400 error
         console.error('ZIP extraction error:', zipErr)
+        const errMsg = `Corrupted or invalid ZIP file: ${zipErr instanceof Error ? zipErr.message : String(zipErr)}`
+        if (sessionId && supabase) {
+          await supabase
+            .from('sessions')
+            .update({ processing_status: 'error', processing_error: errMsg })
+            .eq('id', sessionId)
+        }
         return NextResponse.json(
           {
             success: false,
-            error: `Corrupted or invalid ZIP file: ${zipErr instanceof Error ? zipErr.message : String(zipErr)}`
+            error: errMsg
           },
           { status: 400 }
         )
       }
     // ── Direct image upload ────────────────────────────────────────────────
     } else if (isImageExtension(file.name)) {
+      await updateSessionProgress('Running OCR on images...')
       const ext = getExtension(file.name)
       const mimeType = imageExtToMime(ext)
       const base64 = bufferToBase64(fileBuffer, mimeType)
@@ -261,6 +374,7 @@ export async function POST(request: NextRequest) {
       const result = await mammothModule.extractRawText({ buffer: fileBuffer })
       fileContent = result.value
     } else if (file.name.endsWith('.pdf')) {
+      await updateSessionProgress('Running OCR on images...')
       // Fix #3: PDF files should be sent to OCR microservice
       const mimeType = 'application/pdf'
       const base64 = fileBuffer.toString('base64')
@@ -316,6 +430,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    await updateSessionProgress('Parsing text records...')
 
     // Parse WhatsApp chat format or JSON directly
     let messages: ProcessedMessage[] = []
@@ -399,6 +515,112 @@ export async function POST(request: NextRequest) {
       ocrImagesProcessed,
     }
 
+    if (sessionId) {
+      await updateSessionProgress('Saving data to database...')
+      if (!supabase) {
+        supabase = getServiceClient()
+      }
+      // Delete any existing meta/stats for this session to ensure idempotency on retries
+      await supabase.from('messages_meta').delete().eq('session_id', sessionId)
+      await supabase.from('message_stats').delete().eq('session_id', sessionId)
+
+      // 1. Prepare and insert messages metadata (cap to partitioned range [2024-01-01, 2099-01-01))
+      const metaRows = []
+      const startDateLimit = new Date('2024-01-01')
+      const endDateLimit = new Date('2099-01-01')
+
+      for (const msg of enrichedMessages) {
+        const msgDate = new Date(msg.timestamp)
+        if (msgDate >= startDateLimit && msgDate < endDateLimit) {
+          metaRows.push({
+            session_id: sessionId,
+            source_type: 'whatsapp',
+            timestamp: msg.timestamp.toISOString(),
+            sender: (msg.sender || 'Unknown').trim(),
+            word_count: msg.message ? msg.message.split(/\s+/).length : 0,
+            sentiment_score: msg.sentiment?.score || 0,
+            has_media: msg.messageType === 'media',
+            is_system_message: msg.messageType === 'system',
+          })
+        }
+      }
+
+      // Bulk insert messages_meta in chunks of 1000
+      const CHUNK_SIZE = 1000
+      for (let i = 0; i < metaRows.length; i += CHUNK_SIZE) {
+        const chunk = metaRows.slice(i, i + CHUNK_SIZE)
+        const { error: insertErr } = await supabase.from('messages_meta').insert(chunk)
+        if (insertErr) {
+          console.error('Failed to insert messages_meta chunk:', insertErr)
+        }
+      }
+
+      // 2. Prepare and insert message stats
+      const statsRows = []
+      for (const sender of analysis.participants) {
+        const senderMessages = enrichedMessages.filter(m => m.sender === sender)
+        const totalMsgCount = senderMessages.length
+        const mediaCount = senderMessages.filter(m => m.messageType === 'media').length
+        
+        let totalSentiment = 0
+        let sentimentCount = 0
+        let totalWordCount = 0
+        const hourCounts = Array(24).fill(0)
+        
+        for (const msg of senderMessages) {
+          if (msg.messageType === 'text') {
+            totalWordCount += msg.message ? msg.message.split(/\s+/).length : 0
+            if (msg.sentiment) {
+              totalSentiment += msg.sentiment.score
+              sentimentCount++
+            }
+          }
+          if (msg.timestamp instanceof Date && !isNaN(msg.timestamp.getTime())) {
+            hourCounts[msg.timestamp.getHours()]++
+          }
+        }
+        
+        const avgSentiment = sentimentCount > 0 ? totalSentiment / sentimentCount : 0
+        const avgWordCount = totalMsgCount > 0 ? totalWordCount / totalMsgCount : 0
+        const peakHour = hourCounts.indexOf(Math.max(...hourCounts))
+        
+        statsRows.push({
+          session_id: sessionId,
+          sender: sender,
+          message_count: totalMsgCount,
+          avg_sentiment: parseFloat(avgSentiment.toFixed(3)),
+          avg_word_count: parseFloat(avgWordCount.toFixed(2)),
+          peak_hour: peakHour,
+          media_count: mediaCount,
+        })
+      }
+
+      if (statsRows.length > 0) {
+        const { error: statsErr } = await supabase.from('message_stats').insert(statsRows)
+        if (statsErr) {
+          console.error('Failed to insert message_stats:', statsErr)
+        }
+      }
+
+      // 3. Update session table to complete
+      const processingMs = Date.now() - startTime
+      const { error: sessionUpdateErr } = await supabase
+        .from('sessions')
+        .update({
+          processing_status: 'complete',
+          total_messages: enrichedMessages.length,
+          date_range_start: analysis.dateRange.start,
+          date_range_end: analysis.dateRange.end,
+          processing_ms: processingMs,
+          processing_error: null,
+        })
+        .eq('id', sessionId)
+
+      if (sessionUpdateErr) {
+        console.error('Failed to update session:', sessionUpdateErr)
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: result
@@ -406,11 +628,21 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('File processing error:', error)
+    if (sessionId && supabase) {
+      await supabase
+        .from('sessions')
+        .update({
+          processing_status: 'error',
+          processing_error: error instanceof Error ? error.message : String(error)
+        })
+        .eq('id', sessionId)
+        .catch((e: any) => console.error('Failed to update error session:', e))
+    }
     return NextResponse.json(
       { 
-        success: false,
-        error: 'Failed to process file'
-      },
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown processing error' 
+      }, 
       { status: 500 }
     )
   }
@@ -644,6 +876,10 @@ function analyzeChat(messages: ProcessedMessage[]): ChatAnalysis {
   let textMessages = 0
   let totalMessageLength = 0
 
+  // Response time variables
+  const responseTimesByParticipant: Record<string, number[]> = {}
+  let lastMessage: ProcessedMessage | null = null
+
   // Word frequency analysis
   const wordCounts: Record<string, number> = {}
 
@@ -652,6 +888,18 @@ function analyzeChat(messages: ProcessedMessage[]): ChatAnalysis {
     if (!(message.timestamp instanceof Date) || isNaN(message.timestamp.getTime())) {
       continue
     }
+
+    // Response time calculation
+    if (lastMessage && lastMessage.sender !== message.sender) {
+      const diffMs = message.timestamp.getTime() - lastMessage.timestamp.getTime()
+      if (diffMs > 0 && diffMs < 12 * 60 * 60 * 1000) {
+        if (!responseTimesByParticipant[message.sender]) {
+          responseTimesByParticipant[message.sender] = []
+        }
+        responseTimesByParticipant[message.sender].push(diffMs / 1000)
+      }
+    }
+    lastMessage = message
 
     // Count by participant
     messagesByParticipant[message.sender] = (messagesByParticipant[message.sender] || 0) + 1
@@ -703,6 +951,12 @@ function analyzeChat(messages: ProcessedMessage[]): ChatAnalysis {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, count]) => ({ date, count }))
 
+  const averageResponseTimes: Record<string, number> = {}
+  Object.entries(responseTimesByParticipant).forEach(([sender, times]) => {
+    const total = times.reduce((sum, t) => sum + t, 0)
+    averageResponseTimes[sender] = times.length > 0 ? Math.round(total / times.length) : 0
+  })
+
   const timestamps = messages.map(m => m.timestamp).filter(t => t instanceof Date && !isNaN(t.getTime()))
   
   return {
@@ -719,6 +973,7 @@ function analyzeChat(messages: ProcessedMessage[]): ChatAnalysis {
     hourlyDistribution,
     mediaMessages,
     textMessages,
-    averageMessageLength: textMessages > 0 ? totalMessageLength / textMessages : 0
+    averageMessageLength: textMessages > 0 ? totalMessageLength / textMessages : 0,
+    averageResponseTimes
   }
 } 

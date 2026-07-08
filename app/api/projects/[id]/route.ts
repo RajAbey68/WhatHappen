@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { getServiceClient } from '@/lib/auth'
+import { supabase as anonSupabase } from '@/lib/supabase'
 
 function mapDbProject(dbProj: any) {
   if (!dbProj) return null
@@ -35,6 +36,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabase = getServiceClient()
     const { data, error } = await supabase
       .from('projects')
       .select('*')
@@ -64,6 +66,7 @@ export async function PUT(
       updated_at: new Date().toISOString()
     }
 
+    const supabase = getServiceClient()
     const { error } = await supabase
       .from('projects')
       .update(updateData)
@@ -87,6 +90,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabase = getServiceClient()
     const { error } = await supabase
       .from('projects')
       .delete()

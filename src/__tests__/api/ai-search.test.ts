@@ -1,301 +1,115 @@
 import { POST } from '@/app/api/ai-search/route'
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
-describe('POST /api/ai-search', () => {
+// Prefix mocks with 'mock' to allow Jest to hoist them safely without global pollution
+const mockRpc = jest.fn();
+const mockSingle = jest.fn();
+const mockEq2 = jest.fn().mockImplementation(() => ({
+  single: mockSingle
+}));
+const mockEq1 = jest.fn().mockImplementation(() => ({
+  eq: mockEq2
+}));
+const mockFrom = jest.fn().mockImplementation(() => ({
+  select: () => ({
+    eq: mockEq1
+  })
+}));
+
+jest.mock('@/lib/auth', () => ({
+  requireAuth: jest.fn().mockImplementation((request: NextRequest) => {
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      const res = NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      Object.setPrototypeOf(res, NextResponse.prototype)
+      return res
+    }
+    return { user: { id: 'mock-user-id', email: 'mock@example.com' } }
+  }),
+  getServiceClient: () => ({
+    from: mockFrom,
+    rpc: mockRpc
+  })
+}))
+
+jest.mock('@/lib/llm', () => ({
+  generateWithFallback: jest.fn().mockImplementation(async (messages: any[]) => {
+    const systemPrompt = messages[0]?.content || ''
+    if (systemPrompt.includes('PostgreSQL SELECT')) {
+      return { content: 'SELECT total_messages FROM sessions WHERE id = $1', model: 'mock-model' }
+    }
+    return { content: 'This is the summarized safe search answer.', model: 'mock-model' }
+  })
+}))
+
+const createMockRequest = (body: any, token: string | null = 'Bearer valid-token'): NextRequest => {
+  const headers = new Headers()
+  if (token) headers.set('authorization', token)
+  return {
+    json: jest.fn().mockResolvedValue(body),
+    headers
+  } as unknown as NextRequest
+}
+
+describe('/api/ai-search API Route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
 
+  test('returns 401 when unauthorized', async () => {
+    const request = createMockRequest({ query: 'test', sessionId: '12345678-1234-1234-1234-1234567890ab' }, null)
+    const response = await POST(request)
+    expect(response.status).toBe(401)
+  })
+
   test('returns 400 when query is missing', async () => {
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    })
-
+    const request = createMockRequest({ sessionId: '12345678-1234-1234-1234-1234567890ab' })
     const response = await POST(request)
-    const data = await response.json()
-
     expect(response.status).toBe(400)
-    expect(data.success).toBe(false)
-    expect(data.error).toBe('Query is required')
+    const data = await response.json()
+    expect(data.error).toBe('query is required')
   })
 
-  test('performs keyword search successfully', async () => {
-    const chatData = {
-      messages: [
-        { sender: 'Alice', message: 'Let\'s discuss the project timeline', timestamp: '2024-01-01T10:30:00', sentiment: { score: 0 } },
-        { sender: 'Bob', message: 'The timeline looks good', timestamp: '2024-01-01T10:31:00', sentiment: { score: 1 } },
-        { sender: 'Charlie', message: 'I agree with the plan', timestamp: '2024-01-01T10:32:00', sentiment: { score: 1 } },
-      ]
-    }
-
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'timeline',
-        chatData,
-        searchType: 'keyword'
-      }),
-    })
-
+  test('returns 400 when sessionId is invalid format', async () => {
+    const request = createMockRequest({ query: 'show stats', sessionId: 'invalid-id' })
     const response = await POST(request)
-    const data = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(data.success).toBe(true)
-    expect(data.type).toBe('keyword_search')
-    expect(data.results).toBeDefined()
-    expect(data.query).toBe('timeline')
-  })
-
-  test('identifies financial queries correctly', async () => {
-    const chatData = {
-      messages: [
-        { sender: 'Alice', message: 'We need to discuss the payment', timestamp: '2024-01-01T10:30:00' },
-        { sender: 'Bob', message: 'Yes, the cost is $5000', timestamp: '2024-01-01T10:31:00' },
-      ]
-    }
-
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'How much is the payment?',
-        chatData,
-      }),
-    })
-
-    const response = await POST(request)
-    const data = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(data.success).toBe(true)
-    expect(data.type).toBe('financial_analysis')
-  })
-
-  test('performs financial analysis with specific amounts', async () => {
-    const chatData = {
-      messages: [
-        { sender: 'Alice', message: 'The upfront cost is $24,000', timestamp: '2024-01-01T10:30:00' },
-        { sender: 'Bob', message: 'That\'s within budget', timestamp: '2024-01-01T10:31:00' },
-      ]
-    }
-
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'What\'s the cost?',
-        chatData,
-        searchType: 'financial'
-      }),
-    })
-
-    const response = await POST(request)
-    const data = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(data.success).toBe(true)
-    expect(data.results).toBeDefined()
-    if (data.results.length > 0) {
-      expect(data.results[0]).toHaveProperty('message')
-      expect(data.results[0]).toHaveProperty('sender')
-      expect(data.results[0]).toHaveProperty('timestamp')
-    }
-  })
-
-  test('performs sentiment analysis', async () => {
-    const chatData = {
-      messages: [
-        { sender: 'Alice', message: 'This is great!', sentiment: { score: 3 } },
-        { sender: 'Bob', message: 'I\'m disappointed', sentiment: { score: -2 } },
-        { sender: 'Charlie', message: 'It\'s okay', sentiment: { score: 0 } },
-      ]
-    }
-
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'sentiment analysis',
-        chatData,
-        searchType: 'sentiment'
-      }),
-    })
-
-    const response = await POST(request)
-    const data = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(data.success).toBe(true)
-    expect(data.type).toBe('sentiment_analysis')
-    expect(data.results).toHaveProperty('positive')
-    expect(data.results).toHaveProperty('negative')
-    expect(data.results).toHaveProperty('neutral')
-  })
-
-  test('handles missing chat data gracefully', async () => {
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'test query',
-        chatData: null,
-        searchType: 'keyword'
-      }),
-    })
-
-    const response = await POST(request)
-    const data = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(data.success).toBe(true)
-    expect(data.results).toEqual([])
-  })
-
-  test('respects search result limit option', async () => {
-    const chatData = {
-      messages: Array.from({ length: 50 }, (_, i) => ({
-        sender: `User${i % 2}`,
-        message: `Message ${i}`,
-        timestamp: `2024-01-01T${String(10 + Math.floor(i / 60)).padStart(2, '0')}:30:00`
-      }))
-    }
-
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'Message',
-        chatData,
-        searchType: 'keyword',
-        options: { limit: 10 }
-      }),
-    })
-
-    const response = await POST(request)
-    const data = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(data.results.length).toBeLessThanOrEqual(10)
-  })
-
-  test('returns timestamp in response', async () => {
-    const chatData = {
-      messages: [
-        { sender: 'Alice', message: 'Test message', timestamp: '2024-01-01T10:30:00' },
-      ]
-    }
-
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'Test',
-        chatData,
-        searchType: 'keyword'
-      }),
-    })
-
-    const response = await POST(request)
-    const data = await response.json()
-
-    expect(data.timestamp).toBeDefined()
-    expect(typeof data.timestamp).toBe('string')
-  })
-
-  test('handles invalid search type', async () => {
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'test',
-        searchType: 'invalid_type'
-      }),
-    })
-
-    const response = await POST(request)
-    const data = await response.json()
-
     expect(response.status).toBe(400)
-    expect(data.success).toBe(false)
+    const data = await response.json()
+    expect(data.error).toBe('Invalid session ID')
   })
 
-  test('extracts multiple keywords for search', async () => {
-    const chatData = {
-      messages: [
-        { sender: 'Alice', message: 'The project deadline is next week', timestamp: '2024-01-01T10:30:00' },
-        { sender: 'Bob', message: 'We should finalize the design', timestamp: '2024-01-01T10:31:00' },
-        { sender: 'Charlie', message: 'The timeline looks tight', timestamp: '2024-01-01T10:32:00' },
-      ]
-    }
-
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'project deadline',
-        chatData,
-        searchType: 'keyword'
-      }),
-    })
-
+  test('returns 404 when session does not exist or does not belong to user', async () => {
+    mockSingle.mockResolvedValue({ data: null, error: null })
+    const request = createMockRequest({ query: 'show stats', sessionId: '12345678-1234-1234-1234-1234567890ab' })
     const response = await POST(request)
+    expect(response.status).toBe(404)
     const data = await response.json()
+    expect(data.error).toBe('Session not found')
+  })
 
+  test('executes search successfully and returns summary answer', async () => {
+    mockSingle.mockResolvedValue({ data: { id: '12345678-1234-1234-1234-1234567890ab' }, error: null })
+    mockRpc.mockResolvedValue({ data: [{ total_messages: 100 }], error: null })
+
+    const request = createMockRequest({ query: 'how many messages?', sessionId: '12345678-1234-1234-1234-1234567890ab' })
+    const response = await POST(request)
     expect(response.status).toBe(200)
+
+    const data = await response.json()
     expect(data.success).toBe(true)
-    if (data.results.length > 0) {
-      expect(data.analysis).toContain('Found')
-    }
+    expect(data.answer).toBe('This is the summarized safe search answer.')
+    expect(data.data).toEqual([{ total_messages: 100 }])
+    expect(data.sql).toBe('SELECT total_messages FROM sessions WHERE id = $1')
   })
 
-  test('handles financial analysis without OpenAI', async () => {
-    const originalEnv = process.env.OPENAI_API_KEY
-    delete process.env.OPENAI_API_KEY
+  test('returns 500 when database rpc fails', async () => {
+    mockSingle.mockResolvedValue({ data: { id: '12345678-1234-1234-1234-1234567890ab' }, error: null })
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'Database error' } })
 
-    const chatData = {
-      messages: [
-        { sender: 'Alice', message: 'The cost is $5000', timestamp: '2024-01-01T10:30:00' },
-      ]
-    }
-
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'payment',
-        chatData,
-        searchType: 'financial'
-      }),
-    })
-
+    const request = createMockRequest({ query: 'how many messages?', sessionId: '12345678-1234-1234-1234-1234567890ab' })
     const response = await POST(request)
+    expect(response.status).toBe(500)
     const data = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(data.success).toBe(true)
-
-    process.env.OPENAI_API_KEY = originalEnv
-  })
-
-  test('filters sentiment results by score', async () => {
-    const chatData = {
-      messages: [
-        { sender: 'Alice', message: 'Excellent!', sentiment: { score: 5 } },
-        { sender: 'Bob', message: 'Terrible', sentiment: { score: -5 } },
-        { sender: 'Charlie', message: 'Okay', sentiment: { score: 0 } },
-        { sender: 'Diana', message: 'Amazing!', sentiment: { score: 4 } },
-        { sender: 'Eve', message: 'Bad', sentiment: { score: -3 } },
-      ]
-    }
-
-    const request = new NextRequest('http://localhost:3000/api/ai-search', {
-      method: 'POST',
-      body: JSON.stringify({
-        query: 'sentiment',
-        chatData,
-        searchType: 'sentiment'
-      }),
-    })
-
-    const response = await POST(request)
-    const data = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(data.results.positive.length).toBeGreaterThan(0)
-    expect(data.results.negative.length).toBeGreaterThan(0)
-    expect(data.results.neutral.length).toBeGreaterThan(0)
+    expect(data.error).toBe('Query execution failed')
   })
 })

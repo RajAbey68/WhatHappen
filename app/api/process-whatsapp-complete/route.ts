@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { getServiceClient } from '@/lib/auth'
 
 interface WhatsAppMessage {
   timestamp: string
@@ -23,6 +23,7 @@ interface ProcessingResult {
 }
 
 export async function POST(request: NextRequest) {
+  const supabase = getServiceClient()
   try {
     const contentType = request.headers.get('content-type') || ''
     

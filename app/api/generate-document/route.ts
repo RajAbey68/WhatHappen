@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { getServiceClient } from '@/lib/auth'
 import { decryptText } from '@/lib/crypto'
 import PDFDocument from 'pdfkit'
 
@@ -19,6 +19,7 @@ function mapDbProject(dbProj: any) {
 }
 
 export async function POST(request: NextRequest) {
+  const supabase = getServiceClient()
   try {
     const { projectId, documentType = 'summary', format = 'pdf', passphrase } = await request.json()
 

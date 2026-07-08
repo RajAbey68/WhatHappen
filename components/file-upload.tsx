@@ -9,6 +9,43 @@ import { Badge } from '@/components/ui/badge'
 import { Upload, File, CheckCircle, XCircle, Loader2, FileText, Archive, Code, Sparkles } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { encryptText } from '@/lib/crypto'
+import JSZip from 'jszip'
+import { AgentBuilder } from './agent-builder'
+import { AgentConfig } from '@/lib/types/agent'
+import { AgentDashboard } from './agent-dashboard'
+
+async function stripVideosFromZip(file: File): Promise<File> {
+  const zip = new JSZip()
+  const loadedZip = await zip.loadAsync(file)
+  const newZip = new JSZip()
+  
+  let videoFilesRemoved = 0
+  let originalFileCount = 0
+  
+  const videoExtensions = ['.mp4', '.mov', '.avi', '.3gp', '.mkv', '.webm', '.ogg']
+  
+  for (const [relativePath, zipEntry] of Object.entries(loadedZip.files)) {
+    if (zipEntry.dir) continue
+    originalFileCount++
+    
+    const isVideo = videoExtensions.some(ext => relativePath.toLowerCase().endsWith(ext))
+    if (isVideo) {
+      videoFilesRemoved++
+      continue
+    }
+    
+    const content = await zipEntry.async('blob')
+    newZip.file(relativePath, content)
+  }
+  
+  if (videoFilesRemoved === 0) {
+    return file
+  }
+  
+  console.log(`[ZIP strip] Removed ${videoFilesRemoved} video file(s) of ${originalFileCount} total files.`)
+  const newZipBlob = await newZip.generateAsync({ type: 'blob' })
+  return new globalThis.File([newZipBlob], file.name, { type: file.type })
+}
 
 interface FileUploadProps {
   onFileProcessed: (data: any) => void
@@ -22,12 +59,18 @@ interface UploadedFile {
   progress: number
   error?: string
   data?: any
+  processingStep?: string
 }
 
 export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploadProps) {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [aggregatedData, setAggregatedData] = useState<any>(null)
+  const [agentConfig, setAgentConfig] = useState<AgentConfig>({
+    expertId: 'GENERAL_ANALYST',
+    jurisdiction: 'UK',
+    regulator: 'NONE'
+  })
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map(file => ({
@@ -56,9 +99,19 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
   const processFiles = async (files: UploadedFile[]) => {
     setIsProcessing(true)
-    const processedResults: any[] = []
     
-    for (const uploadedFile of files) {
+    let authHeader: Record<string, string> = {}
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        authHeader = { 'Authorization': `Bearer ${session.access_token}` }
+      }
+    } catch (e) {
+      console.error('Error fetching Supabase session:', e)
+    }
+    
+    const uploadPromises = files.map(async (uploadedFile) => {
       try {
         setUploadedFiles(prev => 
           prev.map(f => 
@@ -68,16 +121,17 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           )
         )
 
-        const isTextOrJson = uploadedFile.file.name.endsWith('.txt') || uploadedFile.file.name.endsWith('.json')
+        let currentFile = uploadedFile.file
+
+        const isTextOrJson = currentFile.name.endsWith('.txt') || currentFile.name.endsWith('.json')
         let resultData: any
 
         if (isTextOrJson) {
-          // Parse client-side using Web Worker
           const fileContent = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader()
             reader.onload = () => resolve(reader.result as string)
             reader.onerror = () => reject(new Error('Failed to read file'))
-            reader.readAsText(uploadedFile.file)
+            reader.readAsText(currentFile)
           })
 
           setUploadedFiles(prev => 
@@ -115,76 +169,191 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
               reject(err)
             }
 
-            worker.postMessage({ fileContent, fileName: uploadedFile.file.name })
+            worker.postMessage({ fileContent, fileName: currentFile.name })
           })
         } else {
-          // Fallback to server-side API route for binary files
-          const formData = new FormData()
-          formData.append('file', uploadedFile.file)
-
-          const progressInterval = setInterval(() => {
-            setUploadedFiles(prev => 
-              prev.map(f => 
-                f.file === uploadedFile.file && f.progress < 90
-                  ? { ...f, progress: f.progress + 10 }
-                  : f
-              )
-            )
-          }, 500)
-
-          const response = await fetch('/api/process-file', {
-            method: 'POST',
-            body: formData,
-          })
-
-          clearInterval(progressInterval)
-
-          const result = await response.json()
-
-          if (!response.ok || !result.success) {
-            throw new Error(result.error || result.details || `Upload failed: ${response.statusText}`)
-          }
-
-          resultData = result.data
-        }
-
-        // Encrypt messages if passphrase is provided
-        let finalMessages = resultData.messages || []
-        if (passphrase && finalMessages.length > 0) {
-          setUploadedFiles(prev => 
-            prev.map(f => 
-              f.file === uploadedFile.file 
-                ? { ...f, progress: 95 }
-                : f
-            )
-          )
-          
-          finalMessages = await Promise.all(
-            finalMessages.map(async (msg: any) => {
-              try {
-                const encSender = await encryptText(msg.sender || 'Unknown', passphrase)
-                const encMessage = await encryptText(msg.message || '', passphrase)
-                return {
-                  ...msg,
-                  sender: JSON.stringify(encSender),
-                  message: JSON.stringify(encMessage)
-                }
-              } catch (err) {
-                console.error('Encryption failed for message:', err)
-                return msg
-              }
+          const MAX_LOCAL_SIZE = 10 * 1024 * 1024 // 10MB
+          if (currentFile.size > MAX_LOCAL_SIZE) {
+            const urlRes = await fetch('/api/upload-url', {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                ...authHeader
+              },
+              body: JSON.stringify({
+                fileName: currentFile.name,
+                fileSize: currentFile.size,
+                mimeType: currentFile.type || 'application/octet-stream',
+                sourceApp: 'whathappen',
+                agentConfig
+              })
             })
-          )
+
+            if (!urlRes.ok) {
+              const errData = await urlRes.json().catch(() => ({}))
+              throw new Error(errData.error || `Failed to fetch upload URL (${urlRes.status})`)
+            }
+
+            const { sessionId, uploadUrl } = await urlRes.json()
+            const isLocalFallback = uploadUrl.startsWith('/api/') || uploadUrl.includes('process-file')
+
+            if (isLocalFallback) {
+              const formData = new FormData()
+              formData.append('file', currentFile)
+
+              setUploadedFiles(prev => 
+                prev.map(f => 
+                  f.file === uploadedFile.file ? { ...f, progress: 30 } : f
+                )
+              )
+
+              const response = await fetch(uploadUrl, {
+                method: 'POST',
+                headers: { ...authHeader },
+                body: formData,
+              })
+
+              const result = await response.json()
+
+              if (!response.ok || !result.success) {
+                throw new Error(result.error || `Upload failed: ${response.statusText}`)
+              }
+
+              resultData = result.data
+            } else {
+              setUploadedFiles(prev => 
+                prev.map(f => 
+                  f.file === uploadedFile.file ? { ...f, progress: 20 } : f
+                )
+              )
+
+              const uploadResponse = await fetch(uploadUrl, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': currentFile.type || 'application/octet-stream',
+                },
+                body: currentFile,
+              })
+
+              if (!uploadResponse.ok) {
+                throw new Error(`Direct upload to storage failed (${uploadResponse.status})`)
+              }
+
+              setUploadedFiles(prev => 
+                prev.map(f => 
+                  f.file === uploadedFile.file ? { ...f, progress: 60 } : f
+                )
+              )
+
+              fetch(`/api/process-file?sessionId=${sessionId}`, {
+                method: 'POST',
+                headers: { ...authHeader },
+              }).catch(err => {
+                console.error('Failed to trigger background processing:', err)
+              })
+
+              const { supabase } = await import('@/lib/supabase')
+
+              let isDone = false
+              let attempts = 0
+              while (!isDone && attempts < 60) {
+                await new Promise(resolve => setTimeout(resolve, 2000))
+                attempts++
+
+                const { data: session, error: pollError } = await supabase
+                  .from('sessions')
+                  .select('processing_status, processing_error, total_messages, date_range_start, date_range_end')
+                  .eq('id', sessionId)
+                  .single()
+
+                if (pollError) {
+                  console.error('Polling error:', pollError.message)
+                  continue
+                }
+
+                if (session.processing_status === 'processing' && session.processing_error) {
+                  setUploadedFiles(prev => 
+                    prev.map(f => 
+                      f.file === uploadedFile.file 
+                        ? { ...f, processingStep: session.processing_error }
+                        : f
+                    )
+                  )
+                }
+
+                if (session.processing_status === 'complete') {
+                  isDone = true
+                  resultData = {
+                    fileId: sessionId,
+                    chatId: sessionId,
+                    fileName: currentFile.name,
+                    fileSize: currentFile.size,
+                    processedAt: new Date().toISOString(),
+                    totalMessages: session.total_messages || 0,
+                    participants: [],
+                    messages: [],
+                    analysis: {
+                      totalMessages: session.total_messages || 0,
+                      participants: [],
+                      dateRange: {
+                        start: session.date_range_start,
+                        end: session.date_range_end,
+                      },
+                      messagesByParticipant: {},
+                      averageSentiment: 0,
+                      topWords: [],
+                      dailyMessageCounts: [],
+                      hourlyDistribution: {},
+                      mediaMessages: 0,
+                      textMessages: 0,
+                      averageMessageLength: 0
+                    },
+                    sentimentAnalysis: { byParticipant: {}, average: 0 },
+                    timeAnalysis: { dailyDistribution: {}, hourlyDistribution: {} },
+                    wordFrequency: {}
+                  }
+                }
+
+                if (session.processing_status === 'failed') {
+                  throw new Error(session.processing_error || 'Processing failed on the server')
+                }
+              }
+
+              if (!isDone) {
+                throw new Error('Processing timed out. Please check session history later.')
+              }
+            }
+          } else {
+            const formData = new FormData()
+            formData.append('file', currentFile)
+
+            const response = await fetch('/api/process-file', {
+              method: 'POST',
+              headers: { ...authHeader },
+              body: formData,
+            })
+
+            const result = await response.json()
+
+            if (!response.ok || !result.success) {
+              throw new Error(result.error || `Upload failed: ${response.statusText}`)
+            }
+
+            resultData = result.data
+          }
         }
 
-        // Post the processed and encrypted data to Supabase complete ingestion API
+        const { supabase } = await import('@/lib/supabase')
         const completeResponse = await fetch('/api/process-whatsapp-complete', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...authHeader
+          },
           body: JSON.stringify({
-            projectId,
-            messages: finalMessages,
-            analysis: resultData.analysis || resultData
+            projectId: projectId,
+            chatData: resultData,
+            passphrase: passphrase ? encryptText(passphrase, passphrase) : undefined
           })
         })
 
@@ -201,12 +370,12 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           )
         )
 
-        processedResults.push(resultData)
-
         toast({
           title: "✨ File processed successfully",
-          description: `${uploadedFile.file.name} has been analyzed locally.`,
+          description: `${uploadedFile.file.name} has been analyzed.`,
         })
+
+        return resultData
 
       } catch (error) {
         setUploadedFiles(prev => 
@@ -227,10 +396,13 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           description: `Failed to process ${uploadedFile.file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
           variant: "destructive",
         })
+        return null
       }
-    }
+    })
 
-    // If multiple files were processed, aggregate the data
+    const results = await Promise.all(uploadPromises)
+    const processedResults = results.filter(r => r !== null)
+
     if (processedResults.length > 1) {
       const aggregated = aggregateMultipleFiles(processedResults)
       setAggregatedData(aggregated)
@@ -418,6 +590,11 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
   return (
     <div className="space-y-8">
+      <AgentBuilder 
+        disabled={isProcessing} 
+        onConfigChange={(config) => setAgentConfig(config)} 
+      />
+
       {/* Upload Area */}
       <div
         {...getRootProps()}
@@ -538,7 +715,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                         className="h-2 bg-slate-200 dark:bg-slate-600"
                       />
                       <p className="text-xs text-slate-500 dark:text-slate-400 text-center">
-                        {uploadedFile.progress}% - Analyzing with AI...
+                        {uploadedFile.progress}% - {uploadedFile.processingStep || 'Analyzing with AI...'}
                       </p>
                     </div>
                   )}
@@ -567,6 +744,9 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           </CardContent>
         </Card>
       )}
+
+      {/* Agent Monitoring Dashboard */}
+      {uploadedFiles.length > 0 && <AgentDashboard />}
     </div>
   )
 } 

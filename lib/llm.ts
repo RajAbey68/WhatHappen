@@ -60,7 +60,8 @@ function getModels() {
  */
 export async function generateWithFallback(
   messages: OpenAI.ChatCompletionMessageParam[],
-  options: Partial<Omit<OpenAI.ChatCompletionCreateParamsNonStreaming, 'model' | 'messages'>> = {}
+  options: Partial<Omit<OpenAI.ChatCompletionCreateParamsNonStreaming, 'model' | 'messages'>> = {},
+  requestOptions?: import('openai/core').RequestOptions
 ): Promise<{ content: string; model: string }> {
   const MODELS = getModels()
   const useOpenRouter = getUseOpenRouter()
@@ -74,7 +75,7 @@ export async function generateWithFallback(
         model,
         messages,
         ...options,
-      } as OpenAI.ChatCompletionCreateParamsNonStreaming)
+      } as OpenAI.ChatCompletionCreateParamsNonStreaming, requestOptions)
 
       const content = response.choices[0]?.message?.content
       if (!content) continue
@@ -82,6 +83,9 @@ export async function generateWithFallback(
       logLLMUsage(model, response.usage).catch(() => {})
       return { content, model }
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error('LLM request timed out or was aborted.')
+      }
       console.error(`[llm] ${model} failed: ${err.message}`)
     }
   }

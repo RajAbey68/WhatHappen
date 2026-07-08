@@ -5,29 +5,33 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDate(date: Date): string {
+export function formatDate(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date
   return new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
-    month: 'long',
+    month: 'short',
     day: 'numeric',
-  }).format(date)
+  }).format(d)
 }
 
-export function formatTime(date: Date): string {
+export function formatTime(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date
   return new Intl.DateTimeFormat('en-US', {
     hour: '2-digit',
     minute: '2-digit',
-  }).format(date)
+    hour12: false
+  }).format(d)
 }
 
 export function slugify(str: string) {
   return str
     .toLowerCase()
-    .replace(/[^\w ]+/g, '')
+    .replace(/[^\w -]+/g, '')
     .replace(/ +/g, '-')
 }
 
 export function truncate(str: string, length: number) {
-  if (str.length <= length) return str
-  return str.slice(0, length) + '...'
+  const chars = Array.from(str)
+  if (chars.length <= length) return str
+  return chars.slice(0, length).join('') + '...'
 } 

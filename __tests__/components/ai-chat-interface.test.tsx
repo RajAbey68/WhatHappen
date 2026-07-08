@@ -3,6 +3,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AIChatInterface } from '../../components/ai-chat-interface'
 
+// Mock scrollIntoView for JSDOM support
+Element.prototype.scrollIntoView = jest.fn()
+
 let mockConversationsResponse: any = null
 
 // Mock fetch
