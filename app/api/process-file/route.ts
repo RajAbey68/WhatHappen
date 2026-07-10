@@ -237,6 +237,7 @@ export async function POST(request: NextRequest) {
         .eq('id', sessionId)
     }
 
+    let processingFileName = file.name
     let fileContent: string = ''
     let ocrText: string = ''
     let ocrImagesProcessed: number = 0
@@ -315,7 +316,7 @@ export async function POST(request: NextRequest) {
           if (!bestChat) bestChat = chatFiles[0] // fallback
 
           // Set file name to the inner chat file name for downstream parsing
-          ;(file as any).name = bestChat.name
+          processingFileName = bestChat.name
           fileContent = bestChat.data.toString('utf-8')
         }
 
@@ -378,31 +379,31 @@ export async function POST(request: NextRequest) {
         )
       }
     // ── Direct image upload ────────────────────────────────────────────────
-    } else if (isImageExtension(file.name)) {
+    } else if (isImageExtension(processingFileName)) {
       await updateSessionProgress('Running OCR on images...')
-      const ext = getExtension(file.name)
+      const ext = getExtension(processingFileName)
       const mimeType = imageExtToMime(ext)
       const base64 = bufferToBase64(fileBuffer, mimeType)
 
       const { extractImageText } = await import('@/lib/gemini-ocr')
       const result = await extractImageText(base64)
       if (result.success && result.extractedText) {
-        fileContent = `[Uploaded image: ${file.name}]\n\nOCR Extracted Text:\n${result.extractedText}`
+        fileContent = `[Uploaded image: ${processingFileName}]\n\nOCR Extracted Text:\n${result.extractedText}`
         ocrText = result.extractedText
         ocrImagesProcessed = 1
       } else {
-        fileContent = `[Uploaded image: ${file.name}]\n\nOCR failed: ${result.error || 'No text extracted'}]`
+        fileContent = `[Uploaded image: ${processingFileName}]\n\nOCR failed: ${result.error || 'No text extracted'}]`
         ocrText = ''
         ocrImagesProcessed = 0
       }
     // ── Standard file types ────────────────────────────────────────────────
-    } else if (file.name.endsWith('.txt')) {
+    } else if (processingFileName.endsWith('.txt')) {
       fileContent = fileBuffer.toString('utf-8')
-    } else if (file.name.endsWith('.docx')) {
+    } else if (processingFileName.endsWith('.docx')) {
       const mammothModule = await getMammoth()
       const result = await mammothModule.extractRawText({ buffer: fileBuffer })
       fileContent = result.value
-    } else if (file.name.endsWith('.pdf')) {
+    } else if (processingFileName.endsWith('.pdf')) {
       await updateSessionProgress('Running OCR on images...')
       // Fix #3: PDF files should be sent to OCR microservice
       const mimeType = 'application/pdf'
@@ -441,13 +442,13 @@ export async function POST(request: NextRequest) {
         const pdfData = await pdfParseModule.default(fileBuffer)
         fileContent = pdfData.text
       }
-    } else if (file.name.endsWith('.csv')) {
+    } else if (processingFileName.endsWith('.csv')) {
       const records = csvParse(fileBuffer.toString('utf-8'), {
         columns: true,
         skip_empty_lines: true
       })
       fileContent = records.map((record: any) => Object.values(record).join(' ')).join('\n')
-    } else if (file.name.endsWith('.json')) {
+    } else if (processingFileName.endsWith('.json')) {
       const jsonData = JSON.parse(fileBuffer.toString('utf-8'))
       fileContent = JSON.stringify(jsonData, null, 2)
     } else {
@@ -465,7 +466,7 @@ export async function POST(request: NextRequest) {
     // Parse WhatsApp chat format or JSON directly
     let messages: ProcessedMessage[] = []
     
-    if (file.name.endsWith('.json')) {
+    if (processingFileName.endsWith('.json')) {
       try {
         const jsonData = JSON.parse(fileBuffer.toString('utf-8'))
         const rawMessages = Array.isArray(jsonData) ? jsonData : jsonData.messages || []
