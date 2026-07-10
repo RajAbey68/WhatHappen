@@ -62,6 +62,76 @@ async function stripVideosFromZip(file: File): Promise<File> {
   return new globalThis.File([newZipBlob], file.name, { type: file.type })
 }
 
+const WHATSAPP_PATTERNS = [
+  // [MM/DD/YY, HH:MM:SS AM/PM] Sender: Message
+  /^\[\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AP]M)?\]\s*[^:]+:\s*.+$/i,
+  // MM/DD/YY, HH:MM AM/PM - Sender: Message
+  /^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}(?:\s?[AP]M)?\s*-\s*[^:]+:\s*.+$/i,
+  // [DD/MM/YYYY, HH:MM] Sender: Message
+  /^\[\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}\]\s*[^:]+:\s*.+$/i,
+]
+
+function isWhatsAppChatFormat(text: string): boolean {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 50)
+  if (lines.length === 0) return false
+  return lines.some(line => WHATSAPP_PATTERNS.some(pattern => pattern.test(line)))
+}
+
+async function validateFileContent(file: File): Promise<{ isValid: boolean; error?: string }> {
+  const lowerName = file.name.toLowerCase()
+  if (lowerName.endsWith('.txt')) {
+    const fileContent = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = () => reject(new Error('Failed to read file'))
+      reader.readAsText(file)
+    })
+    if (!isWhatsAppChatFormat(fileContent)) {
+      return { 
+        isValid: false, 
+        error: 'This text file does not match the standard WhatsApp export format (should contain timestamps and sender names).' 
+      }
+    }
+  } else if (lowerName.endsWith('.zip')) {
+    try {
+      const zip = new JSZip()
+      const loadedZip = await zip.loadAsync(file)
+      let bestChatFileKey = ''
+      
+      for (const relativePath of Object.keys(loadedZip.files)) {
+        if (loadedZip.files[relativePath].dir) continue
+        const lower = relativePath.toLowerCase()
+        if (lower.endsWith('.txt')) {
+          bestChatFileKey = relativePath
+          break
+        }
+      }
+      
+      if (!bestChatFileKey) {
+        return { 
+          isValid: false, 
+          error: 'The ZIP archive does not contain any text (.txt) files. WhatsApp exports typically include a text chat log.' 
+        }
+      }
+      
+      const txtContent = await loadedZip.files[bestChatFileKey].async('string')
+      if (!isWhatsAppChatFormat(txtContent)) {
+        return { 
+          isValid: false, 
+          error: `The text file "${bestChatFileKey}" inside the ZIP does not match the standard WhatsApp export format.` 
+        }
+      }
+    } catch (err) {
+      return { 
+        isValid: false, 
+        error: 'Failed to read ZIP file structure.' 
+      }
+    }
+  }
+  return { isValid: true }
+}
+
+
 interface FileUploadProps {
   onFileProcessed: (data: any) => void
   projectId: string
@@ -164,6 +234,12 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
         )
 
         let currentFile = uploadedFile.file
+
+        // Content-level pre-validation
+        const validation = await validateFileContent(currentFile)
+        if (!validation.isValid) {
+          throw new Error(validation.error || 'Invalid file format')
+        }
 
         const isTextOrJson = currentFile.name.endsWith('.txt') || currentFile.name.endsWith('.json')
         let resultData: any
