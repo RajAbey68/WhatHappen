@@ -93,7 +93,7 @@ export async function extractImageText(
       };
     }
 
-    const GEMINI_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.5-flash';
+    const GEMINI_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-1.5-flash';
     const GEMINI_API_BASE =
       process.env.GEMINI_API_BASE ||
       'https://generativelanguage.googleapis.com/v1beta';

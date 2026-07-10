@@ -131,6 +131,7 @@ Guidelines:
     const geminiKey = process.env.GEMINI_API_KEY
     const deepseekKey = process.env.DEEPSEEK_API_KEY
     const openaiClient = getOpenAI()
+    let success = false
     let responseText = ''
 
     if (geminiKey) {
@@ -170,11 +171,13 @@ Guidelines:
 
         const resData = await geminiRes.json()
         responseText = resData.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated'
+        success = true
       } catch (geminiError) {
-        console.error('Failed calling Gemini API:', geminiError)
-        responseText = `An error occurred while communicating with Gemini API: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}`
+        console.error('Failed calling Gemini API, trying fallback:', geminiError)
       }
-    } else if (deepseekKey) {
+    }
+
+    if (!success && deepseekKey) {
       // Use DeepSeek API via direct REST request
       try {
         const dsRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -198,25 +201,33 @@ Guidelines:
 
         const resData = await dsRes.json()
         responseText = resData.choices?.[0]?.message?.content || 'No response generated'
+        success = true
       } catch (dsError) {
-        console.error('Failed calling DeepSeek API:', dsError)
-        responseText = `An error occurred while communicating with DeepSeek API: ${dsError instanceof Error ? dsError.message : String(dsError)}`
+        console.error('Failed calling DeepSeek API, trying fallback:', dsError)
       }
-    } else if (openaiClient) {
-      const completion = await openaiClient.chat.completions.create({
-        model: CHAT_MODEL,
-        messages: openaiMessages as Parameters<typeof openaiClient.chat.completions.create>[0]['messages'],
-        max_tokens: 2000,
-        temperature: 0.5,
-      })
-      responseText = completion.choices[0]?.message?.content || 'No response generated'
-    } else {
-      // Sandbox / demo mode: no LLM is configured. Answer ONLY from recorded
-      // project metadata and never fabricate names, figures, sentiment, or
-      // financial findings (CLAUDE.md P1 — zero fabrication; this is a legal
-      // analysis product, so invented "findings" are unacceptable).
+    }
+
+    if (!success && openaiClient) {
+      try {
+        const completion = await openaiClient.chat.completions.create({
+          model: CHAT_MODEL,
+          messages: openaiMessages as Parameters<typeof openaiClient.chat.completions.create>[0]['messages'],
+          max_tokens: 2000,
+          temperature: 0.5,
+        })
+        responseText = completion.choices[0]?.message?.content || 'No response generated'
+        success = true
+      } catch (openaiError) {
+        console.error('Failed calling OpenAI API:', openaiError)
+      }
+    }
+
+    if (!success) {
+      // Sandbox / demo mode: no LLM is configured or all providers failed.
+      // Answer ONLY from recorded project metadata and never fabricate names,
+      // figures, sentiment, or financial findings.
       const lowerMessage = message.toLowerCase()
-      const sandboxNote = '\n\n_Sandbox mode: no `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `DEEPSEEK_API_KEY` is configured, so this is a metadata-only response._'
+      const sandboxNote = '\n\n_Sandbox mode: no active AI model key available or all providers failed, so this is a metadata-only response._'
 
       if (lowerMessage.includes('how many messages') || lowerMessage.includes('message count')) {
         responseText = typeof projectDetails?.messageCount === 'number'
@@ -233,7 +244,7 @@ Guidelines:
           ? `Key topics recorded for this project: **${keywords.join(', ')}**.${sandboxNote}`
           : `No topics or keywords have been recorded for this project yet.${sandboxNote}`
       } else {
-        responseText = `I can answer from this project's recorded metadata — message count, participants, topics, and date range. I cannot analyse the content of specific messages (including financial or sentiment analysis) without a configured AI model.${sandboxNote}`
+        responseText = `I can answer from this project's recorded metadata — message count, participants, topics, and date range. I cannot analyse the content of specific messages (including financial or sentiment analysis) without a functional AI model.${sandboxNote}`
       }
     }
 
