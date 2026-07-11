@@ -1,7 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    domains: ['localhost'],
+    domains: [
+      'localhost',
+      'pomgvxdokjmxyfbgazls.supabase.co',
+      'storage.googleapis.com',
+      'whathappen-116263110764.europe-west1.run.app',
+    ],
   },
   env: {
     CUSTOM_KEY: process.env.CUSTOM_KEY,
