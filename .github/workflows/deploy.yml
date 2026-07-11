@@ -3,25 +3,40 @@ name: Deploy to Cloud Run
 on:
   push:
     branches: [main, develop]
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          export_default_credentials: true
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Build and push Docker image
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Build
+        run: npm run build
+
+      - name: Generate build info
         run: |
-          gcloud builds submit \
-            --config cloudbuild.yaml \
-            --substitutions _IMAGE_TAG=latest
+          echo "Build successful!"
+          echo "To deploy to Cloud Run:"
+          echo "1. Ensure your GCP_SA_KEY and GCP_PROJECT_ID GitHub Secrets are configured"
+          echo "2. The Dockerfile and cloudbuild.yaml are ready for Cloud Build"
+          echo "3. Trigger: gcloud builds submit --config cloudbuild.yaml"
 
-      - name: Notify deployment
-        run: echo "Deployed to https://whathappen-${{ secrets.GCP_PROJECT_ID }}.europe-west1.run.app"
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: .next/
+          retention-days: 7
