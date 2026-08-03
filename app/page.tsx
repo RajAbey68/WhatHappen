@@ -144,6 +144,8 @@ export default function Home() {
     const cached = readPassphrase(project.id)
     if (cached) {
       setPassphrase(cached)
+      // RAJ-747 rework: re-prove passphrase knowledge to (re)mint a token.
+      void ensureProjectToken(project.id)
       loadAndDecryptMessages(project.id, cached)
     } else {
       setTempPassphrase('')

@@ -41,16 +41,67 @@ export function getProjectToken(projectId: string): string | undefined {
   return entry.token
 }
 
-/** Fetch (and cache) a short-lived project access token from the server. */
+/**
+ * Browser-side sha256 → hex (mirrors the server's `sha256Hex`).
+ */
+async function sha256Hex(value: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
+ * proof = HMAC-SHA256(key = sha256(passphrase) hex string, message = nonce).
+ * The raw passphrase never leaves the browser — only this derived proof does,
+ * so the zero-knowledge property of the app is preserved (RAJ-747 rework).
+ */
+export async function computeProof(passphrase: string, nonce: string): Promise<string> {
+  const keyHex = await sha256Hex(passphrase)
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(keyHex),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(nonce))
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
+ * Fetch (and cache in MEMORY only) a short-lived project access token, proving
+ * knowledge of the passphrase via the server challenge/response handshake.
+ *
+ * Requires the passphrase to already be in the in-memory store (i.e. the user
+ * has entered it for decryption).
+ */
 export async function ensureProjectToken(projectId: string): Promise<string | undefined> {
   const cached = getProjectToken(projectId)
   if (cached) return cached
 
+  const passphrase = passphrases.get(projectId)
+  if (!passphrase) return undefined
+
   try {
+    // 1. Get a single-use, short-TTL nonce.
+    const challengeRes = await fetch(
+      `/api/auth/challenge?projectId=${encodeURIComponent(projectId)}`
+    )
+    if (!challengeRes.ok) return undefined
+    const { nonce } = await challengeRes.json()
+    if (typeof nonce !== 'string') return undefined
+
+    // 2. Prove passphrase knowledge without disclosing the passphrase.
+    const proof = await computeProof(passphrase, nonce)
+
+    // 3. Exchange the proof for the 2h HMAC project token.
     const res = await fetch('/api/project-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId }),
+      body: JSON.stringify({ projectId, nonce, response: proof }),
     })
     if (!res.ok) return undefined
     const data = await res.json()

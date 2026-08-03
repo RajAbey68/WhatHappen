@@ -5,7 +5,7 @@ import {
   requireProjectAccess,
   verifyWebhookSecret,
   safeParseTimestamp,
-  WEBHOOK_SECRET_HEADER,
+  PROJECT_TOKEN_HEADER,
   isAuthBypassed,
 } from '@/lib/api-auth'
 
@@ -64,13 +64,13 @@ interface ProcessingResult {
 export async function POST(request: NextRequest) {
   const supabase = getServiceClient()
   try {
-    // RAJ-739: this endpoint accepts either a signed webhook call from the
-    // WhatsApp/processing provider, or an authorized in-app request.
-    const isWebhookCall = request.headers.has(WEBHOOK_SECRET_HEADER)
-    if (isWebhookCall) {
-      const webhookError = verifyWebhookSecret(request)
-      if (webhookError) return webhookError
-    }
+    // RAJ-739 (rework): the shared webhook secret is now MANDATORY on EVERY
+    // request. Previously this route only verified the secret when the header
+    // happened to be present (`request.headers.has(WEBHOOK_SECRET_HEADER)`),
+    // so an attacker could simply omit the header and fall through to the
+    // in-app token path. Fails closed when WHATSAPP_WEBHOOK_SECRET is unset.
+    const webhookError = verifyWebhookSecret(request)
+    if (webhookError) return webhookError
 
     const contentType = request.headers.get('content-type') || ''
 
@@ -140,12 +140,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // RAJ-740: validate the projectId shape and that the caller may write to it.
-    if (!isWebhookCall) {
+    // RAJ-740: validate the projectId shape.
+    if (!isValidProjectId(projectId)) {
+      return NextResponse.json({ error: 'A valid project ID is required' }, { status: 400 })
+    }
+
+    // In-app calls additionally carry a project token; when present it must be
+    // valid for this project (defence in depth on top of the webhook secret).
+    if (request.headers.has(PROJECT_TOKEN_HEADER)) {
       const authError = await requireProjectAccess(request, projectId)
       if (authError) return authError
-    } else if (!isValidProjectId(projectId)) {
-      return NextResponse.json({ error: 'A valid project ID is required' }, { status: 400 })
     }
 
     // RAJ-740: the project must exist before we write rows referencing it.

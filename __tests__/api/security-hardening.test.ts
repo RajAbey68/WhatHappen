@@ -270,11 +270,24 @@ describe('RAJ-739/740/759 — /api/process-whatsapp-complete', () => {
     expect(res.status).toBe(401)
   })
 
+  // RAJ-739 rework: the shared webhook secret is now MANDATORY on every
+  // request, so the RAJ-740/759 payload assertions below must supply it in
+  // order to reach the validation code paths at all.
+  const WEBHOOK_SECRET = 'correct-horse-battery'
+  const withSecret = (extra: Record<string, string> = {}) => {
+    process.env.WHATSAPP_WEBHOOK_SECRET = WEBHOOK_SECRET
+    return {
+      'content-type': 'application/json',
+      'x-webhook-secret': WEBHOOK_SECRET,
+      ...extra,
+    }
+  }
+
   it('rejects an authorized call carrying a non-UUID projectId (RAJ-740)', async () => {
     enforceAuth()
     const res = await POST(
       mockRequest({
-        headers: { 'content-type': 'application/json' },
+        headers: withSecret(),
         body: { projectId: "1' OR '1'='1", messages: [] },
       })
     )
@@ -286,7 +299,7 @@ describe('RAJ-739/740/759 — /api/process-whatsapp-complete', () => {
     const { token } = issueProjectToken(VALID_PROJECT_ID)
     const res = await POST(
       mockRequest({
-        headers: { 'content-type': 'application/json', 'x-project-token': token },
+        headers: withSecret({ 'x-project-token': token }),
         body: {
           projectId: VALID_PROJECT_ID,
           messages: [{ sender: 123, message: {}, timestamp: null }],
@@ -301,7 +314,7 @@ describe('RAJ-739/740/759 — /api/process-whatsapp-complete', () => {
     const { token } = issueProjectToken(VALID_PROJECT_ID)
     const res = await POST(
       mockRequest({
-        headers: { 'content-type': 'application/json', 'x-project-token': token },
+        headers: withSecret({ 'x-project-token': token }),
         body: { projectId: VALID_PROJECT_ID, messages: [] },
       })
     )
