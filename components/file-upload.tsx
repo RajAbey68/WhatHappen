@@ -478,13 +478,17 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           }))
         }
 
-        const completeResponse = await fetch('/api/process-whatsapp-complete', {
+        // Route split: the in-app path uses /api/process-whatsapp-inapp, which
+        // authenticates with the passphrase-proven project token. The
+        // /api/process-whatsapp-complete route is the EXTERNAL webhook and
+        // requires x-webhook-secret, which must never ship to a browser.
+        const completeResponse = await fetch('/api/process-whatsapp-inapp', {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
             ...authHeader,
-            // RAJ-739/747: carry the short-lived project token so the now-
-            // authorized completion endpoint accepts this in-app call.
+            // RAJ-747: carry the short-lived project token so the in-app
+            // completion endpoint accepts this call.
             ...(await projectAuthHeaders(projectId))
           },
           body: JSON.stringify({

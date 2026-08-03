@@ -44,9 +44,11 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
       formData.append('file', file)
       formData.append('projectId', selectedProject.id)
 
-      const response = await fetch('/api/process-whatsapp-complete', {
+      // Route split: in-app uploads use the token-authenticated route;
+      // /api/process-whatsapp-complete is the external webhook (secret-only).
+      const response = await fetch('/api/process-whatsapp-inapp', {
         method: 'POST',
-        // RAJ-739/747: authorize this in-app call with the short-lived token.
+        // RAJ-747: authorize this in-app call with the short-lived token.
         headers: { ...(await projectAuthHeaders(selectedProject.id)) },
         body: formData
       })
