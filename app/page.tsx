@@ -15,6 +15,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { decryptText } from '@/lib/crypto'
+import {
+  setPassphrase as storePassphrase,
+  getPassphrase as readPassphrase,
+  clearPassphrase as dropPassphrase,
+  ensureProjectToken,
+  projectAuthHeaders,
+} from '@/lib/session-store'
 import { BottomSheet, BottomSheetContent, BottomSheetHeader, BottomSheetTitle } from '@/components/ui/bottom-sheet'
 
 // Strip path separators / control chars and bound length so a project name
@@ -133,7 +140,8 @@ export default function Home() {
       return
     }
 
-    const cached = sessionStorage.getItem(`passphrase-${project.id}`)
+    // RAJ-746: read from the in-memory store, never sessionStorage.
+    const cached = readPassphrase(project.id)
     if (cached) {
       setPassphrase(cached)
       loadAndDecryptMessages(project.id, cached)
@@ -158,7 +166,12 @@ export default function Home() {
     }
 
     if (selectedProject) {
-      sessionStorage.setItem(`passphrase-${selectedProject.id}`, tempPassphrase)
+      // RAJ-746: keep the raw passphrase in memory only (XSS cannot recover it
+      // from web storage after a reload, and it is never persisted).
+      storePassphrase(selectedProject.id, tempPassphrase)
+      // RAJ-747: provision a short-lived server-signed token for subsequent
+      // API calls so the raw passphrase is not used as a credential.
+      void ensureProjectToken(selectedProject.id)
       setPassphrase(tempPassphrase)
       setShowPassphrasePrompt(false)
       
@@ -170,6 +183,7 @@ export default function Home() {
 
   const handlePassphraseCancel = () => {
     setShowPassphrasePrompt(false)
+    if (selectedProject) dropPassphrase(selectedProject.id)
     setSelectedProject(null)
     setPassphrase('')
   }
@@ -181,10 +195,17 @@ export default function Home() {
     try {
       const response = await fetch('/api/analyze-project', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // RAJ-747: authorization now travels as a short-lived signed token
+          // rather than relying on the passphrase as a credential.
+          ...(await projectAuthHeaders(selectedProject.id)),
+        },
         body: JSON.stringify({
           projectId: selectedProject.id,
           analysisType,
+          // Still required as the AES-GCM decryption key for in-memory decrypt;
+          // it is not used for authorization.
           passphrase: passphrase || undefined
         })
       })
@@ -245,6 +266,8 @@ export default function Home() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          // RAJ-747: short-lived signed token carries authorization.
+          ...(await projectAuthHeaders(selectedProject.id)),
         },
         body: JSON.stringify({
           projectId: selectedProject.id,
@@ -285,14 +308,14 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50 pb-24 sm:pb-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100 pb-24 sm:pb-8">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-5xl sm:text-6xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 bg-clip-text text-transparent mb-4">
+          <h1 className="text-5xl sm:text-6xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-indigo-500 bg-clip-text text-transparent mb-4">
             WhatHappen
           </h1>
-          <p className="text-lg sm:text-xl text-slate-600 max-w-3xl mx-auto leading-relaxed">
+          <p className="text-lg sm:text-xl text-slate-400 max-w-3xl mx-auto leading-relaxed">
             Cloud-Hosted, Mobile-First, Zero-Knowledge WhatsApp Analyzer. Private-by-design chat analytics on GCP.
           </p>
         </div>
@@ -309,14 +332,14 @@ export default function Home() {
         {selectedProject ? (
           <div className="space-y-6">
             {/* Project Overview */}
-            <Card className="bg-white/80 backdrop-blur-sm border border-white/20 shadow-sm rounded-2xl">
+            <Card className="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 shadow-md rounded-2xl">
               <CardHeader className="p-4 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-2">
                       <CardTitle className="text-2xl">{selectedProject.name}</CardTitle>
                       {passphrase && (
-                        <Badge variant="outline" className="flex items-center gap-1 text-xs text-green-700 bg-green-50 border-green-200">
+                        <Badge variant="outline" className="flex items-center gap-1 text-xs text-green-300 bg-green-950/40 border-green-800/50">
                           <Shield className="h-3 w-3" /> Zero-Knowledge Key Loaded
                         </Badge>
                       )}
@@ -344,31 +367,31 @@ export default function Home() {
               {selectedProject.messageCount > 0 && (
                 <CardContent className="px-4 sm:px-6 pb-6">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="text-center p-3 bg-blue-50 rounded-xl">
-                      <div className="text-2xl font-bold text-blue-600">
+                    <div className="text-center p-3 bg-blue-950/40 border border-blue-900/30 rounded-xl">
+                      <div className="text-2xl font-bold text-blue-400">
                         {selectedProject.messageCount.toLocaleString()}
                       </div>
-                      <div className="text-sm text-blue-700">Total Messages</div>
+                      <div className="text-sm text-blue-300">Total Messages</div>
                     </div>
-                    <div className="text-center p-3 bg-green-50 rounded-xl">
-                      <div className="text-2xl font-bold text-green-600">
+                    <div className="text-center p-3 bg-green-950/40 border border-green-900/30 rounded-xl">
+                      <div className="text-2xl font-bold text-green-400">
                         {selectedProject.participants?.length || 0}
                       </div>
-                      <div className="text-sm text-green-700">Participants</div>
+                      <div className="text-sm text-green-300">Participants</div>
                     </div>
-                    <div className="text-center p-3 bg-purple-50 rounded-xl">
-                      <div className="text-2xl font-bold text-purple-600">
+                    <div className="text-center p-3 bg-purple-950/40 border border-purple-900/30 rounded-xl">
+                      <div className="text-2xl font-bold text-purple-400">
                         {selectedProject.analysis?.keywords?.length || 0}
                       </div>
-                      <div className="text-sm text-purple-700">Keywords</div>
+                      <div className="text-sm text-purple-300">Keywords</div>
                     </div>
-                    <div className="text-center p-3 bg-orange-50 rounded-xl">
-                      <div className="text-2xl font-bold text-orange-600">
+                    <div className="text-center p-3 bg-orange-950/40 border border-orange-900/30 rounded-xl">
+                      <div className="text-2xl font-bold text-orange-400">
                         {selectedProject.dateRange?.start ? 
                           Math.ceil((new Date(selectedProject.dateRange.end).getTime() - new Date(selectedProject.dateRange.start).getTime()) / (1000 * 60 * 60 * 24)) 
                           : 0}
                       </div>
-                      <div className="text-sm text-orange-700">Days Span</div>
+                      <div className="text-sm text-orange-300">Days Span</div>
                     </div>
                   </div>
                 </CardContent>
@@ -379,7 +402,7 @@ export default function Home() {
             <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
               {/* Desktop Tab bar (hidden on mobile) */}
               <div className="hidden sm:block">
-                <TabsList className="grid w-full grid-cols-5 bg-white/80 backdrop-blur-sm h-auto p-2 rounded-2xl shadow-sm">
+                <TabsList className="grid w-full grid-cols-5 bg-slate-900/60 backdrop-blur-md border border-slate-800/80 h-auto p-2 rounded-2xl shadow-md">
                   <TabsTrigger 
                     value="upload" 
                     className="flex flex-col items-center space-y-1 h-16 data-[state=active]:bg-blue-500 data-[state=active]:text-white rounded-xl"

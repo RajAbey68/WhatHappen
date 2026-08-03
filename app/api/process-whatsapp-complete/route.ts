@@ -1,11 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
+import {
+  isValidProjectId,
+  requireProjectAccess,
+  verifyWebhookSecret,
+  safeParseTimestamp,
+  WEBHOOK_SECRET_HEADER,
+  isAuthBypassed,
+} from '@/lib/api-auth'
 
 // Allow up to 5 minutes for large file processing (requires Vercel Pro)
 export const maxDuration = 300
 
 // Batch size for Supabase inserts (PostgREST has practical row limits)
 const INSERT_BATCH_SIZE = 500
+
+// RAJ-740: bounds for client-supplied message payloads
+const MAX_SENDER_LENGTH = 256
+const MAX_MESSAGE_LENGTH = 20000
+
+/**
+ * RAJ-740: whitelist + bound each message before it reaches the database.
+ * Unknown fields are dropped; malformed rows are rejected.
+ */
+function sanitizeIncomingMessage(
+  raw: any
+): { sender: string; message: string; timestamp: string } | null {
+  if (!raw || typeof raw !== 'object') return null
+  if (typeof raw.sender !== 'string' || raw.sender.length === 0) return null
+  if (typeof raw.message !== 'string') return null
+  if (typeof raw.timestamp !== 'string' && typeof raw.timestamp !== 'number') return null
+
+  return {
+    sender: raw.sender.slice(0, MAX_SENDER_LENGTH),
+    message: raw.message.slice(0, MAX_MESSAGE_LENGTH),
+    // Keep the original WhatsApp-format string when it isn't ISO-parseable,
+    // but bound its length so it can't be used as an injection vector.
+    timestamp: safeParseTimestamp(raw.timestamp) ?? String(raw.timestamp).slice(0, 64),
+  }
+}
 
 interface WhatsAppMessage {
   timestamp: string
@@ -31,8 +64,16 @@ interface ProcessingResult {
 export async function POST(request: NextRequest) {
   const supabase = getServiceClient()
   try {
+    // RAJ-739: this endpoint accepts either a signed webhook call from the
+    // WhatsApp/processing provider, or an authorized in-app request.
+    const isWebhookCall = request.headers.has(WEBHOOK_SECRET_HEADER)
+    if (isWebhookCall) {
+      const webhookError = verifyWebhookSecret(request)
+      if (webhookError) return webhookError
+    }
+
     const contentType = request.headers.get('content-type') || ''
-    
+
     let projectId: string
     let messages: any[] = []
     let dbAnalysis: any
@@ -74,6 +115,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'No file or project ID provided' }, { status: 400 })
       }
 
+      if (!isValidProjectId(projectId)) {
+        return NextResponse.json({ error: 'A valid project ID is required' }, { status: 400 })
+      }
+
       // Process the file on the server
       const text = await file.text()
       const rawMessages = parseWhatsAppChat(text)
@@ -95,15 +140,44 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // RAJ-740: validate the projectId shape and that the caller may write to it.
+    if (!isWebhookCall) {
+      const authError = await requireProjectAccess(request, projectId)
+      if (authError) return authError
+    } else if (!isValidProjectId(projectId)) {
+      return NextResponse.json({ error: 'A valid project ID is required' }, { status: 400 })
+    }
+
+    // RAJ-740: the project must exist before we write rows referencing it.
+    if (!isAuthBypassed()) {
+      const { data: project, error: projectLookupError } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('id', projectId)
+        .maybeSingle()
+
+      if (projectLookupError) throw projectLookupError
+      if (!project) {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+      }
+    }
+
     // Store messages in Supabase if present (batched insert to avoid PostgREST row limits)
     if (messages.length > 0) {
-      const messagesToInsert = messages.map(message => ({
-        project_id: projectId,
-        sender: message.sender,
-        message: message.message,
-        timestamp: message.timestamp,
-        processed: true
-      }))
+      const messagesToInsert = []
+      for (const message of messages) {
+        const clean = sanitizeIncomingMessage(message)
+        if (!clean) {
+          return NextResponse.json({ error: 'Invalid message payload' }, { status: 400 })
+        }
+        messagesToInsert.push({
+          project_id: projectId,
+          sender: clean.sender,
+          message: clean.message,
+          timestamp: clean.timestamp,
+          processed: true
+        })
+      }
 
       // Insert in batches of INSERT_BATCH_SIZE
       for (let i = 0; i < messagesToInsert.length; i += INSERT_BATCH_SIZE) {
@@ -118,28 +192,49 @@ export async function POST(request: NextRequest) {
 
     // Update project with analysis
     const totalMessagesCount = responsePayload.messageCount
+    
+    let finalAnalysis = {
+      sentiment: dbAnalysis.sentiment,
+      keywords: dbAnalysis.keywords,
+      insights: dbAnalysis.insights
+    }
+
+    if (dbAnalysis.keywords.length === 0 && dbAnalysis.insights.length === 0) {
+      const { data: existingProj } = await supabase
+        .from('projects')
+        .select('analysis')
+        .eq('id', projectId)
+        .single()
+      
+      if (existingProj && existingProj.analysis && (existingProj.analysis as any).keywords?.length > 0) {
+        finalAnalysis = existingProj.analysis as any
+      }
+    }
+
     const { error: projectUpdateError } = await supabase
       .from('projects')
       .update({
         message_count: totalMessagesCount,
         participants: dbAnalysis.participants,
         date_range: dbAnalysis.dateRange,
-        analysis: {
-          sentiment: dbAnalysis.sentiment,
-          keywords: dbAnalysis.keywords,
-          insights: dbAnalysis.insights
-        },
+        analysis: finalAnalysis,
         updated_at: new Date().toISOString()
       })
       .eq('id', projectId)
 
     if (projectUpdateError) throw projectUpdateError
 
-    return NextResponse.json(responsePayload)
+    // RAJ-759: always respond as JSON, never a request-derived content type.
+    return NextResponse.json(responsePayload, {
+      headers: { 'Content-Type': 'application/json' }
+    })
 
   } catch (error) {
     console.error('Error processing WhatsApp file:', error)
-    return NextResponse.json({ error: 'Failed to process file' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Failed to process file' },
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    )
   }
 }
 

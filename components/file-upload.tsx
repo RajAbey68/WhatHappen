@@ -13,6 +13,7 @@ import JSZip from 'jszip'
 import { AgentBuilder } from './agent-builder'
 import { AgentConfig } from '@/lib/types/agent'
 import { AgentDashboard } from './agent-dashboard'
+import { projectAuthHeaders } from '@/lib/session-store'
 
 async function stripVideosFromZip(file: File): Promise<File> {
   const zip = new JSZip()
@@ -351,7 +352,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                 )
               )
 
-              fetch(`/api/process-file?sessionId=${sessionId}`, {
+              fetch(`/api/process-file?sessionId=${sessionId}&projectId=${projectId}`, {
                 method: 'POST',
                 headers: { ...authHeader },
               }).catch(err => {
@@ -481,7 +482,10 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            ...authHeader
+            ...authHeader,
+            // RAJ-739/747: carry the short-lived project token so the now-
+            // authorized completion endpoint accepts this in-app call.
+            ...(await projectAuthHeaders(projectId))
           },
           body: JSON.stringify({
             projectId: projectId,

@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Upload, FileText, MessageSquare, BarChart3, Users, TrendingUp, Download, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Project } from '@/lib/supabase'
+import { projectAuthHeaders } from '@/lib/session-store'
 
 interface WhatsAppAnalyzerProps {
   selectedProject: Project
@@ -45,6 +46,8 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
 
       const response = await fetch('/api/process-whatsapp-complete', {
         method: 'POST',
+        // RAJ-739/747: authorize this in-app call with the short-lived token.
+        headers: { ...(await projectAuthHeaders(selectedProject.id)) },
         body: formData
       })
 

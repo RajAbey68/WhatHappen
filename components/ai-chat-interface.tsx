@@ -9,9 +9,11 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Send, Bot, User, Database, MessageSquare, Sparkles, Brain, FileText } from 'lucide-react'
 import { Project } from '@/lib/supabase'
+import { projectAuthHeadersSync } from '@/lib/session-store'
 
 interface AIChatInterfaceProps {
   selectedProject: Project
+  passphrase?: string
 }
 
 interface ChatMessage {
@@ -21,7 +23,7 @@ interface ChatMessage {
   timestamp: Date
 }
 
-export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
+export function AIChatInterface({ selectedProject, passphrase }: AIChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -46,7 +48,8 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
 
   const loadChatHistory = async () => {
     try {
-      const response = await fetch(`/api/ai-chat/save?projectId=${selectedProject.id}`)
+      // RAJ-760: encode the project id before interpolating it into the URL.
+      const response = await fetch(`/api/ai-chat/save?projectId=${encodeURIComponent(selectedProject.id)}`)
       if (response.ok) {
         const conversations = await response.json()
         if (conversations.length > 0) {
@@ -113,6 +116,7 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
         body: JSON.stringify({
           projectId: selectedProject.id,
           message: input,
+          passphrase: passphrase || undefined,
           ...(messages.length > 0 ? { conversationHistory: messages } : {})
         })
       })
@@ -134,7 +138,11 @@ export function AIChatInterface({ selectedProject }: AIChatInterfaceProps) {
         // Save conversation
         await fetch('/api/ai-chat/save', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            // RAJ-738/747: server-side authorization via short-lived token.
+            ...projectAuthHeadersSync(selectedProject.id),
+          },
           body: JSON.stringify({
             projectId: selectedProject.id,
             messages: [...messages, userMessage, assistantMessage]
