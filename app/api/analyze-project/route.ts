@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
+import {
+  requireProjectAccess,
+  hasAnyProjectCredential,
+  missingCredentialResponse,
+} from '@/lib/api-auth'
 import { decryptText } from '@/lib/crypto'
 import { SwarmManager } from '@/lib/swarm/SwarmManager'
 import { AgentConfig } from '@/lib/types/agent'
 export async function POST(request: NextRequest) {
+  // RAJ-780: reject credential-less callers BEFORE parsing the body, so an
+  // anonymous request cannot make us parse a large payload first.
+  if (!hasAnyProjectCredential(request)) return missingCredentialResponse()
+
   const supabase = getServiceClient()
   try {
     const { projectId, analysisType = 'comprehensive', passphrase } = await request.json()
@@ -11,6 +20,11 @@ export async function POST(request: NextRequest) {
     if (!projectId) {
       return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
     }
+
+    // RAJ-780: reads and decrypts every message in the project. Was unauthenticated
+    // while using the service-role client, so RLS offered no protection here.
+    const authError = await requireProjectAccess(request, projectId)
+    if (authError) return authError
 
     // Get all messages for this project
     const { data: dbMessages, error: msgError } = await supabase

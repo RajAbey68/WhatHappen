@@ -65,7 +65,12 @@ export default function Home() {
   // Load and decrypt messages from database locally on the client
   const loadAndDecryptMessages = async (projectId: string, currentPassphrase: string) => {
     try {
-      const response = await fetch(`/api/ai-chat/${projectId}`)
+      const response = await fetch(`/api/ai-chat/${projectId}`, {
+        headers: {
+          // RAJ-747: short-lived signed token carries authorization.
+          ...(await projectAuthHeaders(projectId)),
+        }
+      })
       if (response.ok) {
         const result = await response.json()
         const recentMessages = result.recentMessages || []

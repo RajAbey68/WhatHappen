@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { parse as csvParse } from 'csv-parse/sync'
 import { v4 as uuidv4 } from 'uuid'
 import { getServiceClient } from '@/lib/auth'
+import { requireProjectAccess } from '@/lib/api-auth'
 const Sentiment = require('sentiment')
 
 // Firebase integration temporarily disabled due to compatibility issues
@@ -102,6 +103,14 @@ export async function POST(request: NextRequest) {
   const sessionId = request.nextUrl.searchParams.get('sessionId')
   const projectId = request.nextUrl.searchParams.get('projectId')
   let supabase: any = null
+
+  // RAJ-780: when a projectId is supplied this route parses an upload and writes
+  // message rows against that project, so it must be project-scoped. Reading the
+  // header/cookie does not consume the request body, so formData() below is safe.
+  if (projectId) {
+    const authError = await requireProjectAccess(request, projectId)
+    if (authError) return authError
+  }
 
   let file: any = null
   let fileBuffer: Buffer

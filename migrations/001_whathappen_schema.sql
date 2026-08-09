@@ -107,24 +107,73 @@ GRANT CONNECT ON DATABASE postgres TO whathappen_readonly;
 GRANT SELECT ON sessions, messages_meta, message_stats TO whathappen_readonly;
 
 -- ─── HARDENED SAFE QUERY EXECUTOR ────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION execute_safe_query(query_sql TEXT, session_id_param UUID)
-RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE result JSONB;
+--
+-- RAJ-780 / SCHEMA DRIFT WARNING.
+--
+-- The version previously written here was NOT the version deployed to the live
+-- database, and it was dangerous: it concatenated `query_sql` straight into an
+-- EXECUTE with no statement-separator filtering, so a payload such as
+--     SELECT 1) t; RESET ROLE; <arbitrary SQL>; --
+-- broke out of the wrapper and ran as the function owner. Because this file uses
+-- CREATE OR REPLACE, re-running it against production would have SILENTLY
+-- DOWNGRADED the hardened function back to the exploitable one.
+--
+-- The definition below is now the hardened one that is actually deployed:
+--   * `SET search_path TO ''` — no unqualified object resolution.
+--   * Statement separators and comment markers are rejected outright.
+--   * Schema-qualified references are rejected, so the query can only reach the
+--     three CTEs below.
+--   * `session_id_param` is interpolated with %L (literal-quoted), not raw.
+--   * The CTEs scope every readable table to the requested session.
+--   * Read-only transaction with a 5s statement timeout.
+--
+-- NOTE: this function is SECURITY DEFINER and performs NO ownership check on
+-- `session_id_param`. EXECUTE is therefore revoked from anon/authenticated in
+-- supabase/migrations/20260803_0001_raj780_authz_hardening.sql; it is called
+-- server-side with the service role only.
+CREATE OR REPLACE FUNCTION public.execute_safe_query(query_sql TEXT, session_id_param UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $$
+DECLARE
+  result JSONB;
+  scoped_sql TEXT;
 BEGIN
-  IF NOT (query_sql ILIKE 'SELECT%') THEN
+  IF session_id_param IS NULL THEN
+    RAISE EXCEPTION 'session_id_param is required';
+  END IF;
+
+  IF btrim(query_sql) !~* '^SELECT\s' THEN
     RAISE EXCEPTION 'Only SELECT queries permitted';
   END IF;
 
-  IF query_sql ~* '(pg_sleep|pg_read_file|pg_catalog|pg_class|COPY\s|information_schema|1/0|UNION\s)' THEN
+  IF query_sql ~* '(;|--|/\*|\*/|\mpg_\w|information_schema|\mCOPY\M|\mUNION\M|\mWITH\M|\mINTO\M|\mINSERT\M|\mUPDATE\M|\mDELETE\M|\mDROP\M|\mALTER\M|\mCREATE\M|\mGRANT\M|\mREVOKE\M|\mTRUNCATE\M|dblink|current_setting|set_config|query_to_xml|lo_import|lo_export)' THEN
     RAISE EXCEPTION 'Blocked pattern in query';
   END IF;
 
-  -- Execute as read-only role with 1000-row cap
-  SET LOCAL ROLE whathappen_readonly;
-  EXECUTE
-    'SELECT jsonb_agg(row_to_json(t)) FROM (' || query_sql || ' LIMIT 1000) t'
-    INTO result;
+  IF query_sql ~* '\m(public|pg_catalog|auth|information_schema)\.' THEN
+    RAISE EXCEPTION 'Schema-qualified references are not permitted';
+  END IF;
 
+  scoped_sql := format(
+      'WITH sessions AS (SELECT * FROM public.sessions WHERE id = %1$L), '
+      || 'messages_meta AS (SELECT * FROM public.messages_meta WHERE session_id = %1$L), '
+      || 'message_stats AS (SELECT * FROM public.message_stats WHERE session_id = %1$L) '
+      || 'SELECT jsonb_agg(row_to_json(t)) FROM ( %2$s ) t',
+      session_id_param, query_sql
+  );
+
+  PERFORM set_config('statement_timeout', '5000', true);
+  PERFORM set_config('default_transaction_read_only', 'on', true);
+
+  EXECUTE scoped_sql INTO result;
   RETURN COALESCE(result, '[]'::JSONB);
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.execute_safe_query(text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.execute_safe_query(text, uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.execute_safe_query(text, uuid) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.execute_safe_query(text, uuid) TO service_role;

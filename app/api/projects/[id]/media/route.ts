@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServiceClient, requireAuth } from '@/lib/auth'
+import { getServiceClient } from '@/lib/auth'
+import { requireProjectAccess } from '@/lib/api-auth'
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const authResult = await requireAuth(request)
-  if (authResult instanceof NextResponse) return authResult
+  // RAJ-780: `requireAuth` alone only proved the caller was *some* authenticated
+  // Supabase user — it never tied them to THIS project, so any signed-up account
+  // could irreversibly purge another project's media from GCS. Must be
+  // project-scoped.
+  const authError = await requireProjectAccess(request, params.id)
+  if (authError) return authError
 
   try {
     const { action } = await request.json()

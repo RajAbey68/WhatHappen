@@ -227,7 +227,14 @@ describe('AIChatInterface Component', () => {
       const sendButton = screen.getByRole('button', { name: /send/i })
       await user.click(sendButton)
 
-      expect(mockFetch).not.toHaveBeenCalled()
+      // RAJ-780: the component now also issues a passphrase-proof token request
+      // (/api/auth/challenge → /api/project-token) when it mounts, so asserting
+      // "no fetch at all" no longer expresses the intent. What must not happen
+      // is the message being SENT.
+      expect(mockFetch).not.toHaveBeenCalledWith(
+        '/api/ai-chat/query',
+        expect.anything()
+      )
     })
 
     test('should not send messages with only whitespace', async () => {
@@ -241,7 +248,12 @@ describe('AIChatInterface Component', () => {
       await user.type(input, '   ')
       await user.click(sendButton)
 
-      expect(mockFetch).not.toHaveBeenCalled()
+      // RAJ-780: see note above — assert the message was not sent, rather than
+      // that zero requests were made.
+      expect(mockFetch).not.toHaveBeenCalledWith(
+        '/api/ai-chat/query',
+        expect.anything()
+      )
     })
 
     test('should clear input after sending message', async () => {
@@ -428,9 +440,15 @@ describe('AIChatInterface Component', () => {
       const processButton = screen.getByRole('button', { name: /process whatsapp data/i })
       await user.click(processButton)
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/ai-chat/project-1', {
-        method: 'GET'
-      })
+      // RAJ-780: this route is now project-scoped, so the call carries the
+      // passphrase-proven project token headers alongside the method.
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/ai-chat/project-1',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.any(Object),
+        })
+      )
     })
 
     test('should show loading state during data processing', async () => {
@@ -585,7 +603,11 @@ describe('AIChatInterface Component', () => {
       renderComponent()
 
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledWith('/api/ai-chat/save?projectId=project-1')
+        // RAJ-780: now sends project-token headers.
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/ai-chat/save?projectId=project-1',
+          expect.objectContaining({ headers: expect.any(Object) })
+        )
       })
     })
 

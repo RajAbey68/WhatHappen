@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
+import { requireProjectAccess } from '@/lib/api-auth'
 import { supabase as anonSupabase } from '@/lib/supabase'
 
 function mapDbProject(dbProj: any) {
@@ -35,6 +36,10 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // RAJ-780: was unauthenticated while using the service-role client.
+  const authError = await requireProjectAccess(request, params.id)
+  if (authError) return authError
+
   try {
     const supabase = getServiceClient()
     const { data, error } = await supabase
@@ -59,6 +64,10 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // RAJ-780: arbitrary project mutation was unauthenticated.
+  const authError = await requireProjectAccess(request, params.id)
+  if (authError) return authError
+
   try {
     const body = await request.json()
     const updateData = {
@@ -89,6 +98,11 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // RAJ-780: destructive and irreversible (purges GCS media and cascades the
+  // project row). Was unauthenticated while using the service-role client.
+  const authError = await requireProjectAccess(request, params.id)
+  if (authError) return authError
+
   try {
     const projectId = params.id
     const supabase = getServiceClient()

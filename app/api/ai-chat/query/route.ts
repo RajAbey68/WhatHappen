@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { OpenAI } from 'openai'
 import { getServiceClient } from '@/lib/auth'
+import {
+  requireProjectAccess,
+  hasAnyProjectCredential,
+  missingCredentialResponse,
+} from '@/lib/api-auth'
 import { decryptText } from '@/lib/crypto'
 
 // Model is env-overridable; default upgraded off the dated gpt-3.5-turbo.
@@ -23,6 +28,9 @@ function getOpenAI(): OpenAI | null {
 }
 
 export async function POST(request: NextRequest) {
+  // RAJ-780: reject credential-less callers BEFORE parsing the body.
+  if (!hasAnyProjectCredential(request)) return missingCredentialResponse()
+
   try {
     const body = await request.json()
     const projectId = body.projectId
@@ -42,6 +50,11 @@ export async function POST(request: NextRequest) {
     if (!projectId || typeof projectId !== 'string') {
       return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
     }
+
+    // RAJ-780: answers questions over the project's decrypted messages. Was
+    // entirely unauthenticated while using the service-role client.
+    const authError = await requireProjectAccess(request, projectId)
+    if (authError) return authError
 
     // conversationHistory is untrusted client input: coerce to an array,
     // keep only well-formed entries, cap the count and per-message length

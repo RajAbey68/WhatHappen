@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
+import {
+  requireProjectAccess,
+  hasAnyProjectCredential,
+  missingCredentialResponse,
+} from '@/lib/api-auth'
 import { decryptText } from '@/lib/crypto'
 import PDFDocument from 'pdfkit'
 
@@ -19,6 +24,9 @@ function mapDbProject(dbProj: any) {
 }
 
 export async function POST(request: NextRequest) {
+  // RAJ-780: reject credential-less callers BEFORE parsing the body.
+  if (!hasAnyProjectCredential(request)) return missingCredentialResponse()
+
   const supabase = getServiceClient()
   try {
     const { projectId, documentType = 'summary', format = 'pdf', passphrase } = await request.json()
@@ -26,6 +34,12 @@ export async function POST(request: NextRequest) {
     if (!projectId) {
       return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
     }
+
+    // RAJ-780: exports the full message transcript as a PDF. Was unauthenticated
+    // while using the service-role client — the single highest-value data egress
+    // route in the app.
+    const authError = await requireProjectAccess(request, projectId)
+    if (authError) return authError
 
     // Get project data
     const { data: dbProj, error: projError } = await supabase

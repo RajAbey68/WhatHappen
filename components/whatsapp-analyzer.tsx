@@ -85,7 +85,11 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
     try {
       const response = await fetch('/api/analyze-project', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // RAJ-747: authorize this in-app call with the short-lived token.
+          ...(await projectAuthHeaders(selectedProject.id)),
+        },
         body: JSON.stringify({
           projectId: selectedProject.id,
           analysisType
@@ -111,7 +115,11 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
     try {
       const response = await fetch('/api/generate-document', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // RAJ-747: authorize this in-app call with the short-lived token.
+          ...(await projectAuthHeaders(selectedProject.id)),
+        },
         body: JSON.stringify({
           projectId: selectedProject.id,
           format,

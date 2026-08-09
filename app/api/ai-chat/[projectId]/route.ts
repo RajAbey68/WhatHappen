@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
+import { requireProjectAccess } from '@/lib/api-auth'
 
 function mapDbProject(dbProj: any) {
   if (!dbProj) return null
@@ -20,6 +21,11 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { projectId: string } }
 ) {
+  // RAJ-780: returns project metadata AND message content. Previously
+  // unauthenticated while using the service-role client (RLS bypassed).
+  const authError = await requireProjectAccess(request, params.projectId)
+  if (authError) return authError
+
   const supabase = getServiceClient()
   try {
     const { projectId } = params

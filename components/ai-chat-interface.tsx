@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Send, Bot, User, Database, MessageSquare, Sparkles, Brain, FileText } from 'lucide-react'
 import { Project } from '@/lib/supabase'
-import { projectAuthHeadersSync } from '@/lib/session-store'
+import { projectAuthHeaders, projectAuthHeadersSync } from '@/lib/session-store'
 
 interface AIChatInterfaceProps {
   selectedProject: Project
@@ -49,7 +49,12 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
   const loadChatHistory = async () => {
     try {
       // RAJ-760: encode the project id before interpolating it into the URL.
-      const response = await fetch(`/api/ai-chat/save?projectId=${encodeURIComponent(selectedProject.id)}`)
+      const response = await fetch(`/api/ai-chat/save?projectId=${encodeURIComponent(selectedProject.id)}`, {
+        headers: {
+          // RAJ-738/747: server-side authorization via short-lived token.
+          ...(await projectAuthHeaders(selectedProject.id)),
+        }
+      })
       if (response.ok) {
         const conversations = await response.json()
         if (conversations.length > 0) {
@@ -72,7 +77,11 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
     setIsLoading(true)
     try {
       const response = await fetch(`/api/ai-chat/${selectedProject.id}`, {
-        method: 'GET'
+        method: 'GET',
+        headers: {
+          // RAJ-738/747: server-side authorization via short-lived token.
+          ...(await projectAuthHeaders(selectedProject.id)),
+        }
       })
       if (response.ok) {
         setIsDataProcessed(true)
@@ -112,7 +121,11 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
     try {
       const response = await fetch('/api/ai-chat/query', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // RAJ-738/747: server-side authorization via short-lived token.
+          ...(await projectAuthHeaders(selectedProject.id)),
+        },
         body: JSON.stringify({
           projectId: selectedProject.id,
           message: input,

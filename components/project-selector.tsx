@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Project } from '@/lib/supabase'
+import { projectAuthHeaders } from '@/lib/session-store'
 
 interface ProjectSelectorProps {
   onProjectSelect: (project: Project | null) => void
@@ -104,7 +105,11 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
       setIsLoading(true)
       try {
         const response = await fetch(`/api/projects/${projectId}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: {
+            // RAJ-747: authorize this in-app call with the short-lived token.
+            ...(await projectAuthHeaders(projectId)),
+          }
         })
 
         if (response.ok) {

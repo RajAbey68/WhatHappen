@@ -11,7 +11,7 @@
  */
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, getServiceClient } from '@/lib/auth'
 
 /** Default token lifetime: 2 hours. */
 export const PROJECT_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
@@ -88,11 +88,84 @@ export function verifyProjectToken(
 }
 
 /**
+ * Cheap pre-filter: does this request carry ANY credential worth evaluating?
+ *
+ * Routes that take `projectId` from the JSON body cannot call
+ * `requireProjectAccess` until the body has been parsed — which means an
+ * unauthenticated caller can make the server parse an arbitrarily large payload
+ * before being rejected. Calling this first lets those routes reject
+ * credential-less requests BEFORE `await request.json()`, without changing the
+ * real authorization decision (which still runs afterwards).
+ *
+ * Deliberately permissive: it checks only for the PRESENCE of a credential, never
+ * its validity. It must never be used as the authorization decision itself.
+ */
+export function hasAnyProjectCredential(request: NextRequest): boolean {
+  if (isAuthBypassed()) return true
+  if (request.headers.get(PROJECT_TOKEN_HEADER)) return true
+  if (request.headers.get('authorization')?.startsWith('Bearer ')) return true
+  try {
+    const all = request.cookies?.getAll?.() ?? []
+    return all.some(
+      (c: { name?: string }) => typeof c?.name === 'string' && c.name.startsWith('project-token-')
+    )
+  } catch {
+    return false
+  }
+}
+
+/** Standard 401 for a request carrying no usable credential at all. */
+export function missingCredentialResponse(): NextResponse {
+  return NextResponse.json(
+    { error: 'Unauthorized: missing or invalid project access token' },
+    { status: 401 }
+  )
+}
+
+/**
+ * Does this Supabase user own this project?
+ *
+ * RAJ-780: `projects.user_id` exists in the live database and is the column the
+ * `users_own_projects` RLS policy keys on. Every server route uses
+ * `getServiceClient()` (service role), which BYPASSES RLS — so that policy
+ * provides no protection on the API path and ownership must be checked in code.
+ *
+ * Note: `projects.user_id` is nullable and the create path does not yet populate
+ * it, so unowned (legacy) projects deliberately return `false` here. That is the
+ * fail-closed direction: a Bearer JWT alone must never unlock a project.
+ */
+export async function userOwnsProject(
+  userId: string,
+  projectId: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await getServiceClient()
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (error) return false
+    return Boolean(data)
+  } catch {
+    return false
+  }
+}
+
+/**
  * Authorize a project-scoped request.
  *
  * Accepts, in order:
- *   1. a valid Supabase Bearer JWT (`requireAuth`)
- *   2. a valid short-lived project access token in `x-project-token`
+ *   1. a valid short-lived project access token (`x-project-token` header, or the
+ *      httpOnly cookie set alongside it) — proof the caller knew the passphrase.
+ *   2. a valid Supabase Bearer JWT **whose user actually owns the project**.
+ *
+ * RAJ-780 (security fix): previously ANY valid Supabase JWT returned `null` here
+ * for ANY projectId. Because Supabase projects accept self-service signup by
+ * default, that let anyone register an account and then read, mutate or delete
+ * every project in the database — completely bypassing the RAJ-747 passphrase
+ * proof that the rest of this module exists to enforce. The JWT path now
+ * additionally requires a project-ownership match and returns 403 when it fails.
  *
  * Returns `null` when authorized, or a NextResponse error to return to the caller.
  */
@@ -109,13 +182,55 @@ export async function requireProjectAccess(
 
   if (isAuthBypassed()) return null
 
+  // 1a. Passphrase-proven project token in the request HEADER.
+  //
+  // A custom header cannot be attached by a cross-site form or image request —
+  // sending one forces a CORS preflight — so the header path is inherently
+  // CSRF-safe and is accepted for every HTTP method.
   const headerToken = request.headers.get(PROJECT_TOKEN_HEADER)
   if (headerToken && verifyProjectToken(headerToken, projectId)) return null
 
+  // 1b. Same token from the httpOnly cookie — SAFE METHODS ONLY.
+  //
+  // Cookies are ambient: the browser attaches them automatically. Accepting one
+  // as authorization for a state-changing request is the textbook CSRF setup —
+  // a page on another origin could trigger DELETE /api/projects/<id> or the GCS
+  // media purge and the browser would supply the credential. `sameSite: 'strict'`
+  // on the cookie already blocks that in current browsers, but relying on a
+  // single cookie attribute as the only barrier to an irreversible delete on a
+  // legal-evidence system is too thin. The client always sends the header token
+  // (lib/session-store.ts), so restricting the cookie to read-only methods costs
+  // nothing and removes the class of bug entirely.
+  const method = (request.method || 'GET').toUpperCase()
+  const isSafeMethod = method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
+  if (isSafeMethod) {
+    const cookieToken = request.cookies?.get?.(`project-token-${projectId}`)?.value
+    if (cookieToken && verifyProjectToken(cookieToken, projectId)) return null
+  }
+
+  // 2. Bearer JWT — only for a user who owns this specific project.
   if (request.headers.get('authorization')?.startsWith('Bearer ')) {
     const authResult = await requireAuth(request)
     if (authResult instanceof NextResponse) return authResult
-    return null
+
+    // Fail closed rather than trusting the shape of `authResult`. `instanceof`
+    // is the only thing distinguishing "error response" from "authenticated
+    // user" above, and it silently degrades whenever two copies of next/server
+    // are loaded (module duplication, test harnesses, bundler edge cases). If we
+    // cannot positively identify a user id, deny.
+    const userId = (authResult as { user?: { id?: string } })?.user?.id
+    if (typeof userId !== 'string' || userId.length === 0) {
+      return NextResponse.json(
+        { error: 'Unauthorized: could not establish an authenticated user' },
+        { status: 401 }
+      )
+    }
+
+    if (await userOwnsProject(userId, projectId)) return null
+    return NextResponse.json(
+      { error: 'Forbidden: you do not have access to this project' },
+      { status: 403 }
+    )
   }
 
   return NextResponse.json(
