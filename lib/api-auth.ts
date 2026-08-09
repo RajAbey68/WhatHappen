@@ -22,8 +22,17 @@ export const WEBHOOK_SECRET_HEADER = 'x-webhook-secret'
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-/** True when running in a local/dev/test context where auth is intentionally bypassed. */
+/**
+ * True when running in a local/dev/test context where auth is intentionally
+ * bypassed.
+ *
+ * RAJ-780: `BYPASS_AUTH` is deliberately NOT honoured in production. It was
+ * previously an unconditional master off-switch — a single mis-set environment
+ * variable on Cloud Run disabled authorization on every route at once. A
+ * developer convenience must not be reachable from a production config.
+ */
 export function isAuthBypassed(): boolean {
+  if (process.env.NODE_ENV === 'production') return false
   return (
     process.env.NODE_ENV === 'development' ||
     process.env.NODE_ENV === 'test' ||

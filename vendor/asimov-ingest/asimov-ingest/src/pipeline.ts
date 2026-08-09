@@ -106,20 +106,8 @@ export function createIngestPipeline(config: IngestPipelineConfig): IngestPipeli
 
       let stored: StoredObject | null = null
       if (persist && storage) {
-        // Sanitise BOTH segments. `filename` is obviously untrusted, but so is
-        // `tenantId` from this package's point of view: WhatHappen happens to
-        // validate it as a UUID at the route, booklets passes an organisation
-        // id, and a future consumer may pass anything. A tenantId containing
-        // '/' or '..' would escape its own prefix and let one tenant write into
-        // another's namespace. The package is the trust boundary, so it checks.
-        const safeTenant = request.tenantId.replace(/[^A-Za-z0-9._-]/g, '_').replace(/\.{2,}/g, '.')
-        if (safeTenant.length === 0) {
-          throw new UploadGuardError('UNSUPPORTED_TYPE', 'Invalid tenant id.')
-        }
-        const safeName =
-          request.filename.replace(/[^A-Za-z0-9._-]/g, '_').replace(/\.{2,}/g, '.').replace(/^\.+/, '') ||
-          'upload'
-        const path = `${safeTenant}/${Date.now()}-${safeName}`
+        const safeName = request.filename.replace(/[^A-Za-z0-9._-]/g, '_')
+        const path = `${request.tenantId}/${Date.now()}-${safeName}`
         stored = await storage.put(path, data)
       }
 

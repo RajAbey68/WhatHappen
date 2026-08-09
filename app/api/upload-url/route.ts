@@ -14,37 +14,68 @@
  *
  * WHAT CHANGED
  * ------------
- * 1. Authorization now uses the passphrase-proven project token — the app's
- *    actual auth mechanism (RAJ-747) — via `requireProjectAccess`.
- * 2. The hot tier is Supabase Storage, not GCS. GCS becomes the archive tier
- *    in the retention sweep (RAJ-783), so uploads no longer need GCP creds on
- *    the request path.
- * 3. Validation runs through the shared `@asimov/ingest` guard, the same code
- *    booklets uses, so the two apps cannot drift apart on upload safety.
+ * 1. Authorization uses the passphrase-proven project token (RAJ-747), the
+ *    app's actual auth mechanism, via `requireProjectAccess`.
+ * 2. The hot tier is Supabase Storage. The object path is recorded EXPLICITLY on
+ *    the session row — `process-file` previously RECONSTRUCTED a GCS path from
+ *    user_id/sessionId/file_name, which cannot address the new bucket.
+ * 3. The response still returns `sessionId`, because the client destructures it
+ *    (`components/file-upload.tsx`) and then polls `sessions` with it. An
+ *    earlier version of this fix omitted it: the file uploaded successfully,
+ *    was never processed, and the UI failed with the same symptom the fix was
+ *    meant to remove. Four-eyes review caught it. The response shape is a
+ *    contract; there is now a test asserting exactly the keys the client reads.
  *
  * The bucket MUST be private. A public bucket would bypass the API entirely and
- * re-open the anonymous exposure the RAJ-780 authorization work closed.
+ * re-open the anonymous exposure the RAJ-780 work closed.
  */
 export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
-import { requireProjectAccess, isValidProjectId } from '@/lib/api-auth'
+import {
+  requireProjectAccess,
+  isValidProjectId,
+  hasAnyProjectCredential,
+  missingCredentialResponse,
+} from '@/lib/api-auth'
 import { createSupabaseStorageAdapter } from '@asimov/ingest'
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid'
 import path from 'path'
 
 /** Hard ceiling on a single upload. */
 const MAX_FILE_BYTES = 500 * 1024 * 1024
 
-/** Default retention window before the archive sweep moves the object to GCS. */
+/** Fallback retention window when the project has no explicit setting. */
 const DEFAULT_ARCHIVE_DAYS = 7
 
-const ALLOWED_EXTENSIONS = ['.txt', '.zip', '.pst', '.csv', '.json', '.pdf']
+/** Bound the filename so it cannot bloat the object key or the DB row. */
+const MAX_FILENAME_LENGTH = 200
+
+const ALLOWED_EXTENSIONS = ['.txt', '.zip', '.pst', '.csv', '.json', '.pdf', '.docx']
+
+/**
+ * `sessions.user_id` is NOT NULL, but this app has no user accounts. Derive a
+ * stable per-project id so the constraint holds without inventing a fake person
+ * or weakening the schema. Same project → same id, so rows stay groupable.
+ */
+const PROJECT_OWNER_NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'
+const ownerIdForProject = (projectId: string) => uuidv5(projectId, PROJECT_OWNER_NAMESPACE)
+
+function inferSourceType(ext: string): string {
+  if (ext === '.pst') return 'email_pst'
+  if (ext === '.csv') return 'email_csv'
+  return 'whatsapp'
+}
 
 const json = (body: unknown, status = 200) =>
   NextResponse.json(body, { status, headers: { 'Content-Type': 'application/json' } })
 
 export async function POST(request: NextRequest) {
+  // RAJ-780: reject credential-less callers BEFORE parsing the body, so an
+  // anonymous request cannot make the server parse an arbitrary payload first.
+  if (!hasAnyProjectCredential(request)) return missingCredentialResponse()
+
   let body: any
   try {
     body = await request.json()
@@ -52,14 +83,12 @@ export async function POST(request: NextRequest) {
     return json({ error: 'Invalid request body' }, 400)
   }
 
-  const { projectId, fileName, fileSize, mimeType } = body ?? {}
+  const { projectId, fileName, fileSize, mimeType, sourceApp } = body ?? {}
 
   if (!isValidProjectId(projectId)) {
     return json({ error: 'A valid project ID is required' }, 400)
   }
 
-  // RAJ-780/782: the project token is the credential. No JWT is required,
-  // because no part of this application can issue one.
   const authError = await requireProjectAccess(request, projectId)
   if (authError) return authError
 
@@ -67,13 +96,17 @@ export async function POST(request: NextRequest) {
     return json({ error: 'A valid fileSize is required' }, 400)
   }
   if (fileSize > MAX_FILE_BYTES) {
-    return json(
-      { error: `File must be under ${MAX_FILE_BYTES / 1024 / 1024} MB` },
-      413
-    )
+    return json({ error: `File must be under ${MAX_FILE_BYTES / 1024 / 1024} MB` }, 413)
   }
 
-  const ext = path.extname(typeof fileName === 'string' ? fileName : '').toLowerCase()
+  if (typeof fileName !== 'string' || fileName.length === 0) {
+    return json({ error: 'A fileName is required' }, 400)
+  }
+  if (fileName.length > MAX_FILENAME_LENGTH) {
+    return json({ error: `fileName must be under ${MAX_FILENAME_LENGTH} characters` }, 400)
+  }
+
+  const ext = path.extname(fileName).toLowerCase()
   if (!ALLOWED_EXTENSIONS.includes(ext)) {
     return json(
       { error: `File type '${ext}' not supported. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}` },
@@ -87,40 +120,91 @@ export async function POST(request: NextRequest) {
   try {
     const storage = createSupabaseStorageAdapter({ client: supabase as any, bucket })
 
-    // Scope the object path by project so a listing can never span matters.
-    const safeName = String(fileName).replace(/[^A-Za-z0-9._-]/g, '_')
-    const objectPath = `${projectId}/${Date.now()}-${safeName}`
+    const sessionId = uuidv4()
+    // Scope by project so a bucket listing can never span matters. The
+    // sessionId segment guarantees uniqueness.
+    //
+    // Sanitisation: strip every character that could act as a path separator,
+    // then collapse dot-runs and leading dots. Removing '/' alone already makes
+    // traversal impossible, but a name that still reads as '..' invites
+    // misinterpretation by anything downstream that re-splits the key, and
+    // leading dots produce hidden files on extraction.
+    const safeName =
+      fileName
+        .replace(/[^A-Za-z0-9._-]/g, '_')
+        .replace(/\.{2,}/g, '.')
+        .replace(/^\.+/, '') || 'upload'
+    const objectPath = `${projectId}/${sessionId}/${safeName}`
 
     const signed = await storage.createSignedUploadUrl(objectPath, {
       contentType: typeof mimeType === 'string' ? mimeType : undefined,
     })
 
-    const archiveDays = Number(process.env.ARCHIVE_DAYS) || DEFAULT_ARCHIVE_DAYS
-    const expiresAt = new Date(Date.now() + archiveDays * 24 * 60 * 60 * 1000).toISOString()
+    // Per-project retention, falling back to the env default. Read from the
+    // project row so the UI control is authoritative — an earlier version read
+    // only process.env, which made archive_days silently inert.
+    const { data: project } = await supabase
+      .from('projects')
+      .select('archive_days')
+      .eq('id', projectId)
+      .maybeSingle()
 
+    const archiveDays =
+      typeof project?.archive_days === 'number'
+        ? project.archive_days
+        : Number.isFinite(Number(process.env.ARCHIVE_DAYS))
+          ? Number(process.env.ARCHIVE_DAYS)
+          : DEFAULT_ARCHIVE_DAYS
+
+    const archiveAt = new Date(Date.now() + archiveDays * 24 * 60 * 60 * 1000).toISOString()
+
+    // The session row is what the client polls and what process-file reads.
+    const { error: sessionError } = await supabase.from('sessions').insert({
+      id: sessionId,
+      user_id: ownerIdForProject(projectId),
+      project_id: projectId,
+      file_name: fileName,
+      file_size_bytes: fileSize,
+      source_app: typeof sourceApp === 'string' ? sourceApp : 'whathappen',
+      source_type: inferSourceType(ext),
+      processing_status: 'pending',
+      storage_path: objectPath,
+      storage_provider: 'supabase',
+    })
+
+    if (sessionError) {
+      console.error('[upload-url] failed to create session:', sessionError.message)
+      return json({ error: 'Failed to create session' }, 500)
+    }
+
+    // status stays 'pending' until process-file confirms the bytes landed, so
+    // the retention sweep never archives an object that was never uploaded.
     const { error: dbError } = await supabase.from('media_objects').insert({
       project_id: projectId,
       storage_path: objectPath,
-      storage_provider: storage.name,
+      storage_provider: 'supabase',
       file_name: fileName,
       file_size_bytes: fileSize,
       mime_type: mimeType ?? null,
-      expires_at: expiresAt,
+      expires_at: archiveAt,
+      status: 'pending',
     })
 
-    // Fail loudly. A recorded-but-unreferenced object would be invisible to the
-    // retention sweep and to purge — exactly the silent no-op that already
-    // exists in the media-purge paths.
     if (dbError) {
       console.error('[upload-url] failed to record media object:', dbError.message)
       return json({ error: 'Failed to record upload' }, 500)
     }
 
     return json({
+      // `sessionId` and `uploadUrl` are the two keys the client destructures.
+      // Do not rename or drop them without updating components/file-upload.tsx.
+      sessionId,
       uploadUrl: signed.url,
       path: objectPath,
-      expiresAt,
       provider: storage.name,
+      // Retention date, NOT the URL expiry. Named explicitly so the two are not
+      // confused at the call site.
+      archiveAt,
     })
   } catch (err: any) {
     console.error('[upload-url] signed URL minting failed:', err?.message)

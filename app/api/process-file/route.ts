@@ -159,7 +159,46 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Download file from GCS
+      // RAJ-782: objects uploaded through the new path live in Supabase Storage
+      // and carry an EXPLICIT storage_path. The GCS branch below reconstructs a
+      // path from user_id/sessionId/file_name, which cannot address them —
+      // uploads succeeded but were never processed. Prefer the explicit path.
+      if (sessionData.storage_provider === 'supabase' && sessionData.storage_path) {
+        const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'evidence'
+        await updateSessionProgress('Downloading file from storage...')
+        const { data: blob, error: dlError } = await supabase.storage
+          .from(bucket)
+          .download(sessionData.storage_path)
+
+        if (dlError || !blob) {
+          const msg = dlError?.message || 'no data returned'
+          console.error('[process-file] Supabase Storage download failed:', msg)
+          await supabase
+            .from('sessions')
+            .update({ processing_status: 'error', processing_error: `Download failed: ${msg}` })
+            .eq('id', sessionId)
+          return NextResponse.json(
+            { success: false, error: `Failed to download file from storage: ${msg}` },
+            { status: 500 }
+          )
+        }
+
+        fileBuffer = Buffer.from(await blob.arrayBuffer())
+        file = { name: sessionData.file_name, size: sessionData.file_size_bytes }
+
+        // The bytes exist. Promote both rows out of 'pending' so the retention
+        // sweep can distinguish a real object from a mint that was never used.
+        const confirmedAt = new Date().toISOString()
+        await supabase
+          .from('sessions')
+          .update({ upload_confirmed_at: confirmedAt })
+          .eq('id', sessionId)
+        await supabase
+          .from('media_objects')
+          .update({ status: 'uploaded', file_size_bytes: fileBuffer.length })
+          .eq('storage_path', sessionData.storage_path)
+      } else {
+      // Download file from GCS (legacy path — sessions created before RAJ-782)
       const { Storage } = await import('@google-cloud/storage')
       const storageOptions: any = {}
       if (process.env.GCP_CLIENT_EMAIL && process.env.GCP_PRIVATE_KEY) {
@@ -192,6 +231,7 @@ export async function POST(request: NextRequest) {
           { success: false, error: `Failed to download file from GCS: ${err.message}` },
           { status: 500 }
         )
+      }
       }
     } else {
       return NextResponse.json(
