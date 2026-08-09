@@ -105,13 +105,32 @@ export async function POST(request: NextRequest) {
   const projectId = request.nextUrl.searchParams.get('projectId')
   let supabase: any = null
 
-  // RAJ-780: when a projectId is supplied this route parses an upload and writes
-  // message rows against that project, so it must be project-scoped. Reading the
-  // header/cookie does not consume the request body, so formData() below is safe.
-  if (projectId) {
-    const authError = await requireProjectAccess(request, projectId)
-    if (authError) return authError
+  // RAJ-780 (re-opened by solar wheel review, fixed): this route parses an
+  // upload and writes message rows against a project, so it MUST be
+  // project-scoped on every request. There is no unauthenticated path.
+  // Reading the header/cookie does not consume the request body, so
+  // formData() below is safe.
+  //
+  // Resolve the authoritative projectId: prefer the explicit param; otherwise
+  // derive it from the session row (local/dev callers pass only sessionId).
+  let effectiveProjectId = projectId || null
+  if (!effectiveProjectId && sessionId) {
+    const sessionLookup = getServiceClient()
+    const { data: sessionRow } = await sessionLookup
+      .from('sessions')
+      .select('project_id')
+      .eq('id', sessionId)
+      .single()
+    effectiveProjectId = sessionRow?.project_id || null
   }
+  if (!effectiveProjectId) {
+    return NextResponse.json(
+      { success: false, error: 'projectId is required to authorize this upload' },
+      { status: 400 }
+    )
+  }
+  const authError = await requireProjectAccess(request, effectiveProjectId)
+  if (authError) return authError
 
   let file: any = null
   let fileBuffer: Buffer
@@ -709,7 +728,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (projectId) {
+      if (effectiveProjectId) {
         await updateSessionProgress('Saving project analysis...')
         
         const sentimentScore = analysis.averageSentiment
@@ -756,7 +775,7 @@ export async function POST(request: NextRequest) {
             analysis: dbAnalysis,
             updated_at: new Date().toISOString()
           })
-          .eq('id', projectId)
+          .eq('id', effectiveProjectId)
 
         if (projUpdateErr) {
           console.error('Failed to update project analysis:', projUpdateErr)

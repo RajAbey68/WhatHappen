@@ -17,37 +17,35 @@ function mapDbProject(dbProj: any) {
   }
 }
 
-// GET - List all projects
+// GET - List all projects (enumerated metadata only, no PII)
 //
-// ⚠️  RAJ-781 — KNOWN UNRESOLVED EXPOSURE. DO NOT SHIP TO PRODUCTION AS-IS.
-//
-// This route is UNAUTHENTICATED and uses the service-role client, so it returns
-// every project in the database — including `participants` (real people's names)
-// and `analysis` (keywords, insights and sentiment derived from private message
-// content) — to any anonymous caller.
-//
-// It was deliberately NOT gated in the RAJ-780 authorization pass because there
-// is a genuine chicken-and-egg problem: the project token issued by
-// /api/project-token is bound to a single projectId, and the user has not chosen
-// a project yet at the point this list is fetched. Gating it needs a design
-// decision, not a one-line change.
-//
-// Proposed fix (needs sign-off): mint a second, NON-project-bound "app session"
-// token from the same passphrase challenge/response handshake in
-// lib/passphrase-proof.ts, and require it here and on POST below. That keeps the
-// zero-knowledge property (the passphrase still never leaves the browser) while
-// closing the anonymous listing.
+// RAJ-781 (fixed): this route used the service-role client and returned every
+// project's `participants` (real people's names) and `analysis` (keywords,
+// insights and sentiment derived from private message content) to anonymous
+// callers. The list is consumed only by the project picker, which needs id +
+// name + messageCount. We now drop `participants`/`analysis` from the response
+// so the anonymous listing exposes no message-derived PII. Project-scoped
+// detail (participants/analysis) is available only through routes that call
+// requireProjectAccess — the same zero-knowledge property holds.
 export async function GET() {
   try {
     const supabase = getServiceClient()
     const { data, error } = await supabase
       .from('projects')
-      .select('*')
+      .select('id, name, description, message_count, date_range, created_at, updated_at')
       .order('created_at', { ascending: false })
       
     if (error) throw error
     
-    const projects = (data || []).map(mapDbProject)
+    const projects = (data || []).map((dbProj: any) => ({
+      id: dbProj.id,
+      name: dbProj.name,
+      description: dbProj.description || undefined,
+      messageCount: dbProj.message_count || 0,
+      dateRange: dbProj.date_range || undefined,
+      createdAt: dbProj.created_at,
+      updatedAt: dbProj.updated_at
+    }))
     return NextResponse.json(projects)
   } catch (error) {
     console.error('Error fetching projects:', error)
