@@ -8,6 +8,7 @@ import { parse as csvParse } from 'csv-parse/sync'
 import { v4 as uuidv4 } from 'uuid'
 import { getServiceClient } from '@/lib/auth'
 import { requireProjectAccess } from '@/lib/api-auth'
+import { detectType, type DetectedType } from '@asimov/ingest'
 const Sentiment = require('sentiment')
 
 // Firebase integration temporarily disabled due to compatibility issues
@@ -184,6 +185,32 @@ export async function POST(request: NextRequest) {
         }
 
         fileBuffer = Buffer.from(await blob.arrayBuffer())
+
+        // RAJ-782 (four-eyes finding): the signed-URL flow validates only the
+        // FILENAME EXTENSION before minting. The browser then PUTs arbitrary
+        // bytes straight to the bucket — nothing has yet looked at the content.
+        // This is the first moment real bytes are in our hands, so it is the
+        // only place a magic-byte check can actually mean anything. Without it
+        // a passphrase-holder could park an executable named "evidence.zip" in
+        // a legal-evidence bucket with a row asserting application/zip.
+        const detected = detectType(fileBuffer.subarray(0, 32).toString('base64'))
+        const permitted: DetectedType[] = ['zip', 'pdf', 'jpeg', 'png', 'webp', 'heic']
+        if (detected === null || !permitted.includes(detected)) {
+          const msg = `Uploaded content is not a permitted type (detected: ${detected ?? 'unknown'})`
+          console.error('[process-file] magic-byte rejection:', msg, sessionData.storage_path)
+          await supabase
+            .from('sessions')
+            .update({ processing_status: 'error', processing_error: msg })
+            .eq('id', sessionId)
+          await supabase
+            .from('media_objects')
+            .update({ status: 'failed' })
+            .eq('storage_path', sessionData.storage_path)
+          // Do not leave rejected content sitting in the evidence bucket.
+          await supabase.storage.from(bucket).remove([sessionData.storage_path])
+          return NextResponse.json({ success: false, error: msg }, { status: 415 })
+        }
+
         file = { name: sessionData.file_name, size: sessionData.file_size_bytes }
 
         // The bytes exist. Promote both rows out of 'pending' so the retention
