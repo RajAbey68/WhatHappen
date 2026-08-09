@@ -100,6 +100,7 @@ function imageExtToMime(ext: string): string {
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
   const sessionId = request.nextUrl.searchParams.get('sessionId')
+  const projectId = request.nextUrl.searchParams.get('projectId')
   let supabase: any = null
 
   let file: any = null
@@ -629,6 +630,60 @@ export async function POST(request: NextRequest) {
         const { error: statsErr } = await supabase.from('message_stats').insert(statsRows)
         if (statsErr) {
           console.error('Failed to insert message_stats:', statsErr)
+        }
+      }
+
+      if (projectId) {
+        await updateSessionProgress('Saving project analysis...')
+        
+        const sentimentScore = analysis.averageSentiment
+        let positive = 0, negative = 0, neutral = 100
+        if (sentimentScore > 0.5) {
+          positive = Math.min(100, Math.round(sentimentScore * 50))
+          neutral = 100 - positive
+        } else if (sentimentScore < -0.5) {
+          negative = Math.min(100, Math.round(Math.abs(sentimentScore) * 50))
+          neutral = 100 - negative
+        }
+
+        const topSender = analysis.participants.reduce((a, b) => 
+          (analysis.messagesByParticipant[a] || 0) > (analysis.messagesByParticipant[b] || 0) ? a : b, 
+          analysis.participants[0] || 'Unknown'
+        )
+
+        const topHour = Object.entries(analysis.hourlyDistribution).reduce((a, b) => 
+          b[1] > a[1] ? b : a, 
+          ['0', 0]
+        )[0]
+
+        const insights = [
+          `Conversation spans from ${new Date(analysis.dateRange.start).toLocaleDateString()} to ${new Date(analysis.dateRange.end).toLocaleDateString()}.`,
+          `Top participant is ${topSender} with ${(analysis.messagesByParticipant[topSender] || 0).toLocaleString()} messages.`,
+          `Most active hour of the day is ${topHour}:00.`
+        ]
+
+        const dbAnalysis = {
+          sentiment: { positive, negative, neutral },
+          keywords: analysis.topWords.slice(0, 10).map(w => w.word),
+          insights: insights
+        }
+
+        const { error: projUpdateErr } = await supabase
+          .from('projects')
+          .update({
+            message_count: enrichedMessages.length,
+            participants: analysis.participants,
+            date_range: {
+              start: analysis.dateRange.start.toISOString(),
+              end: analysis.dateRange.end.toISOString()
+            },
+            analysis: dbAnalysis,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', projectId)
+
+        if (projUpdateErr) {
+          console.error('Failed to update project analysis:', projUpdateErr)
         }
       }
 

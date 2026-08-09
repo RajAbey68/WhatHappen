@@ -42,8 +42,7 @@ export async function GET(
       .from('messages')
       .select('*')
       .eq('project_id', projectId)
-      .order('created_at', { ascending: false })
-      .limit(100)
+      .order('timestamp', { ascending: true })
 
     if (msgError) throw msgError
 
@@ -73,7 +72,7 @@ export async function GET(
 
     return NextResponse.json({
       project,
-      recentMessages: recentMessages.slice(0, 20), // Limit for performance
+      recentMessages,
       conversations,
       context: {
         messageCount: project.messageCount || 0,

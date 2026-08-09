@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { OpenAI } from 'openai'
 import { getServiceClient } from '@/lib/auth'
+import { decryptText } from '@/lib/crypto'
 
 // Model is env-overridable; default upgraded off the dated gpt-3.5-turbo.
 // NOTE (architecture): the house default stack is Claude via Supabase Edge
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
     const projectId = body.projectId
     const message = body.message || body.query
     const rawHistory = body.conversationHistory || body.context?.messages || []
+    const passphrase = body.passphrase
 
     if (typeof message !== 'string' || message.trim().length === 0) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
@@ -102,8 +104,30 @@ Chat Meta-Context:
         .limit(300)
 
       if (chatMsgs && chatMsgs.length > 0) {
+        const decryptedMsgs = await Promise.all(
+          chatMsgs.map(async m => {
+            let decryptedMessage = m.message
+            let decryptedSender = m.sender
+            if (passphrase) {
+              try {
+                const messageEnc = JSON.parse(m.message)
+                if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
+                  decryptedMessage = await decryptText(messageEnc.ciphertext, passphrase, messageEnc.salt, messageEnc.iv)
+                }
+              } catch (e) {}
+              try {
+                const senderEnc = JSON.parse(m.sender)
+                if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
+                  decryptedSender = await decryptText(senderEnc.ciphertext, passphrase, senderEnc.salt, senderEnc.iv)
+                }
+              } catch (e) {}
+            }
+            return { ...m, sender: decryptedSender, message: decryptedMessage }
+          })
+        )
+
         messagesContext = '\nFirst 300 Ingested Messages (for detailed content matching):\n' +
-          chatMsgs
+          decryptedMsgs
             .map(m => `[${new Date(m.timestamp).toISOString()}] ${m.sender}: ${m.message}`)
             .join('\n')
       }

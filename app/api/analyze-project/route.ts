@@ -20,6 +20,21 @@ export async function POST(request: NextRequest) {
 
     if (msgError) throw msgError
 
+    const firstMsg = dbMessages?.[0]?.message
+    let isEncrypted = false
+    if (firstMsg) {
+      try {
+        const parsed = JSON.parse(firstMsg)
+        if (parsed.ciphertext && parsed.salt && parsed.iv) {
+          isEncrypted = true
+        }
+      } catch (e) {}
+    }
+
+    if (isEncrypted && !passphrase) {
+      return NextResponse.json({ error: 'Passphrase is required to analyze encrypted chat data.' }, { status: 400 })
+    }
+
     // Decrypt messages in memory if passphrase is provided
     const messages = await Promise.all(
       (dbMessages || []).map(async (msg) => {
@@ -140,6 +155,7 @@ function performSentimentAnalysis(messages: any[]) {
   }
 
   let scores = { positive: 0, negative: 0, neutral: 0, financial_positive: 0, financial_negative: 0 }
+  let classifications = { positive: 0, negative: 0, neutral: 0 }
   let messageAnalysis: any[] = []
 
   messages.forEach(msg => {
@@ -155,7 +171,7 @@ function performSentimentAnalysis(messages: any[]) {
     const overallSentiment = msgScore.positive > msgScore.negative ? 'positive' :
                             msgScore.negative > msgScore.positive ? 'negative' : 'neutral'
 
-    scores[overallSentiment]++
+    classifications[overallSentiment]++
 
     messageAnalysis.push({
       messageId: msg.id,
@@ -170,9 +186,9 @@ function performSentimentAnalysis(messages: any[]) {
     type: 'sentiment',
     overall: scores,
     percentages: {
-      positive: Math.round((scores.positive / messages.length) * 100),
-      negative: Math.round((scores.negative / messages.length) * 100),
-      neutral: Math.round((scores.neutral / messages.length) * 100)
+      positive: Math.round((classifications.positive / messages.length) * 100),
+      negative: Math.round((classifications.negative / messages.length) * 100),
+      neutral: Math.round((classifications.neutral / messages.length) * 100)
     },
     messageAnalysis: messageAnalysis.slice(0, 50), // Limit for storage
     generatedAt: new Date().toISOString()

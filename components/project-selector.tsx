@@ -130,7 +130,7 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold text-slate-700">Your Projects</h2>
+        <h2 className="text-2xl font-semibold text-slate-200">Your Projects</h2>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600">
@@ -194,11 +194,11 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
           <span className="ml-2 text-slate-600 font-medium">Loading projects...</span>
         </div>
       ) : projects.length === 0 ? (
-        <Card className="text-center py-12 bg-white/50 backdrop-blur-sm border border-white/20">
+        <Card className="text-center py-12 bg-slate-900/40 border border-slate-800/80">
           <CardContent>
             <FolderOpen className="h-16 w-16 mx-auto text-slate-400 mb-4" />
             <h3 className="text-xl font-semibold mb-2">No Projects Yet</h3>
-            <p className="text-slate-600 mb-4">Create your first WhatsApp analysis project</p>
+            <p className="text-slate-400 mb-4">Create your first WhatsApp analysis project</p>
             <Button 
               onClick={() => setIsCreateDialogOpen(true)}
               className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
@@ -213,19 +213,19 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
           {projects.map((project) => (
             <Card 
               key={project.id}
-              className={`cursor-pointer transition-all duration-200 hover:shadow-lg bg-white/80 backdrop-blur-sm border ${
+              className={`cursor-pointer transition-all duration-200 hover:shadow-lg bg-slate-900/60 border ${
                 selectedProject?.id === project.id 
                   ? 'border-blue-500 ring-2 ring-blue-500/20' 
-                  : 'border-white/20 hover:border-blue-300'
+                  : 'border-slate-800/80 hover:border-blue-800/50'
               }`}
               onClick={() => onProjectSelect(project)}
             >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <CardTitle className="text-lg line-clamp-1">{project.name}</CardTitle>
+                    <CardTitle className="text-lg line-clamp-1 text-slate-100">{project.name}</CardTitle>
                     {project.description && (
-                      <p className="text-sm text-slate-600 mt-1 line-clamp-2">
+                      <p className="text-sm text-slate-400 mt-1 line-clamp-2">
                         {project.description}
                       </p>
                     )}
@@ -237,16 +237,16 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
                       e.stopPropagation()
                       deleteProject(project.id)
                     }}
-                    className="text-slate-400 hover:text-red-500 hover:bg-red-50"
+                    className="text-slate-400 hover:text-red-400 hover:bg-red-950/30"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="flex justify-between text-sm text-slate-500">
+                <div className="flex justify-between text-sm text-slate-400">
                   <span>{project.messageCount.toLocaleString()} messages</span>
-                  <span>{new Date(project.createdAt).toLocaleDateString()}</span>
+                  <span>Updated: {new Date(project.updatedAt || project.createdAt).toLocaleDateString()}</span>
                 </div>
               </CardContent>
             </Card>

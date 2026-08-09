@@ -90,11 +90,48 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const projectId = params.id
     const supabase = getServiceClient()
+
+    // 1. Purge media from GCS before deleting project record
+    try {
+      const { data: queueItems } = await supabase
+        .from('media_processing_queue')
+        .select('file_path')
+        .eq('project_id', projectId)
+
+      if (process.env.GCS_BUCKET && queueItems && queueItems.length > 0) {
+        const { Storage } = await import('@google-cloud/storage')
+        const storageOptions: any = {}
+        if (process.env.GCP_CLIENT_EMAIL && process.env.GCP_PRIVATE_KEY) {
+          storageOptions.projectId = process.env.GCP_PROJECT_ID || 'leadsync-489921'
+          storageOptions.credentials = {
+            client_email: process.env.GCP_CLIENT_EMAIL,
+            private_key: process.env.GCP_PRIVATE_KEY.replace(/\\n/g, '\n'),
+          }
+        }
+        const storage = new Storage(storageOptions)
+        const bucket = storage.bucket(process.env.GCS_BUCKET)
+
+        for (const item of queueItems) {
+          if (item.file_path) {
+            try {
+              await bucket.file(item.file_path).delete()
+            } catch (deleteErr: any) {
+              console.warn(`[media-purge] GCS delete failed for ${item.file_path}:`, deleteErr.message)
+            }
+          }
+        }
+      }
+    } catch (purgeError: any) {
+      console.error('[delete-project] Media purge failed:', purgeError.message)
+    }
+
+    // 2. Delete project from Supabase database (cascades to messages, media queue etc)
     const { error } = await supabase
       .from('projects')
       .delete()
-      .eq('id', params.id)
+      .eq('id', projectId)
 
     if (error) throw error
 
