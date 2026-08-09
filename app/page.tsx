@@ -134,12 +134,39 @@ export default function Home() {
     }
   }
 
+  /**
+   * RAJ-781: `GET /api/projects` is unauthenticated, so it no longer returns
+   * `participants` (real names) or `analysis` (message-derived insights). Five
+   * places in the UI read `selectedProject.participants`, so without this they
+   * would all silently render 0 and the participants panel would vanish.
+   *
+   * The fix is not to put the PII back in the anonymous list — it is to fetch
+   * the full record from `GET /api/projects/[id]`, which IS gated by
+   * requireProjectAccess, once the passphrase has been proven. Same data, but
+   * only for a caller who has earned it.
+   */
+  const hydrateProjectDetail = async (projectId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        headers: { ...(await projectAuthHeaders(projectId)) },
+      })
+      if (!res.ok) return
+      const { project: full } = await res.json()
+      if (!full) return
+      setSelectedProject((prev) =>
+        prev && prev.id === projectId ? { ...prev, ...full } : prev
+      )
+    } catch {
+      // Non-fatal: the picker's fields are already displayed.
+    }
+  }
+
   const handleProjectSelect = (project: Project | null) => {
     setSelectedProject(project)
     setDecryptedData(null)
     setProcessedData(null)
     setActiveTab('upload')
-    
+
     if (!project) {
       setPassphrase('')
       return
@@ -149,8 +176,9 @@ export default function Home() {
     const cached = readPassphrase(project.id)
     if (cached) {
       setPassphrase(cached)
-      // RAJ-747 rework: re-prove passphrase knowledge to (re)mint a token.
-      void ensureProjectToken(project.id)
+      // RAJ-747 rework: re-prove passphrase knowledge to (re)mint a token,
+      // then pull the authorized detail (participants/analysis).
+      void ensureProjectToken(project.id).then(() => hydrateProjectDetail(project.id))
       loadAndDecryptMessages(project.id, cached)
     } else {
       setTempPassphrase('')
@@ -178,7 +206,11 @@ export default function Home() {
       storePassphrase(selectedProject.id, tempPassphrase)
       // RAJ-747: provision a short-lived server-signed token for subsequent
       // API calls so the raw passphrase is not used as a credential.
-      void ensureProjectToken(selectedProject.id)
+      // RAJ-781: once proven, pull participants/analysis from the gated detail
+      // route — the anonymous listing no longer carries them.
+      void ensureProjectToken(selectedProject.id).then(() =>
+        hydrateProjectDetail(selectedProject.id)
+      )
       setPassphrase(tempPassphrase)
       setShowPassphrasePrompt(false)
       

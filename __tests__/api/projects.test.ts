@@ -85,10 +85,57 @@ describe('/api/projects API Route', () => {
         name: 'Test Project',
         description: 'Test Description',
         messageCount: 0,
-        participants: [],
+        dateRange: undefined,
         createdAt: '2025-01-15T10:30:00Z',
         updatedAt: '2025-01-15T10:30:00Z'
       })
+    })
+
+    test('RAJ-781: the anonymous listing exposes NO message-derived PII', async () => {
+      // This route is unauthenticated and uses the service-role client. It must
+      // therefore return only what the project picker needs. `participants` is
+      // real people's names and `analysis` is keywords/insights/sentiment
+      // derived from private message content — neither may leave this endpoint.
+      mockOrder.mockResolvedValue({
+        data: [
+          {
+            id: 'project-1',
+            name: 'Test Project',
+            description: 'Test Description',
+            message_count: 42,
+            participants: ['Alice Smith', 'Bob Jones'],
+            analysis: { keywords: ['payment', 'invoice'], insights: ['sensitive'] },
+            created_at: '2025-01-15T10:30:00Z',
+            updated_at: '2025-01-15T10:30:00Z',
+          },
+        ],
+        error: null,
+      })
+
+      const response = await GET()
+      const result = await response.json()
+      const body = JSON.stringify(result)
+
+      expect(result[0]).not.toHaveProperty('participants')
+      expect(result[0]).not.toHaveProperty('analysis')
+      expect(body).not.toContain('Alice Smith')
+      expect(body).not.toContain('Bob Jones')
+      expect(body).not.toContain('invoice')
+      // What the picker legitimately needs is still present.
+      expect(result[0].name).toBe('Test Project')
+      expect(result[0].messageCount).toBe(42)
+    })
+
+    test('RAJ-781: PII columns are not even SELECTed from the database', async () => {
+      // Defence in depth: filtering after the fact still pulls the data into
+      // the process and risks it reaching a log or an error payload.
+      mockOrder.mockResolvedValue({ data: [], error: null })
+      await GET()
+      const selectArg = mockSelectRoot.mock.calls[0]?.[0]
+      expect(typeof selectArg).toBe('string')
+      expect(selectArg).not.toContain('*')
+      expect(selectArg).not.toContain('participants')
+      expect(selectArg).not.toContain('analysis')
     })
 
     test('should handle database errors gracefully', async () => {

@@ -105,16 +105,29 @@ export async function POST(request: NextRequest) {
   const projectId = request.nextUrl.searchParams.get('projectId')
   let supabase: any = null
 
-  // RAJ-780 (re-opened by solar wheel review, fixed): this route parses an
-  // upload and writes message rows against a project, so it MUST be
-  // project-scoped on every request. There is no unauthenticated path.
-  // Reading the header/cookie does not consume the request body, so
-  // formData() below is safe.
+  // RAJ-780 / solar-wheel review — authorize every request that TOUCHES STORED
+  // DATA, which is not the same as every request.
   //
-  // Resolve the authoritative projectId: prefer the explicit param; otherwise
-  // derive it from the session row (local/dev callers pass only sessionId).
+  // This route has two distinct modes:
+  //
+  //   (a) STATELESS PARSE — a file is posted directly in the body. It is parsed
+  //       in memory and the analysis is returned. Nothing is read from or
+  //       written to the database, and no projectId exists or is needed. This
+  //       is the sub-10MB path the UI uses today.
+  //
+  //   (b) STORED-OBJECT MODE — a projectId and/or sessionId is supplied. This
+  //       reads a session row, downloads from storage, and writes message rows
+  //       against a project. This MUST be project-scoped.
+  //
+  // The solar-wheel fix correctly closed (b) but made projectId mandatory for
+  // (a) as well, which 400s every direct upload and broke 24 tests. Requiring a
+  // project credential to parse a file the caller already possesses adds no
+  // security — the caller supplied the bytes — while removing a working
+  // feature. So: gate (b) unconditionally, leave (a) open.
   let effectiveProjectId = projectId || null
   if (!effectiveProjectId && sessionId) {
+    // Derive the owning project from the session row so a caller cannot dodge
+    // authorization by passing only a sessionId.
     const sessionLookup = getServiceClient()
     const { data: sessionRow } = await sessionLookup
       .from('sessions')
@@ -122,15 +135,21 @@ export async function POST(request: NextRequest) {
       .eq('id', sessionId)
       .single()
     effectiveProjectId = sessionRow?.project_id || null
+
+    // A sessionId that resolves to no project must not fall through to the
+    // stateless path — that would be the bypass solar-wheel was closing.
+    if (!effectiveProjectId) {
+      return NextResponse.json(
+        { success: false, error: 'Session not found or not linked to a project' },
+        { status: 404 }
+      )
+    }
   }
-  if (!effectiveProjectId) {
-    return NextResponse.json(
-      { success: false, error: 'projectId is required to authorize this upload' },
-      { status: 400 }
-    )
+
+  if (effectiveProjectId) {
+    const authError = await requireProjectAccess(request, effectiveProjectId)
+    if (authError) return authError
   }
-  const authError = await requireProjectAccess(request, effectiveProjectId)
-  if (authError) return authError
 
   let file: any = null
   let fileBuffer: Buffer
