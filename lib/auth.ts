@@ -13,8 +13,14 @@ import { NextRequest, NextResponse } from 'next/server'
 export async function requireAuth(
   request: NextRequest
 ): Promise<{ user: { id: string; email?: string } } | NextResponse> {
-  if (process.env.NODE_ENV === 'development' || process.env.BYPASS_AUTH === 'true') {
-    return { user: { id: '00000000-0000-0000-0000-000000000000', email: 'dev@localhost' } }
+  // Production never bypasses, whatever the flags say. lib/api-auth.ts was
+  // hardened this way (isAuthBypassed); this file had its own separate bypass
+  // that BYPASS_AUTH=true could still switch on in production. Found by the
+  // independent GLM-4.6 four-eyes review of PR #8 on 2026-08-09.
+  if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV === 'development' || process.env.BYPASS_AUTH === 'true') {
+      return { user: { id: '00000000-0000-0000-0000-000000000000', email: 'dev@localhost' } }
+    }
   }
 
   const authHeader = request.headers.get('authorization')
