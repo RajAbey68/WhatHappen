@@ -16,10 +16,13 @@ export function formatDate(date: Date | string): string {
 
 export function formatTime(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date
+  // hourCycle rather than hour12: with `hour12: false` the cycle is
+  // implementation-defined, and older ICU (Node 20, which CI runs) renders
+  // midnight as "24:00". h23 pins it to 00-23 everywhere.
   return new Intl.DateTimeFormat('en-US', {
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false
+    hourCycle: 'h23'
   }).format(d)
 }
 

@@ -142,7 +142,11 @@ export async function decryptText(
 
   const salt = new Uint8Array(hexToBuffer(saltHex))
   const iv = new Uint8Array(hexToBuffer(ivHex))
-  const encryptedBuffer = hexToBuffer(ciphertext)
+  // Wrap in a Uint8Array like salt and iv above. A bare ArrayBuffer created in
+  // one realm fails SubtleCrypto's cross-realm instanceof check under jsdom on
+  // Node 20 ("3rd argument is not instance of ArrayBuffer..."), which is what
+  // CI runs. A TypedArray view is accepted everywhere.
+  const encryptedBuffer = new Uint8Array(hexToBuffer(ciphertext))
 
   const key = await deriveKey(passphrase, salt)
   
