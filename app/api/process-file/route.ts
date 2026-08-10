@@ -7,8 +7,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { parse as csvParse } from 'csv-parse/sync'
 import { v4 as uuidv4 } from 'uuid'
 import { getServiceClient } from '@/lib/auth'
-import { requireProjectAccess } from '@/lib/api-auth'
-import { detectType, type DetectedType } from '@asimov/ingest'
+import { requireProjectAccess, isAuthBypassed } from '@/lib/api-auth'
+import { detectType, RateLimiter, type DetectedType } from '@asimov/ingest'
 const Sentiment = require('sentiment')
 
 // Firebase integration temporarily disabled due to compatibility issues
@@ -99,6 +99,23 @@ function imageExtToMime(ext: string): string {
   return map[ext.toLowerCase()] || 'image/jpeg'
 }
 
+/**
+ * Rate limit for the credential-less stateless parse path only. Authorized,
+ * project-scoped requests are not throttled here.
+ */
+const statelessParseLimiter = new RateLimiter({ capacity: 10, refillPerMinute: 10 })
+
+/** Best-effort client identity for rate limiting. Never used for authorization. */
+function clientKeyFor(request: NextRequest): string {
+  // Defensive: unit tests hand this route hand-rolled request doubles that have
+  // no headers bag. A rate-limit key is not a security decision, so degrade to
+  // a shared bucket rather than throwing.
+  const headers = (request as { headers?: Headers }).headers
+  const forwarded = headers?.get?.('x-forwarded-for')
+  if (forwarded) return forwarded.split(',')[0].trim()
+  return headers?.get?.('x-real-ip') || 'unknown'
+}
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
   const sessionId = request.nextUrl.searchParams.get('sessionId')
@@ -149,6 +166,25 @@ export async function POST(request: NextRequest) {
   if (effectiveProjectId) {
     const authError = await requireProjectAccess(request, effectiveProjectId)
     if (authError) return authError
+  } else {
+    // Mode (a), the credential-less stateless parse. Adversarial review by
+    // GLM-5.2 (2026-08-10) pointed out what the confidentiality argument above
+    // misses: no private data leaks, but an anonymous caller can drive paid
+    // Gemini Vision and OCR calls and up to maxDuration=300s of CPU, on repeat,
+    // for free. Cost and availability are part of the threat model too.
+    //
+    // Per-process bucket, so under max-instances=10 the real ceiling is ~10x
+    // this. Defence in depth, not a hard cap — a shared store is needed for
+    // that, and that is tracked with the nonce-store work.
+    // isAuthBypassed() is false in production (RAJ-780), so the limit always
+    // applies where it matters. Skipping it under test keeps 300+ existing
+    // cases from sharing one bucket and tripping each other.
+    if (!isAuthBypassed() && !statelessParseLimiter.tryConsume(clientKeyFor(request))) {
+      return NextResponse.json(
+        { success: false, error: 'Too many requests. Please wait and try again.' },
+        { status: 429 }
+      )
+    }
   }
 
   let file: any = null

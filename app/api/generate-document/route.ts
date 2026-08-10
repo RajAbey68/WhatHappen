@@ -126,15 +126,25 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Unsupported format' }, { status: 400 })
     }
 
+    // Adversarial review (GLM-5.2, 2026-08-10): project.name is only trimmed on
+    // create, so a name containing a quote or a control character lands
+    // unescaped in Content-Disposition. Node rejects literal CRLF so this is not
+    // response splitting, but the quoting still breaks. Strip it at the sink.
+    const safeName =
+      String(project.name ?? 'project')
+        .replace(/[^A-Za-z0-9._ -]/g, '_')
+        .trim()
+        .slice(0, 100) || 'project'
+
     const headers = new Headers()
     
     if (format === 'pdf') {
       headers.set('Content-Type', 'application/pdf')
-      headers.set('Content-Disposition', `attachment; filename="${project.name}_${documentType}.pdf"`)
+      headers.set('Content-Disposition', `attachment; filename="${safeName}_${documentType}.pdf"`)
       return new NextResponse(documentContent, { headers })
     } else if (format === 'csv') {
       headers.set('Content-Type', 'text/csv')
-      headers.set('Content-Disposition', `attachment; filename="${project.name}_${documentType}.csv"`)
+      headers.set('Content-Disposition', `attachment; filename="${safeName}_${documentType}.csv"`)
       return new NextResponse(documentContent, { headers })
     } else {
       return NextResponse.json(documentContent)
