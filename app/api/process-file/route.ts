@@ -267,9 +267,31 @@ export async function POST(request: NextRequest) {
         // only place a magic-byte check can actually mean anything. Without it
         // a passphrase-holder could park an executable named "evidence.zip" in
         // a legal-evidence bucket with a row asserting application/zip.
+        // CodeRabbit CRITICAL, 2026-08-10, and it was right. /api/upload-url
+        // accepts .txt, .pst, .csv and .json, none of which have magic bytes,
+        // so detectType returns null for all four. The old code treated null as
+        // a rejection AND deleted the object. Every upload above the threshold
+        // in those formats was accepted, stored, then destroyed, with the bytes
+        // unrecoverable. In an evidence system that is not a 415 — it is
+        // spoliation.
+        //
+        // Two changes. A null detection is permitted when the session's own
+        // declared extension is a format that legitimately has no signature; a
+        // non-null detection that disagrees is still rejected, so a disguised
+        // executable named evidence.txt does not get through. And nothing is
+        // ever removed from the bucket on a classification failure: the row is
+        // marked failed and the retention sweep decides, which is the only
+        // actor that should be allowed to delete evidence.
         const detected = detectType(fileBuffer.subarray(0, 32).toString('base64'))
         const permitted: DetectedType[] = ['zip', 'pdf', 'jpeg', 'png', 'webp', 'heic']
-        if (detected === null || !permitted.includes(detected)) {
+        const SIGNATURELESS_EXTENSIONS = ['.txt', '.csv', '.json', '.pst']
+        const declaredExt = (sessionData.file_name || '')
+          .toLowerCase()
+          .slice(((sessionData.file_name || '').lastIndexOf('.') >>> 0))
+        const signatureless =
+          detected === null && SIGNATURELESS_EXTENSIONS.includes(declaredExt)
+
+        if (!signatureless && (detected === null || !permitted.includes(detected))) {
           const msg = `Uploaded content is not a permitted type (detected: ${detected ?? 'unknown'})`
           console.error('[process-file] magic-byte rejection:', msg, sessionData.storage_path)
           await supabase
@@ -280,8 +302,10 @@ export async function POST(request: NextRequest) {
             .from('media_objects')
             .update({ status: 'failed' })
             .eq('storage_path', sessionData.storage_path)
-          // Do not leave rejected content sitting in the evidence bucket.
-          await supabase.storage.from(bucket).remove([sessionData.storage_path])
+          // Deliberately NOT deleting the object. A rejected upload is still
+          // the uploader's data, and destroying it on our say-so is the exact
+          // failure mode a legal-evidence system must not have. `status:
+          // failed` hands it to the retention sweep.
           return NextResponse.json({ success: false, error: msg }, { status: 415 })
         }
 

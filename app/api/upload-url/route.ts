@@ -191,7 +191,20 @@ export async function POST(request: NextRequest) {
     })
 
     if (dbError) {
+      // CodeRabbit, 2026-08-10: the sessions row is written first, so bailing
+      // here left a 'pending' session pointing at a storage_path that no
+      // media_objects row tracks. The retention sweep keys off media_objects,
+      // so that object would have had no expiry owner and would sit in the
+      // evidence bucket forever. Roll the session back before returning.
       console.error('[upload-url] failed to record media object:', dbError.message)
+      const { error: rollbackError } = await supabase.from('sessions').delete().eq('id', sessionId)
+      if (rollbackError) {
+        console.error(
+          '[upload-url] ORPHANED SESSION — media_objects insert failed and the session row could not be removed:',
+          sessionId,
+          rollbackError.message
+        )
+      }
       return json({ error: 'Failed to record upload' }, 500)
     }
 

@@ -112,9 +112,23 @@ export function createIngestPipeline(config: IngestPipelineConfig): IngestPipeli
         // id, and a future consumer may pass anything. A tenantId containing
         // '/' or '..' would escape its own prefix and let one tenant write into
         // another's namespace. The package is the trust boundary, so it checks.
-        const safeTenant = request.tenantId.replace(/[^A-Za-z0-9._-]/g, '_').replace(/\.{2,}/g, '.')
-        if (safeTenant.length === 0) {
-          throw new UploadGuardError('UNSUPPORTED_TYPE', 'Invalid tenant id.')
+        // CodeRabbit, 2026-08-10: rewriting tenantId was the wrong move and it
+        // undid the property this code exists to guarantee. The rewrite is
+        // many-to-one — `a/b` and `a_b` both collapse to `a_b`, so two distinct
+        // tenants end up sharing one storage prefix, which is precisely the
+        // cross-tenant overlap the comment above claims to prevent. And unlike
+        // filename, tenantId kept leading dots, so `..` became `.` and produced
+        // `./<timestamp>-<name>`.
+        //
+        // A tenant identifier is not user-facing text to be tidied up. It is a
+        // namespace key. Reject anything outside the safe alphabet rather than
+        // mapping it onto someone else's namespace.
+        const safeTenant = request.tenantId
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(safeTenant) || safeTenant.includes('..')) {
+          throw new UploadGuardError(
+            'UNSUPPORTED_TYPE',
+            'Invalid tenant id: must be alphanumeric with dots, dashes or underscores, and cannot start with a dot.'
+          )
         }
         const safeName =
           request.filename.replace(/[^A-Za-z0-9._-]/g, '_').replace(/\.{2,}/g, '.').replace(/^\.+/, '') ||
