@@ -1,3 +1,14 @@
+# NOTE: despite the name, this workflow does NOT deploy. It builds and then
+# prints instructions. Production is deployed by running, from a machine with
+# gcloud authenticated against auto-research-001:
+#
+#   cd /Users/arajiv/GitHub/WhatHappen && gcloud builds submit --config cloudbuild.yaml
+#
+# The name has been left alone rather than quietly changed, because a workflow
+# called "Deploy to Cloud Run" that goes green while deploying nothing is how
+# production sat on revision 1 from 9 July while the branch went green over and
+# over. Wiring a real deploy needs a GCP service-account secret on this repo,
+# which does not exist yet — `gh secret list` is empty.
 name: Deploy to Cloud Run
 
 on:
@@ -25,6 +36,13 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # lib/supabase.ts throws without these (RAJ-748). This job only
+          # verifies the build compiles; the image that actually ships is built
+          # by Cloud Build, which injects the real values as --build-arg. See
+          # the note below about what this workflow does and does not do.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key-for-ci-build-only
 
       - name: Generate build info
         run: |
