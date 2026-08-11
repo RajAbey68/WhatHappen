@@ -13,6 +13,7 @@ import JSZip from 'jszip'
 import { AgentBuilder } from './agent-builder'
 import { AgentConfig } from '@/lib/types/agent'
 import { AgentDashboard } from './agent-dashboard'
+import { projectAuthHeaders } from '@/lib/session-store'
 
 async function stripVideosFromZip(file: File): Promise<File> {
   const zip = new JSZip()
@@ -282,11 +283,17 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           if (currentFile.size > MAX_LOCAL_SIZE) {
             const urlRes = await fetch('/api/upload-url', {
               method: 'POST',
-              headers: { 
+              headers: {
                 'Content-Type': 'application/json',
-                ...authHeader
+                ...authHeader,
+                // RAJ-782: this route is authorized by the passphrase-proven
+                // project token. The Supabase bearer is retained but is no
+                // longer what grants access — there is no login UI to mint one,
+                // which is exactly why every upload >10MB used to 401 here.
+                ...(await projectAuthHeaders(projectId))
               },
               body: JSON.stringify({
+                projectId,
                 fileName: currentFile.name,
                 fileSize: currentFile.size,
                 mimeType: currentFile.type || 'application/octet-stream',
@@ -315,7 +322,8 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
               const response = await fetch(uploadUrl, {
                 method: 'POST',
-                headers: { ...authHeader },
+                // RAJ-747: keep the Supabase bearer and add the project token.
+                headers: { ...authHeader, ...(await projectAuthHeaders(projectId)) },
                 body: formData,
               })
 
@@ -351,9 +359,10 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                 )
               )
 
-              fetch(`/api/process-file?sessionId=${sessionId}`, {
+              fetch(`/api/process-file?sessionId=${sessionId}&projectId=${projectId}`, {
                 method: 'POST',
-                headers: { ...authHeader },
+                // RAJ-747: keep the Supabase bearer and add the project token.
+                headers: { ...authHeader, ...(await projectAuthHeaders(projectId)) },
               }).catch(err => {
                 console.error('Failed to trigger background processing:', err)
               })
@@ -441,7 +450,8 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
             const response = await fetch('/api/process-file', {
               method: 'POST',
-              headers: { ...authHeader },
+              // RAJ-747: keep the Supabase bearer and add the project token.
+              headers: { ...authHeader, ...(await projectAuthHeaders(projectId)) },
               body: formData,
             })
 
@@ -477,11 +487,18 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
           }))
         }
 
-        const completeResponse = await fetch('/api/process-whatsapp-complete', {
+        // Route split: the in-app path uses /api/process-whatsapp-inapp, which
+        // authenticates with the passphrase-proven project token. The
+        // /api/process-whatsapp-complete route is the EXTERNAL webhook and
+        // requires x-webhook-secret, which must never ship to a browser.
+        const completeResponse = await fetch('/api/process-whatsapp-inapp', {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            ...authHeader
+            ...authHeader,
+            // RAJ-747: carry the short-lived project token so the in-app
+            // completion endpoint accepts this call.
+            ...(await projectAuthHeaders(projectId))
           },
           body: JSON.stringify({
             projectId: projectId,
@@ -580,8 +597,14 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
     // Step 1: Request a signed upload URL
     const urlResponse = await fetch('/api/upload-url', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // RAJ-782: previously this call sent NO credential of any kind, on any
+        // path, so it could never have succeeded against an authorized route.
+        ...(await projectAuthHeaders(projectId)),
+      },
       body: JSON.stringify({
+        projectId,
         fileName: file.name,
         fileSize: file.size,
         mimeType: file.type || 'application/octet-stream',
@@ -651,7 +674,11 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
     // The process-file route reads from GCS when sessionId is provided
     const processResponse = await fetch('/api/process-file', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // RAJ-747: authorize this in-app call with the short-lived token.
+        ...(await projectAuthHeaders(projectId)),
+      },
       body: JSON.stringify({ sessionId, gcsPath, fileName: file.name }),
       signal,
     })

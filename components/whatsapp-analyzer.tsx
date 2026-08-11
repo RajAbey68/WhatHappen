@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Upload, FileText, MessageSquare, BarChart3, Users, TrendingUp, Download, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Project } from '@/lib/supabase'
+import { projectAuthHeaders } from '@/lib/session-store'
 
 interface WhatsAppAnalyzerProps {
   selectedProject: Project
@@ -43,8 +44,12 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
       formData.append('file', file)
       formData.append('projectId', selectedProject.id)
 
-      const response = await fetch('/api/process-whatsapp-complete', {
+      // Route split: in-app uploads use the token-authenticated route;
+      // /api/process-whatsapp-complete is the external webhook (secret-only).
+      const response = await fetch('/api/process-whatsapp-inapp', {
         method: 'POST',
+        // RAJ-747: authorize this in-app call with the short-lived token.
+        headers: { ...(await projectAuthHeaders(selectedProject.id)) },
         body: formData
       })
 
@@ -80,7 +85,11 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
     try {
       const response = await fetch('/api/analyze-project', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // RAJ-747: authorize this in-app call with the short-lived token.
+          ...(await projectAuthHeaders(selectedProject.id)),
+        },
         body: JSON.stringify({
           projectId: selectedProject.id,
           analysisType
@@ -106,7 +115,11 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
     try {
       const response = await fetch('/api/generate-document', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // RAJ-747: authorize this in-app call with the short-lived token.
+          ...(await projectAuthHeaders(selectedProject.id)),
+        },
         body: JSON.stringify({
           projectId: selectedProject.id,
           format,

@@ -26,6 +26,13 @@ jobs:
           node-version: '18'
       - run: npm ci
       - run: npm run build
+        env:
+          # lib/supabase.ts throws when these are absent (RAJ-748, deliberate).
+          # The build only needs them to prerender; real values come from Cloud
+          # Build at deploy time. Placeholders here keep the fail-loud check
+          # intact at runtime without blocking CI.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key-for-ci-build-only
 
   test:
     runs-on: ubuntu-latest

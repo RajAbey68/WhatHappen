@@ -16,6 +16,10 @@ const customJestConfig = {
     '**/__tests__/**/*.[jt]s?(x)',
     '**/?(*.)+(spec|test).[jt]s?(x)',
   ],
+  // RAJ-782: vendor/asimov-ingest is a built dependency, not app source. Its own
+  // suite runs under vitest in the package repo — jest must not try to execute
+  // vitest files it cannot understand.
+  testPathIgnorePatterns: ['<rootDir>/node_modules/', '<rootDir>/vendor/'],
   collectCoverageFrom: [
     'src/**/*.{js,jsx,ts,tsx}',
     '\!src/**/*.d.ts',

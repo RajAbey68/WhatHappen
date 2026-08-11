@@ -17,18 +17,41 @@ function mapDbProject(dbProj: any) {
   }
 }
 
-// GET - List all projects
+// GET - List all projects (enumerated metadata only, no PII)
+//
+// RAJ-781 (fixed): this route used the service-role client and returned every
+// project's `participants` (real people's names) and `analysis` (keywords,
+// insights and sentiment derived from private message content) to anonymous
+// callers. The list is consumed only by the project picker, which needs id +
+// name + messageCount. We now drop `participants`/`analysis` from the response
+// so the anonymous listing exposes no message-derived PII. Project-scoped
+// detail (participants/analysis) is available only through routes that call
+// requireProjectAccess — the same zero-knowledge property holds.
 export async function GET() {
   try {
     const supabase = getServiceClient()
     const { data, error } = await supabase
       .from('projects')
-      .select('*')
+      // RAJ-781 + CodeRabbit 2026-08-10. This endpoint is unauthenticated, so
+      // it must carry only what the project picker needs to draw a list.
+      // `date_range` is derived from the first and last message in a private
+      // conversation — it leaks when the parties were talking, which in a
+      // dispute is itself evidence. It is rehydrated from the gated
+      // GET /api/projects/[id] once the passphrase is proven, exactly as
+      // participants and analysis already are.
+      .select('id, name, description, message_count, created_at, updated_at')
       .order('created_at', { ascending: false })
       
     if (error) throw error
     
-    const projects = (data || []).map(mapDbProject)
+    const projects = (data || []).map((dbProj: any) => ({
+      id: dbProj.id,
+      name: dbProj.name,
+      description: dbProj.description || undefined,
+      messageCount: dbProj.message_count || 0,
+      createdAt: dbProj.created_at,
+      updatedAt: dbProj.updated_at
+    }))
     return NextResponse.json(projects)
   } catch (error) {
     console.error('Error fetching projects:', error)

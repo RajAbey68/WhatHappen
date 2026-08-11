@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { OpenAI } from 'openai'
 import { getServiceClient } from '@/lib/auth'
+import {
+  requireProjectAccess,
+  hasAnyProjectCredential,
+  missingCredentialResponse,
+} from '@/lib/api-auth'
+import { decryptText } from '@/lib/crypto'
 
 // Model is env-overridable; default upgraded off the dated gpt-3.5-turbo.
 // NOTE (architecture): the house default stack is Claude via Supabase Edge
@@ -22,11 +28,15 @@ function getOpenAI(): OpenAI | null {
 }
 
 export async function POST(request: NextRequest) {
+  // RAJ-780: reject credential-less callers BEFORE parsing the body.
+  if (!hasAnyProjectCredential(request)) return missingCredentialResponse()
+
   try {
     const body = await request.json()
     const projectId = body.projectId
     const message = body.message || body.query
     const rawHistory = body.conversationHistory || body.context?.messages || []
+    const passphrase = body.passphrase
 
     if (typeof message !== 'string' || message.trim().length === 0) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
@@ -40,6 +50,11 @@ export async function POST(request: NextRequest) {
     if (!projectId || typeof projectId !== 'string') {
       return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
     }
+
+    // RAJ-780: answers questions over the project's decrypted messages. Was
+    // entirely unauthenticated while using the service-role client.
+    const authError = await requireProjectAccess(request, projectId)
+    if (authError) return authError
 
     // conversationHistory is untrusted client input: coerce to an array,
     // keep only well-formed entries, cap the count and per-message length
@@ -102,8 +117,30 @@ Chat Meta-Context:
         .limit(300)
 
       if (chatMsgs && chatMsgs.length > 0) {
+        const decryptedMsgs = await Promise.all(
+          chatMsgs.map(async m => {
+            let decryptedMessage = m.message
+            let decryptedSender = m.sender
+            if (passphrase) {
+              try {
+                const messageEnc = JSON.parse(m.message)
+                if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
+                  decryptedMessage = await decryptText(messageEnc.ciphertext, passphrase, messageEnc.salt, messageEnc.iv)
+                }
+              } catch (e) {}
+              try {
+                const senderEnc = JSON.parse(m.sender)
+                if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
+                  decryptedSender = await decryptText(senderEnc.ciphertext, passphrase, senderEnc.salt, senderEnc.iv)
+                }
+              } catch (e) {}
+            }
+            return { ...m, sender: decryptedSender, message: decryptedMessage }
+          })
+        )
+
         messagesContext = '\nFirst 300 Ingested Messages (for detailed content matching):\n' +
-          chatMsgs
+          decryptedMsgs
             .map(m => `[${new Date(m.timestamp).toISOString()}] ${m.sender}: ${m.message}`)
             .join('\n')
       }

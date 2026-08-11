@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import { Toaster } from '@/components/ui/toaster'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -15,11 +16,12 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <body className={inter.className}>
-        <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
+        <main className="min-h-screen bg-slate-950">
           {children}
         </main>
+        <Toaster />
       </body>
     </html>
   )

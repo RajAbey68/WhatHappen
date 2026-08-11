@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
+import {
+  requireProjectAccess,
+  hasAnyProjectCredential,
+  missingCredentialResponse,
+} from '@/lib/api-auth'
 import { decryptText } from '@/lib/crypto'
 import PDFDocument from 'pdfkit'
 
@@ -19,6 +24,9 @@ function mapDbProject(dbProj: any) {
 }
 
 export async function POST(request: NextRequest) {
+  // RAJ-780: reject credential-less callers BEFORE parsing the body.
+  if (!hasAnyProjectCredential(request)) return missingCredentialResponse()
+
   const supabase = getServiceClient()
   try {
     const { projectId, documentType = 'summary', format = 'pdf', passphrase } = await request.json()
@@ -26,6 +34,12 @@ export async function POST(request: NextRequest) {
     if (!projectId) {
       return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
     }
+
+    // RAJ-780: exports the full message transcript as a PDF. Was unauthenticated
+    // while using the service-role client — the single highest-value data egress
+    // route in the app.
+    const authError = await requireProjectAccess(request, projectId)
+    if (authError) return authError
 
     // Get project data
     const { data: dbProj, error: projError } = await supabase
@@ -112,15 +126,25 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Unsupported format' }, { status: 400 })
     }
 
+    // Adversarial review (GLM-5.2, 2026-08-10): project.name is only trimmed on
+    // create, so a name containing a quote or a control character lands
+    // unescaped in Content-Disposition. Node rejects literal CRLF so this is not
+    // response splitting, but the quoting still breaks. Strip it at the sink.
+    const safeName =
+      String(project.name ?? 'project')
+        .replace(/[^A-Za-z0-9._ -]/g, '_')
+        .trim()
+        .slice(0, 100) || 'project'
+
     const headers = new Headers()
     
     if (format === 'pdf') {
       headers.set('Content-Type', 'application/pdf')
-      headers.set('Content-Disposition', `attachment; filename="${project.name}_${documentType}.pdf"`)
+      headers.set('Content-Disposition', `attachment; filename="${safeName}_${documentType}.pdf"`)
       return new NextResponse(documentContent, { headers })
     } else if (format === 'csv') {
       headers.set('Content-Type', 'text/csv')
-      headers.set('Content-Disposition', `attachment; filename="${project.name}_${documentType}.csv"`)
+      headers.set('Content-Disposition', `attachment; filename="${safeName}_${documentType}.csv"`)
       return new NextResponse(documentContent, { headers })
     } else {
       return NextResponse.json(documentContent)

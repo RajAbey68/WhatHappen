@@ -19,6 +19,7 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [filteredData, setFilteredData] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({})
 
   useEffect(() => {
     if (data?.messages) {
@@ -26,7 +27,7 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
         message.message?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         message.sender?.toLowerCase().includes(searchTerm.toLowerCase())
       )
-      setFilteredData(filtered.slice(0, 100)) // Limit to first 100 for performance
+      setFilteredData(filtered)
     }
   }, [data, searchTerm])
 
@@ -251,8 +252,11 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
                   </div>
                 </div>
               </div>
-              <CardDescription>
-                Showing {filteredData.length} of {data.messages?.length || 0} messages
+              <CardDescription 
+                role="status" 
+                aria-label={`Showing ${filteredData.length} of ${(typeof data?.totalMessages === 'number' ? data.totalMessages : (data?.messages?.length || 0)).toLocaleString()} messages`}
+              >
+                Showing {filteredData.length} of {(typeof data?.totalMessages === 'number' ? data.totalMessages : (data?.messages?.length || 0)).toLocaleString()} messages
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -276,8 +280,11 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
                         <TableCell className="font-medium max-w-32 truncate">
                           {message.sender || 'Unknown'}
                         </TableCell>
-                        <TableCell className="max-w-md">
-                          <div className="truncate" title={message.message}>
+                        <TableCell 
+                          className="max-w-md cursor-pointer select-none" 
+                          onClick={() => setExpandedRows(prev => ({ ...prev, [index]: !prev[index] }))}
+                        >
+                          <div className={expandedRows[index] ? "whitespace-pre-wrap break-words text-sm" : "truncate"} title="Click to expand/collapse">
                             {message.message || 'No content'}
                           </div>
                         </TableCell>

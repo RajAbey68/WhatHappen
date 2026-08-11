@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { parse as csvParse } from 'csv-parse/sync'
 import { v4 as uuidv4 } from 'uuid'
 import { getServiceClient } from '@/lib/auth'
+import { requireProjectAccess, isAuthBypassed } from '@/lib/api-auth'
+import { detectType, RateLimiter, type DetectedType } from '@asimov/ingest'
 const Sentiment = require('sentiment')
 
 // Firebase integration temporarily disabled due to compatibility issues
@@ -97,10 +99,93 @@ function imageExtToMime(ext: string): string {
   return map[ext.toLowerCase()] || 'image/jpeg'
 }
 
+/**
+ * Rate limit for the credential-less stateless parse path only. Authorized,
+ * project-scoped requests are not throttled here.
+ */
+const statelessParseLimiter = new RateLimiter({ capacity: 10, refillPerMinute: 10 })
+
+/** Best-effort client identity for rate limiting. Never used for authorization. */
+function clientKeyFor(request: NextRequest): string {
+  // Defensive: unit tests hand this route hand-rolled request doubles that have
+  // no headers bag. A rate-limit key is not a security decision, so degrade to
+  // a shared bucket rather than throwing.
+  const headers = (request as { headers?: Headers }).headers
+  const forwarded = headers?.get?.('x-forwarded-for')
+  if (forwarded) return forwarded.split(',')[0].trim()
+  return headers?.get?.('x-real-ip') || 'unknown'
+}
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
   const sessionId = request.nextUrl.searchParams.get('sessionId')
+  const projectId = request.nextUrl.searchParams.get('projectId')
   let supabase: any = null
+
+  // RAJ-780 / solar-wheel review — authorize every request that TOUCHES STORED
+  // DATA, which is not the same as every request.
+  //
+  // This route has two distinct modes:
+  //
+  //   (a) STATELESS PARSE — a file is posted directly in the body. It is parsed
+  //       in memory and the analysis is returned. Nothing is read from or
+  //       written to the database, and no projectId exists or is needed. This
+  //       is the sub-10MB path the UI uses today.
+  //
+  //   (b) STORED-OBJECT MODE — a projectId and/or sessionId is supplied. This
+  //       reads a session row, downloads from storage, and writes message rows
+  //       against a project. This MUST be project-scoped.
+  //
+  // The solar-wheel fix correctly closed (b) but made projectId mandatory for
+  // (a) as well, which 400s every direct upload and broke 24 tests. Requiring a
+  // project credential to parse a file the caller already possesses adds no
+  // security — the caller supplied the bytes — while removing a working
+  // feature. So: gate (b) unconditionally, leave (a) open.
+  let effectiveProjectId = projectId || null
+  if (!effectiveProjectId && sessionId) {
+    // Derive the owning project from the session row so a caller cannot dodge
+    // authorization by passing only a sessionId.
+    const sessionLookup = getServiceClient()
+    const { data: sessionRow } = await sessionLookup
+      .from('sessions')
+      .select('project_id')
+      .eq('id', sessionId)
+      .single()
+    effectiveProjectId = sessionRow?.project_id || null
+
+    // A sessionId that resolves to no project must not fall through to the
+    // stateless path — that would be the bypass solar-wheel was closing.
+    if (!effectiveProjectId) {
+      return NextResponse.json(
+        { success: false, error: 'Session not found or not linked to a project' },
+        { status: 404 }
+      )
+    }
+  }
+
+  if (effectiveProjectId) {
+    const authError = await requireProjectAccess(request, effectiveProjectId)
+    if (authError) return authError
+  } else {
+    // Mode (a), the credential-less stateless parse. Adversarial review by
+    // GLM-5.2 (2026-08-10) pointed out what the confidentiality argument above
+    // misses: no private data leaks, but an anonymous caller can drive paid
+    // Gemini Vision and OCR calls and up to maxDuration=300s of CPU, on repeat,
+    // for free. Cost and availability are part of the threat model too.
+    //
+    // Per-process bucket, so under max-instances=10 the real ceiling is ~10x
+    // this. Defence in depth, not a hard cap — a shared store is needed for
+    // that, and that is tracked with the nonce-store work.
+    // isAuthBypassed() is false in production (RAJ-780), so the limit always
+    // applies where it matters. Skipping it under test keeps 300+ existing
+    // cases from sharing one bucket and tripping each other.
+    if (!isAuthBypassed() && !statelessParseLimiter.tryConsume(clientKeyFor(request))) {
+      return NextResponse.json(
+        { success: false, error: 'Too many requests. Please wait and try again.' },
+        { status: 429 }
+      )
+    }
+  }
 
   let file: any = null
   let fileBuffer: Buffer
@@ -149,7 +234,96 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Download file from GCS
+      // RAJ-782: objects uploaded through the new path live in Supabase Storage
+      // and carry an EXPLICIT storage_path. The GCS branch below reconstructs a
+      // path from user_id/sessionId/file_name, which cannot address them —
+      // uploads succeeded but were never processed. Prefer the explicit path.
+      if (sessionData.storage_provider === 'supabase' && sessionData.storage_path) {
+        const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'evidence'
+        await updateSessionProgress('Downloading file from storage...')
+        const { data: blob, error: dlError } = await supabase.storage
+          .from(bucket)
+          .download(sessionData.storage_path)
+
+        if (dlError || !blob) {
+          const msg = dlError?.message || 'no data returned'
+          console.error('[process-file] Supabase Storage download failed:', msg)
+          await supabase
+            .from('sessions')
+            .update({ processing_status: 'error', processing_error: `Download failed: ${msg}` })
+            .eq('id', sessionId)
+          return NextResponse.json(
+            { success: false, error: `Failed to download file from storage: ${msg}` },
+            { status: 500 }
+          )
+        }
+
+        fileBuffer = Buffer.from(await blob.arrayBuffer())
+
+        // RAJ-782 (four-eyes finding): the signed-URL flow validates only the
+        // FILENAME EXTENSION before minting. The browser then PUTs arbitrary
+        // bytes straight to the bucket — nothing has yet looked at the content.
+        // This is the first moment real bytes are in our hands, so it is the
+        // only place a magic-byte check can actually mean anything. Without it
+        // a passphrase-holder could park an executable named "evidence.zip" in
+        // a legal-evidence bucket with a row asserting application/zip.
+        // CodeRabbit CRITICAL, 2026-08-10, and it was right. /api/upload-url
+        // accepts .txt, .pst, .csv and .json, none of which have magic bytes,
+        // so detectType returns null for all four. The old code treated null as
+        // a rejection AND deleted the object. Every upload above the threshold
+        // in those formats was accepted, stored, then destroyed, with the bytes
+        // unrecoverable. In an evidence system that is not a 415 — it is
+        // spoliation.
+        //
+        // Two changes. A null detection is permitted when the session's own
+        // declared extension is a format that legitimately has no signature; a
+        // non-null detection that disagrees is still rejected, so a disguised
+        // executable named evidence.txt does not get through. And nothing is
+        // ever removed from the bucket on a classification failure: the row is
+        // marked failed and the retention sweep decides, which is the only
+        // actor that should be allowed to delete evidence.
+        const detected = detectType(fileBuffer.subarray(0, 32).toString('base64'))
+        const permitted: DetectedType[] = ['zip', 'pdf', 'jpeg', 'png', 'webp', 'heic']
+        const SIGNATURELESS_EXTENSIONS = ['.txt', '.csv', '.json', '.pst']
+        const declaredExt = (sessionData.file_name || '')
+          .toLowerCase()
+          .slice(((sessionData.file_name || '').lastIndexOf('.') >>> 0))
+        const signatureless =
+          detected === null && SIGNATURELESS_EXTENSIONS.includes(declaredExt)
+
+        if (!signatureless && (detected === null || !permitted.includes(detected))) {
+          const msg = `Uploaded content is not a permitted type (detected: ${detected ?? 'unknown'})`
+          console.error('[process-file] magic-byte rejection:', msg, sessionData.storage_path)
+          await supabase
+            .from('sessions')
+            .update({ processing_status: 'error', processing_error: msg })
+            .eq('id', sessionId)
+          await supabase
+            .from('media_objects')
+            .update({ status: 'failed' })
+            .eq('storage_path', sessionData.storage_path)
+          // Deliberately NOT deleting the object. A rejected upload is still
+          // the uploader's data, and destroying it on our say-so is the exact
+          // failure mode a legal-evidence system must not have. `status:
+          // failed` hands it to the retention sweep.
+          return NextResponse.json({ success: false, error: msg }, { status: 415 })
+        }
+
+        file = { name: sessionData.file_name, size: sessionData.file_size_bytes }
+
+        // The bytes exist. Promote both rows out of 'pending' so the retention
+        // sweep can distinguish a real object from a mint that was never used.
+        const confirmedAt = new Date().toISOString()
+        await supabase
+          .from('sessions')
+          .update({ upload_confirmed_at: confirmedAt })
+          .eq('id', sessionId)
+        await supabase
+          .from('media_objects')
+          .update({ status: 'uploaded', file_size_bytes: fileBuffer.length })
+          .eq('storage_path', sessionData.storage_path)
+      } else {
+      // Download file from GCS (legacy path — sessions created before RAJ-782)
       const { Storage } = await import('@google-cloud/storage')
       const storageOptions: any = {}
       if (process.env.GCP_CLIENT_EMAIL && process.env.GCP_PRIVATE_KEY) {
@@ -182,6 +356,7 @@ export async function POST(request: NextRequest) {
           { success: false, error: `Failed to download file from GCS: ${err.message}` },
           { status: 500 }
         )
+      }
       }
     } else {
       return NextResponse.json(
@@ -629,6 +804,60 @@ export async function POST(request: NextRequest) {
         const { error: statsErr } = await supabase.from('message_stats').insert(statsRows)
         if (statsErr) {
           console.error('Failed to insert message_stats:', statsErr)
+        }
+      }
+
+      if (effectiveProjectId) {
+        await updateSessionProgress('Saving project analysis...')
+        
+        const sentimentScore = analysis.averageSentiment
+        let positive = 0, negative = 0, neutral = 100
+        if (sentimentScore > 0.5) {
+          positive = Math.min(100, Math.round(sentimentScore * 50))
+          neutral = 100 - positive
+        } else if (sentimentScore < -0.5) {
+          negative = Math.min(100, Math.round(Math.abs(sentimentScore) * 50))
+          neutral = 100 - negative
+        }
+
+        const topSender = analysis.participants.reduce((a, b) => 
+          (analysis.messagesByParticipant[a] || 0) > (analysis.messagesByParticipant[b] || 0) ? a : b, 
+          analysis.participants[0] || 'Unknown'
+        )
+
+        const topHour = Object.entries(analysis.hourlyDistribution).reduce((a, b) => 
+          b[1] > a[1] ? b : a, 
+          ['0', 0]
+        )[0]
+
+        const insights = [
+          `Conversation spans from ${new Date(analysis.dateRange.start).toLocaleDateString()} to ${new Date(analysis.dateRange.end).toLocaleDateString()}.`,
+          `Top participant is ${topSender} with ${(analysis.messagesByParticipant[topSender] || 0).toLocaleString()} messages.`,
+          `Most active hour of the day is ${topHour}:00.`
+        ]
+
+        const dbAnalysis = {
+          sentiment: { positive, negative, neutral },
+          keywords: analysis.topWords.slice(0, 10).map(w => w.word),
+          insights: insights
+        }
+
+        const { error: projUpdateErr } = await supabase
+          .from('projects')
+          .update({
+            message_count: enrichedMessages.length,
+            participants: analysis.participants,
+            date_range: {
+              start: analysis.dateRange.start.toISOString(),
+              end: analysis.dateRange.end.toISOString()
+            },
+            analysis: dbAnalysis,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', effectiveProjectId)
+
+        if (projUpdateErr) {
+          console.error('Failed to update project analysis:', projUpdateErr)
         }
       }
 
