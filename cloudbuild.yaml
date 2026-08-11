@@ -50,7 +50,19 @@ steps:
       # production: the service has been on revision 1 since 9 July, and
       # .github/workflows/deploy.yml only printed instructions instead of
       # deploying. One comma-separated value per flag.
-      - '--set-secrets=DEEPSEEK_API_KEY=deepseek-api-key:latest,SUPABASE_SERVICE_ROLE_KEY=supabase-service-key:latest,GCS_BUCKET=gcs-bucket-name:latest'
+      # The three secret names this file used — deepseek-api-key,
+      # supabase-service-key, gcs-bucket-name — do not exist in
+      # auto-research-001. The deploy failed on the first one:
+      #   "Secret projects/1017748244488/secrets/deepseek-api-key/versions/latest was not found"
+      # The live revision references the same missing names, which is only
+      # survivable because it has not been redeployed since 9 July.
+      #
+      # Real names, confirmed present: deepseek-api, SUPABASE_SERVICE_ROLE_KEY.
+      # There is no GCS bucket secret at all, so GCS_BUCKET is dropped — every
+      # use of it in the code is already guarded by `if (process.env.GCS_BUCKET)`
+      # and process-file falls back to a literal bucket name. The GCS paths are
+      # legacy; RAJ-782 moved storage to Supabase.
+      - '--set-secrets=DEEPSEEK_API_KEY=deepseek-api:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest'
       - '--set-env-vars=NEXT_PUBLIC_SUPABASE_URL=https://pomgvxdokjmxyfbgazls.supabase.co,NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvbWd2eGRva2pteHlmYmdhemxzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNjU1OTAsImV4cCI6MjA5NjY0MTU5MH0.jnpG78rmOH1Dint18ForByuzH5y9rdBH9wX4kGs_slI,NEXT_PUBLIC_APP_URL=https://whathappen-116263110764.europe-west1.run.app'
 
 images:
