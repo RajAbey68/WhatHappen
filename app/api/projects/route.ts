@@ -32,7 +32,14 @@ export async function GET() {
     const supabase = getServiceClient()
     const { data, error } = await supabase
       .from('projects')
-      .select('id, name, description, message_count, date_range, created_at, updated_at')
+      // RAJ-781 + CodeRabbit 2026-08-10. This endpoint is unauthenticated, so
+      // it must carry only what the project picker needs to draw a list.
+      // `date_range` is derived from the first and last message in a private
+      // conversation — it leaks when the parties were talking, which in a
+      // dispute is itself evidence. It is rehydrated from the gated
+      // GET /api/projects/[id] once the passphrase is proven, exactly as
+      // participants and analysis already are.
+      .select('id, name, description, message_count, created_at, updated_at')
       .order('created_at', { ascending: false })
       
     if (error) throw error
@@ -42,7 +49,6 @@ export async function GET() {
       name: dbProj.name,
       description: dbProj.description || undefined,
       messageCount: dbProj.message_count || 0,
-      dateRange: dbProj.date_range || undefined,
       createdAt: dbProj.created_at,
       updatedAt: dbProj.updated_at
     }))

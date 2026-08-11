@@ -558,7 +558,7 @@ export default function Home() {
               {/* AI Chat Tab (Rendered on desktop; mobile goes to BottomSheet) */}
               <TabsContent value="ai-chat" className="space-y-6 hidden sm:block">
                 {selectedProject.messageCount > 0 ? (
-                  <AIChatInterface selectedProject={selectedProject} />
+                  <AIChatInterface selectedProject={selectedProject} passphrase={passphrase} />
                 ) : (
                   <Card className="rounded-2xl shadow-sm">
                     <CardContent className="text-center py-12">
@@ -946,7 +946,7 @@ export default function Home() {
             <BottomSheetTitle className="text-center font-bold">AI Chat Assistant</BottomSheetTitle>
           </BottomSheetHeader>
           <div className="flex-1 overflow-hidden">
-            {selectedProject && <AIChatInterface selectedProject={selectedProject} />}
+            {selectedProject && <AIChatInterface selectedProject={selectedProject} passphrase={passphrase} />}
           </div>
         </BottomSheetContent>
       </BottomSheet>
