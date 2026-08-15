@@ -2,10 +2,14 @@
  * WhatHappen OCR client — calls the shared OCR microservice.
  *
  * Instead of calling the Gemini API directly, this module POSTs to the
- * shared OCR microservice at OCR_MICROSERVICE_URL (default http://localhost:3099).
+ * shared OCR microservice at OCR_MICROSERVICE_URL.
  *
  * Environment:
- *   OCR_MICROSERVICE_URL — URL of the OCR microservice (default: http://localhost:3099)
+ *   OCR_MICROSERVICE_URL — URL of the OCR microservice. Defaults to the deployed
+ *     Vercel service. Exported below: no other module may re-derive it. Until
+ *     2026-08-12 process-file had its own fallback of http://localhost:3099,
+ *     which in production dialled the container itself, so PDF OCR had never
+ *     once worked.
  *   GEMINI_API_KEY — fallback for direct Gemini call if microservice is unreachable
  *
  * @module gemini-ocr
