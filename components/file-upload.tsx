@@ -378,7 +378,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
                 const { data: session, error: pollError } = await supabase
                   .from('sessions')
-                  .select('processing_status, processing_error, total_messages, date_range_start, date_range_end')
+                  .select('processing_status, processing_stage, processing_error, total_messages, date_range_start, date_range_end')
                   .eq('id', sessionId)
                   .single()
 
@@ -392,11 +392,11 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                 }
                 consecutiveErrors = 0
 
-                if (session.processing_status === 'processing' && session.processing_error) {
+                if (session.processing_status === 'processing' && session.processing_stage) {
                   setUploadedFiles(prev => 
                     prev.map(f => 
                       f.file === uploadedFile.file 
-                        ? { ...f, processingStep: session.processing_error }
+                        ? { ...f, processingStep: session.processing_stage }
                         : f
                     )
                   )

@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { getServiceClient } from '@/lib/auth'
 import { requireProjectAccess, isAuthBypassed } from '@/lib/api-auth'
 import { detectType, RateLimiter, type DetectedType } from '@asimov/ingest'
+import { OCR_MICROSERVICE_URL } from '@/lib/gemini-ocr'
 const Sentiment = require('sentiment')
 
 // Firebase integration temporarily disabled due to compatibility issues
@@ -200,7 +201,8 @@ export async function POST(request: NextRequest) {
           .from('sessions')
           .update({
             processing_status: 'processing',
-            processing_error: step
+            processing_stage: step,
+            processing_stage_at: new Date().toISOString()
           })
           .eq('id', sessionId)
       } catch (err: any) {
@@ -589,7 +591,7 @@ export async function POST(request: NextRequest) {
         const timeout = setTimeout(() => controller.abort(), 30000)
 
         const ocrResponse = await fetch(
-          `${process.env.OCR_MICROSERVICE_URL || 'http://localhost:3099'}/ocr/pdf`,
+          `${OCR_MICROSERVICE_URL}/ocr/pdf`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

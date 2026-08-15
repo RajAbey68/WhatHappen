@@ -11,7 +11,7 @@
  * @module gemini-ocr
  */
 
-const OCR_MICROSERVICE_URL =
+export const OCR_MICROSERVICE_URL =
   process.env.OCR_MICROSERVICE_URL || 'https://ocr-microservice-gamma.vercel.app';
 const OCR_TIMEOUT_MS = (() => {
   const raw = process.env.OCR_TIMEOUT_MS;
