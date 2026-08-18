@@ -151,6 +151,12 @@ export function issueChallenge(
  * Consume a challenge: verifies the token signature, checks expiry, and
  * confirms it was issued for the given project. Returns false for
  * tampered/expired/mismatched tokens.
+ *
+ * Single-use enforcement: consumed token IDs are tracked in a short-lived
+ * in-memory Set. On Vercel serverless this is per-instance, so a replay
+ * hitting a different instance could succeed — but the 60s TTL + HMAC
+ * binding limits the window. This is defense-in-depth, not the primary
+ * security barrier (the signature verification is).
  */
 export function consumeChallenge(token: unknown, projectId: string): boolean {
   if (typeof token !== 'string' || token.length === 0) return false
@@ -158,10 +164,30 @@ export function consumeChallenge(token: unknown, projectId: string): boolean {
   const payload = verifyChallenge(token)
   if (!payload) return false
 
-  return payload.projectId === projectId
+  if (payload.projectId !== projectId) return false
+
+  // Single-use: check if this token was already consumed.
+  const tokenHash = sha256Hex(token)
+  if (consumedTokens.has(tokenHash)) return false
+  consumedTokens.set(tokenHash, payload.expiresAt)
+
+  // Clean up expired entries to prevent unbounded growth.
+  sweepConsumed()
+
+  return true
 }
 
-/** Test/maintenance helper — no-op now (stateless). */
+/** Lightweight consumed-token tracking for single-use enforcement. */
+const consumedTokens = new Map<string, number>()
+
+function sweepConsumed(): void {
+  const now = Date.now()
+  consumedTokens.forEach((expiresAt, key) => {
+    if (expiresAt <= now) consumedTokens.delete(key)
+  })
+}
+
+/** Test/maintenance helper — clears consumed token cache. */
 export function _resetChallenges(): void {
-  // No-op: challenges are stateless signed tokens, no in-memory store to clear.
+  consumedTokens.clear()
 }
