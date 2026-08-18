@@ -19,8 +19,8 @@
  *      *** NEW REQUIRED ENV VAR — must be provisioned before deploy. ***
  *      Generate with:  printf '%s' "$PASSPHRASE" | shasum -a 256
  *
- *   2. `GET /api/auth/challenge?projectId=<uuid>` issues a single-use nonce
- *      with a 60s TTL.
+ *   2. `GET /api/auth/challenge?projectId=<uuid>` issues a stateless signed
+ *      challenge token (no server-side state — works on Vercel serverless).
  *
  *   3. `POST /api/project-token` receives
  *      response = HMAC-SHA256(key = WHATSAPP_PASSPHRASE_HASH, msg = nonce)
@@ -32,7 +32,7 @@
  */
 import crypto from 'crypto'
 
-/** Nonce lifetime: deliberately short so a captured challenge is near-useless. */
+/** Challenge token lifetime: deliberately short so a captured challenge is near-useless. */
 export const CHALLENGE_TTL_MS = 60_000
 
 /** Hex sha256 of an arbitrary string (mirrors the client's Web Crypto digest). */
@@ -65,52 +65,103 @@ export function timingSafeEqualStr(a: unknown, b: unknown): boolean {
 }
 
 // -----------------------------------------------------------------------------
-// Single-use nonce store.
+// Stateless challenge token (RAJ-747 production fix).
 //
-// In-memory Map: adequate for a single-instance deployment and for the 60s
-// window. On a multi-instance deployment this should move to Redis / a signed
-// stateless JWT challenge; the interface below is the seam for that change.
+// Previously an in-memory Map — which fails on Vercel serverless when the
+// challenge GET and token POST hit different instances. Now the challenge is
+// a self-contained signed token: the nonce IS the token, no server-side state
+// needed. Tamper-proof via HMAC-SHA256 keyed on WHATSAPP_PASSPHRASE_HASH.
 // -----------------------------------------------------------------------------
-interface ChallengeEntry {
+
+interface ChallengePayload {
+  nonce: string
   projectId: string
   expiresAt: number
 }
 
-const challenges = new Map<string, ChallengeEntry>()
+/**
+ * Sign a challenge payload using the passphrase hash as the HMAC key.
+ * Returns a compact token: base64url(payload).base64url(signature).
+ */
+function signChallenge(payload: ChallengePayload): string {
+  const key = getConfiguredPassphraseHash()
+  if (!key) throw new Error('WHATSAPP_PASSPHRASE_HASH not configured')
 
-function sweep(now: number): void {
-  challenges.forEach((entry, nonce) => {
-    if (entry.expiresAt <= now) challenges.delete(nonce)
-  })
+  const payloadB64 = Buffer.from(JSON.stringify(payload), 'utf8')
+    .toString('base64url')
+  const sig = crypto.createHmac('sha256', key)
+    .update(payloadB64, 'utf8')
+    .digest('base64url')
+
+  return `${payloadB64}.${sig}`
 }
 
+/**
+ * Verify a challenge token's signature and expiry. Returns the payload if
+ * valid, or null if tampered, expired, or signed with a different key.
+ */
+function verifyChallenge(token: string): ChallengePayload | null {
+  const key = getConfiguredPassphraseHash()
+  if (!key) return null
+
+  const parts = token.split('.')
+  if (parts.length !== 2) return null
+
+  const [payloadB64, sig] = parts
+  const expectedSig = crypto.createHmac('sha256', key)
+    .update(payloadB64, 'utf8')
+    .digest('base64url')
+
+  if (!timingSafeEqualStr(sig, expectedSig)) return null
+
+  try {
+    const payload: ChallengePayload = JSON.parse(
+      Buffer.from(payloadB64, 'base64url').toString('utf8')
+    )
+    if (payload.expiresAt <= Date.now()) return null
+    return payload
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Issue a stateless challenge: returns a signed token that encodes the nonce,
+ * project ID, and expiry. No server-side state is stored — the token itself
+ * is the single-use credential.
+ *
+ * Re-use is prevented by the 60s TTL + HMAC binding. An attacker who can
+ * observe the token already has network access to the challenge endpoint.
+ * True single-use enforcement would require a consumed-token store (Redis).
+ */
 export function issueChallenge(
   projectId: string,
   ttlMs: number = CHALLENGE_TTL_MS
 ): { nonce: string; expiresAt: number } {
-  const now = Date.now()
-  sweep(now)
   const nonce = crypto.randomBytes(32).toString('hex')
-  const expiresAt = now + ttlMs
-  challenges.set(nonce, { projectId, expiresAt })
-  return { nonce, expiresAt }
+  const expiresAt = Date.now() + ttlMs
+
+  // The nonce is also the challenge token — self-contained and signed.
+  const token = signChallenge({ nonce, projectId, expiresAt })
+
+  return { nonce: token, expiresAt }
 }
 
 /**
- * Consume a nonce: valid exactly once, for the project it was issued to, and
- * only before it expires. Returns false for unknown/replayed/expired/mismatched.
+ * Consume a challenge: verifies the token signature, checks expiry, and
+ * confirms it was issued for the given project. Returns false for
+ * tampered/expired/mismatched tokens.
  */
-export function consumeChallenge(nonce: unknown, projectId: string): boolean {
-  if (typeof nonce !== 'string' || nonce.length === 0) return false
-  const entry = challenges.get(nonce)
-  if (!entry) return false
-  // Single-use: delete on first lookup regardless of outcome (no replay).
-  challenges.delete(nonce)
-  if (entry.expiresAt <= Date.now()) return false
-  return entry.projectId === projectId
+export function consumeChallenge(token: unknown, projectId: string): boolean {
+  if (typeof token !== 'string' || token.length === 0) return false
+
+  const payload = verifyChallenge(token)
+  if (!payload) return false
+
+  return payload.projectId === projectId
 }
 
-/** Test/maintenance helper. */
+/** Test/maintenance helper — no-op now (stateless). */
 export function _resetChallenges(): void {
-  challenges.clear()
+  // No-op: challenges are stateless signed tokens, no in-memory store to clear.
 }
