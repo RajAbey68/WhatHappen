@@ -163,12 +163,12 @@ export default function Home() {
   }
 
   const handleProjectSelect = async (project: Project | null) => {
-    setSelectedProject(project)
     setDecryptedData(null)
     setProcessedData(null)
     setActiveTab('upload')
 
     if (!project) {
+      setSelectedProject(null)
       setPassphrase('')
       return
     }
@@ -183,20 +183,23 @@ export default function Home() {
       try {
         const token = await ensureProjectToken(project.id)
         if (!token) {
-          // Can't prove — force the user through the prompt.
+          // Can't prove — don't set the project; force the user through the prompt.
           dropPassphrase(project.id)
+          setSelectedProject(project) // set so the Dialog has context
           setTempPassphrase('')
           setConfirmPassphrase('')
           setPassphraseError('')
           setIsNewProjectPassphrase(project.messageCount === 0)
           setShowPassphrasePrompt(true)
         } else {
+          setSelectedProject(project)
           setPassphrase(cached)
           void hydrateProjectDetail(project.id)
           loadAndDecryptMessages(project.id, cached)
         }
       } catch {
         dropPassphrase(project.id)
+        setSelectedProject(project) // set so the Dialog has context
         setTempPassphrase('')
         setConfirmPassphrase('')
         setPassphraseError('Verification failed. Please re-enter your passphrase.')
@@ -206,6 +209,7 @@ export default function Home() {
         setIsVerifyingPassphrase(false)
       }
     } else {
+      setSelectedProject(project) // set so the Dialog has context
       setTempPassphrase('')
       setConfirmPassphrase('')
       setPassphraseError('')
@@ -420,7 +424,7 @@ export default function Home() {
         </div>
         
         {/* Main Interface */}
-        {selectedProject ? (
+        {selectedProject && passphrase ? (
           <div className="space-y-6">
             {/* Project Overview */}
             <Card className="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 shadow-md rounded-2xl">
