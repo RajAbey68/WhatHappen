@@ -164,6 +164,14 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
+    if (!passphrase) {
+      toast({
+        title: "Project locked",
+        description: "Unlock this project with your passphrase before uploading files.",
+        variant: "destructive",
+      })
+      return
+    }
     const newFiles = acceptedFiles.map(file => ({
       file,
       status: 'pending' as const,

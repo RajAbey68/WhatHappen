@@ -47,6 +47,7 @@ export default function Home() {
   const [confirmPassphrase, setConfirmPassphrase] = useState('')
   const [passphraseError, setPassphraseError] = useState('')
   const [isNewProjectPassphrase, setIsNewProjectPassphrase] = useState(false)
+  const [isVerifyingPassphrase, setIsVerifyingPassphrase] = useState(false)
 
   // Client-side decrypted messages data
   const [decryptedData, setDecryptedData] = useState<any>(null)
@@ -161,13 +162,13 @@ export default function Home() {
     }
   }
 
-  const handleProjectSelect = (project: Project | null) => {
-    setSelectedProject(project)
+  const handleProjectSelect = async (project: Project | null) => {
     setDecryptedData(null)
     setProcessedData(null)
     setActiveTab('upload')
 
     if (!project) {
+      setSelectedProject(null)
       setPassphrase('')
       return
     }
@@ -175,12 +176,40 @@ export default function Home() {
     // RAJ-746: read from the in-memory store, never sessionStorage.
     const cached = readPassphrase(project.id)
     if (cached) {
-      setPassphrase(cached)
-      // RAJ-747 rework: re-prove passphrase knowledge to (re)mint a token,
-      // then pull the authorized detail (participants/analysis).
-      void ensureProjectToken(project.id).then(() => hydrateProjectDetail(project.id))
-      loadAndDecryptMessages(project.id, cached)
+      // RAJ-747 rework: re-prove passphrase knowledge to (re)mint a token.
+      // If the server is unconfigured or the cached passphrase is stale,
+      // do NOT reveal the project — show the gate instead.
+      setIsVerifyingPassphrase(true)
+      try {
+        const token = await ensureProjectToken(project.id)
+        if (!token) {
+          // Can't prove — don't set the project; force the user through the prompt.
+          dropPassphrase(project.id)
+          setSelectedProject(project) // set so the Dialog has context
+          setTempPassphrase('')
+          setConfirmPassphrase('')
+          setPassphraseError('')
+          setIsNewProjectPassphrase(project.messageCount === 0)
+          setShowPassphrasePrompt(true)
+        } else {
+          setSelectedProject(project)
+          setPassphrase(cached)
+          void hydrateProjectDetail(project.id)
+          loadAndDecryptMessages(project.id, cached)
+        }
+      } catch {
+        dropPassphrase(project.id)
+        setSelectedProject(project) // set so the Dialog has context
+        setTempPassphrase('')
+        setConfirmPassphrase('')
+        setPassphraseError('Verification failed. Please re-enter your passphrase.')
+        setIsNewProjectPassphrase(project.messageCount === 0)
+        setShowPassphrasePrompt(true)
+      } finally {
+        setIsVerifyingPassphrase(false)
+      }
     } else {
+      setSelectedProject(project) // set so the Dialog has context
       setTempPassphrase('')
       setConfirmPassphrase('')
       setPassphraseError('')
@@ -189,7 +218,7 @@ export default function Home() {
     }
   }
 
-  const handlePassphraseSubmit = () => {
+  const handlePassphraseSubmit = async () => {
     if (!tempPassphrase.trim()) {
       setPassphraseError('Passphrase is required')
       return
@@ -200,23 +229,50 @@ export default function Home() {
       return
     }
 
-    if (selectedProject) {
+    if (!selectedProject) return
+
+    setIsVerifyingPassphrase(true)
+    setPassphraseError('')
+
+    try {
       // RAJ-746: keep the raw passphrase in memory only (XSS cannot recover it
       // from web storage after a reload, and it is never persisted).
       storePassphrase(selectedProject.id, tempPassphrase)
-      // RAJ-747: provision a short-lived server-signed token for subsequent
-      // API calls so the raw passphrase is not used as a credential.
-      // RAJ-781: once proven, pull participants/analysis from the gated detail
-      // route — the anonymous listing no longer carries them.
-      void ensureProjectToken(selectedProject.id).then(() =>
-        hydrateProjectDetail(selectedProject.id)
-      )
+
+      // RAJ-747: prove passphrase knowledge to the server BEFORE opening the gate.
+      // The old code fired ensureProjectToken as fire-and-forget and dismissed
+      // the prompt unconditionally — a wrong passphrase (or an unconfigured
+      // server) silently let the user in, failing later with a cryptic 401 at
+      // upload time. Now we await the handshake and block on failure.
+      const token = await ensureProjectToken(selectedProject.id)
+
+      if (!token) {
+        // Token minting failed: either the passphrase is wrong, or the server
+        // is not configured (WHATSAPP_PASSPHRASE_HASH unset). Either way, do
+        // NOT dismiss the gate or reveal the project/dropzone.
+        setPassphraseError(
+          'Incorrect passphrase, or server verification is unavailable. ' +
+          'Please check your passphrase and try again.'
+        )
+        dropPassphrase(selectedProject.id)
+        return
+      }
+
+      // Token minted — passphrase is proven. Safe to open the gate.
       setPassphrase(tempPassphrase)
       setShowPassphrasePrompt(false)
-      
+
+      // RAJ-781: hydrate the full project record now that we have auth.
+      void hydrateProjectDetail(selectedProject.id)
+
       if (selectedProject.messageCount > 0) {
         loadAndDecryptMessages(selectedProject.id, tempPassphrase)
       }
+    } catch {
+      setPassphraseError('Verification failed. Please try again.')
+      dropPassphrase(selectedProject.id)
+    } finally {
+      setIsVerifyingPassphrase(false)
     }
   }
 
@@ -368,7 +424,7 @@ export default function Home() {
         </div>
         
         {/* Main Interface */}
-        {selectedProject ? (
+        {selectedProject && passphrase ? (
           <div className="space-y-6">
             {/* Project Overview */}
             <Card className="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 shadow-md rounded-2xl">
@@ -932,8 +988,8 @@ export default function Home() {
             <Button variant="outline" onClick={handlePassphraseCancel} className="rounded-xl">
               Cancel
             </Button>
-            <Button onClick={handlePassphraseSubmit} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl">
-              {isNewProjectPassphrase ? 'Configure Key' : 'Unlock Project'}
+            <Button onClick={handlePassphraseSubmit} disabled={isVerifyingPassphrase} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl">
+              {isVerifyingPassphrase ? 'Verifying…' : isNewProjectPassphrase ? 'Configure Key' : 'Unlock Project'}
             </Button>
           </DialogFooter>
         </DialogContent>
