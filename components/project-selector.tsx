@@ -41,15 +41,7 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
       }
     } catch (error) {
       console.error('Error loading projects:', error)
-      // Fallback to localStorage if API fails (for demo/development convenience)
-      try {
-        const stored = localStorage.getItem('whatsapp-analyzer-projects')
-        if (stored) {
-          setProjects(JSON.parse(stored))
-        }
-      } catch (e) {
-        console.error('LocalStorage fallback error:', e)
-      }
+      // API failed — surface the error instead of silently falling back
     } finally {
       setIsLoading(false)
       setIsInitialLoad(false)

@@ -267,7 +267,7 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
       {/* Chat Messages */}
       <Card className="flex-1 flex flex-col">
         <CardContent className="flex-1 flex flex-col p-6">
-          <ScrollArea className="flex-1 pr-4">
+          <ScrollArea className="flex-1 pr-4" aria-live="polite" role="log">
             <div className="space-y-4">
               {messages.length === 0 ? (
                 <div className="text-center py-12">
@@ -292,7 +292,6 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
                           size="sm"
                           onClick={() => setInput(question)}
                           className="text-left h-auto p-3 justify-start"
-                          tabIndex={-1}
                         >
                           <Sparkles className="h-3 w-3 mr-2 flex-shrink-0" />
                           <span className="text-xs">{question}</span>
@@ -350,6 +349,7 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
                 onKeyDown={handleKeyPress}
                 placeholder="Ask me anything about your WhatsApp chat..."
                 disabled={isLoading}
+                aria-label="Ask a question about your WhatsApp chat"
                 className="flex-1 min-h-[60px] resize-none"
               />
               <Button

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
+import { requireProjectAccess } from '@/lib/api-auth'
 import { supabase as anonSupabase } from '@/lib/supabase'
 
 function mapDbProject(dbProj: any) {

@@ -11,6 +11,7 @@ export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, getServiceClient } from '@/lib/auth'
+import { isValidProjectId } from '@/lib/api-auth'
 import { generateWithFallback } from '@/lib/llm'
 import { validateGeneratedSQL, ALLOWED_TABLES } from '@/lib/sql-validator'
 
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate sessionId format to prevent injection
-    if (!sessionId || !/^[0-9a-f-]{36}$/i.test(sessionId)) {
+    if (!sessionId || !isValidProjectId(sessionId)) {
       return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 })
     }
 
@@ -135,7 +136,6 @@ Never use SELECT *. Only query aggregates or metadata.${feedbackClause}`,
       data,
       results: data, // backwards compatibility alias for tests/clients
       model,
-      sql, // returned for debugging — remove in production if desired
     })
   } catch (error: any) {
     console.error('[ai-search] error:', error.message)

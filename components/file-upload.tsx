@@ -873,6 +873,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
       {/* Upload Area */}
       <div
         {...getRootProps()}
+        aria-label="Upload WhatsApp chat files"
         className={`relative group cursor-pointer transition-all duration-300 ${
           isDragActive 
             ? 'scale-105' 
@@ -987,6 +988,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                         size="sm"
                         onClick={() => removeFile(uploadedFile.file)}
                         disabled={uploadedFile.status === 'processing'}
+                        aria-label={`Remove ${uploadedFile.file.name}`}
                         className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0 hover:bg-red-100 hover:text-red-600"
                       >
                         <XCircle className="h-4 w-4" />

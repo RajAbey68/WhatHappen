@@ -5,7 +5,7 @@ import { useDropzone } from 'react-dropzone'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Upload, FileText, MessageSquare, BarChart3, Users, TrendingUp, Download, Sparkles } from 'lucide-react'
+import { Upload, FileText, MessageSquare, BarChart3, Users, TrendingUp, Download, Sparkles, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Project } from '@/lib/supabase'
 import { projectAuthHeaders } from '@/lib/session-store'
@@ -189,9 +189,12 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
             
             {isUploading && (
               <div className="mt-6 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                <p className="text-blue-700 font-medium">Processing your chat file...</p>
-                <p className="text-sm text-blue-600">This may take a few moments for large files</p>
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full" role="status" aria-live="polite">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                  <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                    Processing your chat file...
+                  </span>
+                </div>
               </div>
             )}
           </CardContent>
@@ -263,7 +266,7 @@ export function WhatsAppAnalyzer({ selectedProject }: WhatsAppAnalyzerProps) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-bold text-purple-600">
+                  <div className="text-3xl font-bold text-purple-600" aria-label={selectedProject.analysis ? 'Analysis complete' : 'Ready to analyze'}>
                     {selectedProject.analysis ? '✓' : '○'}
                   </div>
                   <p className="text-sm text-purple-700 mt-1">

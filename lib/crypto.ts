@@ -38,7 +38,7 @@ export async function deriveKey(passphrase: string, salt: Uint8Array): Promise<C
     {
       name: 'PBKDF2',
       salt: salt,
-      iterations: 100000,
+      iterations: 600000,
       hash: 'SHA-256'
     },
     baseKey,
@@ -58,7 +58,9 @@ export async function encryptText(
   const encoder = new TextEncoder()
   
   // Use provided salt or generate a new random 16-byte salt
-  const salt = providedSalt || crypto.getRandomValues(new Uint8Array(16))
+  const salt = (providedSalt && providedSalt.length > 0)
+    ? providedSalt
+    : crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12)) // AES-GCM recommended IV size is 12 bytes
 
   const key = await deriveKey(passphrase, salt)

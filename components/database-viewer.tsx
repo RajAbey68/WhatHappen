@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Download, Search, RefreshCw, Database, Trash2, Eye } from 'lucide-react'
+import { Download, Search, Database } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
 interface DatabaseViewerProps {
