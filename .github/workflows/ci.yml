@@ -28,6 +28,8 @@ jobs:
 
       - name: Run tests
         run: npm test -- --coverage --passWithNoTests
+        env:
+          WHATSAPP_PASSPHRASE_HASH: abf45d445e61702f2a7db962e13e37e8e29999c75a782671c377bd67070fa287
 
       - name: Check for secrets in code
         run: npx secretlint "**/*" --ignorePath .gitignore || true
