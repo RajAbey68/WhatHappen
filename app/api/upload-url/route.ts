@@ -42,6 +42,7 @@ import {
 import { createSupabaseStorageAdapter } from '@asimov/ingest'
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid'
 import path from 'path'
+import { logError, logInfo, logOperation } from '@/lib/logger'
 
 /** Hard ceiling on a single upload. */
 const MAX_FILE_BYTES = 500 * 1024 * 1024
@@ -173,7 +174,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (sessionError) {
-      console.error('[upload-url] failed to create session:', sessionError.message)
+      logError('upload-url', 'failed to create session', sessionError, { projectId, sessionId })
       return json({ error: 'Failed to create session' }, 500)
     }
 
@@ -196,17 +197,15 @@ export async function POST(request: NextRequest) {
       // media_objects row tracks. The retention sweep keys off media_objects,
       // so that object would have had no expiry owner and would sit in the
       // evidence bucket forever. Roll the session back before returning.
-      console.error('[upload-url] failed to record media object:', dbError.message)
+      logError('upload-url', 'failed to record media object', dbError, { projectId, sessionId, objectPath })
       const { error: rollbackError } = await supabase.from('sessions').delete().eq('id', sessionId)
       if (rollbackError) {
-        console.error(
-          '[upload-url] ORPHANED SESSION — media_objects insert failed and the session row could not be removed:',
-          sessionId,
-          rollbackError.message
-        )
+        logError('upload-url', 'ORPHANED SESSION — rollback failed', rollbackError, { projectId, sessionId, objectPath })
       }
       return json({ error: 'Failed to record upload' }, 500)
     }
+
+    logInfo('upload-url', 'signed upload URL minted', { projectId, sessionId, objectPath, bucket })
 
     return json({
       // `sessionId` and `uploadUrl` are the two keys the client destructures.
@@ -214,13 +213,15 @@ export async function POST(request: NextRequest) {
       sessionId,
       uploadUrl: signed.url,
       path: objectPath,
+      token: signed.token,
+      bucket,
       provider: storage.name,
       // Retention date, NOT the URL expiry. Named explicitly so the two are not
       // confused at the call site.
       archiveAt,
     })
   } catch (err: any) {
-    console.error('[upload-url] signed URL minting failed:', err?.message)
+    logError('upload-url', 'signed URL minting failed', err, { projectId: body?.projectId, fileName: body?.fileName })
     return json({ error: 'Failed to create upload URL' }, 500)
   }
 }

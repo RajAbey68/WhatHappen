@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PROJECT_TOKEN_HEADER, requireProjectAccess, isAuthBypassed } from '@/lib/api-auth'
 import { processWhatsappCompletion } from '@/lib/processWhatsapp'
+import { logError, logWarn } from '@/lib/logger'
 
 // Allow up to 5 minutes for large file processing (requires Vercel Pro)
 export const maxDuration = 300

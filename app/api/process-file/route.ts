@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { getServiceClient } from '@/lib/auth'
 import { requireProjectAccess, isAuthBypassed } from '@/lib/api-auth'
 import { detectType, RateLimiter, type DetectedType } from '@asimov/ingest'
+import { logError, logInfo, logWarn } from '@/lib/logger'
 const Sentiment = require('sentiment')
 
 // Firebase integration temporarily disabled due to compatibility issues
@@ -204,7 +205,10 @@ export async function POST(request: NextRequest) {
           })
           .eq('id', sessionId)
       } catch (err: any) {
-        console.error(`[process-file] Failed to update session progress to "${step}":`, err.message)
+        logError('process-file:updateSessionProgress', 'Failed to update session progress', err, {
+          sessionId,
+          step,
+        })
       }
     }
   }
@@ -247,7 +251,10 @@ export async function POST(request: NextRequest) {
 
         if (dlError || !blob) {
           const msg = dlError?.message || 'no data returned'
-          console.error('[process-file] Supabase Storage download failed:', msg)
+          logError('process-file:downloadFromStorage', 'Supabase Storage download failed', dlError || new Error(msg), {
+            sessionId,
+            storagePath: sessionData.storage_path,
+          })
           await supabase
             .from('sessions')
             .update({ processing_status: 'error', processing_error: `Download failed: ${msg}` })
@@ -293,7 +300,11 @@ export async function POST(request: NextRequest) {
 
         if (!signatureless && (detected === null || !permitted.includes(detected))) {
           const msg = `Uploaded content is not a permitted type (detected: ${detected ?? 'unknown'})`
-          console.error('[process-file] magic-byte rejection:', msg, sessionData.storage_path)
+          logError('process-file:contentTypeCheck', 'magic-byte rejection', new Error(msg), {
+            sessionId,
+            storagePath: sessionData.storage_path,
+            detected,
+          })
           await supabase
             .from('sessions')
             .update({ processing_status: 'error', processing_error: msg })
@@ -338,7 +349,7 @@ export async function POST(request: NextRequest) {
       const gcsPath = `uploads/${sessionData.user_id}/${sessionId}/${sessionData.file_name}`
 
       try {
-        console.log(`[process-file] Downloading GCS file: gs://${bucketName}/${gcsPath}`)
+        logInfo('process-file:downloadGCS', 'Downloading GCS file', { bucketName, gcsPath })
         await updateSessionProgress('Downloading file from storage...')
         const [downloadedBuffer] = await storage.bucket(bucketName).file(gcsPath).download()
         fileBuffer = downloadedBuffer
@@ -347,7 +358,11 @@ export async function POST(request: NextRequest) {
           size: sessionData.file_size_bytes,
         }
       } catch (err: any) {
-        console.error('[process-file] GCS download failed:', err.message)
+        logError('process-file:downloadGCS', 'GCS download failed', err, {
+          sessionId,
+          bucketName,
+          gcsPath,
+        })
         await supabase
           .from('sessions')
           .update({ processing_status: 'error', processing_error: `GCS download failed: ${err.message}` })
@@ -503,7 +518,10 @@ export async function POST(request: NextRequest) {
           const MAX_OCR_IMAGES = 5
           const imagesToProcess = imageFiles.slice(0, MAX_OCR_IMAGES)
           
-          console.log(`[process-file] Running parallel OCR on ${imagesToProcess.length} of ${imageFiles.length} images`)
+          logInfo('process-file:ocr', 'Running parallel OCR', {
+            imageCount: imagesToProcess.length,
+            totalImageFiles: imageFiles.length,
+          })
           
           const ocrPromises = imagesToProcess.map(async (img) => {
             try {
@@ -516,7 +534,10 @@ export async function POST(request: NextRequest) {
                 return `[Image: ${img.name}]\n${result.extractedText}`
               }
             } catch (err: any) {
-              console.error(`OCR failed for image ${img.name}:`, err.message)
+              logError('process-file:ocr', 'OCR failed for image', err, {
+                sessionId,
+                imageName: img.name,
+              })
             }
             return null
           })
@@ -537,7 +558,7 @@ export async function POST(request: NextRequest) {
         }
       } catch (zipErr) {
         // Fix #2: Corrupted ZIP should return 400 error
-        console.error('ZIP extraction error:', zipErr)
+        logError('process-file:zipExtraction', 'ZIP extraction error', zipErr, { sessionId })
         const errMsg = `Corrupted or invalid ZIP file: ${zipErr instanceof Error ? zipErr.message : String(zipErr)}`
         if (sessionId && supabase) {
           await supabase
@@ -670,7 +691,7 @@ export async function POST(request: NextRequest) {
           }
         })
       } catch (jsonErr) {
-        console.error('Failed to parse JSON file:', jsonErr)
+        logError('process-file:parseJSON', 'Failed to parse JSON file', jsonErr, { sessionId })
         messages = []
       }
     } else {
@@ -756,7 +777,11 @@ export async function POST(request: NextRequest) {
         const chunk = metaRows.slice(i, i + CHUNK_SIZE)
         const { error: insertErr } = await supabase.from('messages_meta').insert(chunk)
         if (insertErr) {
-          console.error('Failed to insert messages_meta chunk:', insertErr)
+          logError('process-file:insertMessagesMeta', 'Failed to insert messages_meta chunk', insertErr, {
+            sessionId,
+            chunkIndex: i / CHUNK_SIZE,
+            chunkSize: chunk.length,
+          })
         }
       }
 
@@ -803,7 +828,10 @@ export async function POST(request: NextRequest) {
       if (statsRows.length > 0) {
         const { error: statsErr } = await supabase.from('message_stats').insert(statsRows)
         if (statsErr) {
-          console.error('Failed to insert message_stats:', statsErr)
+          logError('process-file:insertMessageStats', 'Failed to insert message_stats', statsErr, {
+            sessionId,
+            statsRowCount: statsRows.length,
+          })
         }
       }
 
@@ -857,7 +885,10 @@ export async function POST(request: NextRequest) {
           .eq('id', effectiveProjectId)
 
         if (projUpdateErr) {
-          console.error('Failed to update project analysis:', projUpdateErr)
+          logError('process-file:updateProjectAnalysis', 'Failed to update project analysis', projUpdateErr, {
+            sessionId,
+            effectiveProjectId,
+          })
         }
       }
 

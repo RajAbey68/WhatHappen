@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
 import { isValidProjectId, safeParseTimestamp, isAuthBypassed } from '@/lib/api-auth'
+import { logError } from '@/lib/logger'
 
 // Batch size for Supabase inserts (PostgREST has practical row limits)
 const INSERT_BATCH_SIZE = 500
@@ -264,7 +265,9 @@ export async function processWhatsappCompletion(
       headers: { 'Content-Type': 'application/json' },
     })
   } catch (error) {
-    console.error('Error processing WhatsApp file:', error)
+    logError('processWhatsappCompletion', 'Error processing WhatsApp file', error, {
+      request: { path: request.nextUrl.pathname }
+    })
     return NextResponse.json(
       { error: 'Failed to process file' },
       { status: 500, headers: { 'Content-Type': 'application/json' } }

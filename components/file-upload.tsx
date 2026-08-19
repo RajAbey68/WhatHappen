@@ -14,6 +14,7 @@ import { AgentBuilder } from './agent-builder'
 import { AgentConfig } from '@/lib/types/agent'
 import { AgentDashboard } from './agent-dashboard'
 import { projectAuthHeaders } from '@/lib/session-store'
+import { logError, logInfo, logWarn } from '@/lib/logger'
 
 async function stripVideosFromZip(file: File): Promise<File> {
   const zip = new JSZip()
@@ -58,7 +59,10 @@ async function stripVideosFromZip(file: File): Promise<File> {
     return file
   }
   
-  console.log(`[ZIP strip] Removed ${videoFilesRemoved} video file(s) of ${originalFileCount} total files.`)
+  logInfo('file-upload:stripVideos', 'Removed video files from ZIP', {
+    videoFilesRemoved,
+    originalFileCount,
+  })
   const newZipBlob = await newZip.generateAsync({ type: 'blob' })
   return new globalThis.File([newZipBlob], file.name, { type: file.type })
 }
@@ -229,7 +233,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
         authHeader = { 'Authorization': `Bearer ${session.access_token}` }
       }
     } catch (e) {
-      console.error('Error fetching Supabase session:', e)
+      logError('file-upload:getSession', 'Error fetching Supabase session', e)
     }
     
     const uploadPromises = files.map(async (uploadedFile) => {
@@ -315,7 +319,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
               throw new Error(errData.error || `Failed to fetch upload URL (${urlRes.status})`)
             }
 
-            const { sessionId, uploadUrl } = await urlRes.json()
+            const { sessionId, uploadUrl, path, token, bucket } = await urlRes.json()
             const isLocalFallback = uploadUrl.startsWith('/api/') || uploadUrl.includes('process-file')
 
             if (isLocalFallback) {
@@ -349,16 +353,27 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                 )
               )
 
-              const uploadResponse = await fetch(uploadUrl, {
-                method: 'PUT',
-                headers: {
-                  'Content-Type': currentFile.type || 'application/octet-stream',
-                },
-                body: currentFile,
-              })
+              if (!token || !path) {
+                throw new Error('Upload token is missing — cannot use signed-upload path')
+              }
 
-              if (!uploadResponse.ok) {
-                throw new Error(`Direct upload to storage failed (${uploadResponse.status})`)
+              // RAJ-782: use the Supabase SDK's uploadToSignedUrl instead of a
+              // raw PUT. The raw PUT always 400s because Supabase Storage
+              // requires the signed token (not just the URL) to authenticate
+              // the upload. The token is returned by the adapter.
+              const { supabase } = await import('@/lib/supabase')
+              try {
+                const { error: uploadError } = await supabase
+                  .storage
+                  .from(bucket ?? 'evidence')
+                  .uploadToSignedUrl(path, token, currentFile)
+
+                if (uploadError) {
+                  throw new Error(`Direct upload to storage failed: ${uploadError.message}`)
+                }
+              } catch (err) {
+                const message = err instanceof Error ? err.message : 'Unknown upload error'
+                throw new Error(`Direct upload to storage failed: ${message}`)
               }
 
               setUploadedFiles(prev => 
@@ -372,10 +387,12 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                 // RAJ-747: keep the Supabase bearer and add the project token.
                 headers: { ...authHeader, ...(await projectAuthHeaders(projectId)) },
               }).catch(err => {
-                console.error('Failed to trigger background processing:', err)
+                logError('file-upload:triggerProcessing', 'Failed to trigger background processing', err, {
+                  fileName: uploadedFile.file.name,
+                })
               })
 
-              const { supabase } = await import('@/lib/supabase')
+              // supabase already imported above for uploadToSignedUrl
 
               let isDone = false
               let attempts = 0
@@ -391,7 +408,11 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                   .single()
 
                 if (pollError) {
-                  console.error('Polling error:', pollError.message)
+                  logWarn('file-upload:pollSession', 'Polling error', {
+                    sessionId,
+                    error: pollError.message,
+                    consecutiveErrors,
+                  })
                   consecutiveErrors++
                   if (consecutiveErrors >= 5) {
                     throw new Error(`Database connection failed: ${pollError.message}`)
@@ -995,6 +1016,7 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                         size="sm"
                         onClick={() => removeFile(uploadedFile.file)}
                         disabled={uploadedFile.status === 'processing'}
+                        aria-label={`Remove ${uploadedFile.file.name}`}
                         className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0 hover:bg-red-100 hover:text-red-600"
                       >
                         <XCircle className="h-4 w-4" />
