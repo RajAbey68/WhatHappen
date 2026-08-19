@@ -13,10 +13,21 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { isValidProjectId, isAuthBypassed } from '@/lib/api-auth'
+import { RateLimiter } from '@asimov/ingest'
 import {
   issueChallenge,
   getConfiguredPassphraseHash,
 } from '@/lib/passphrase-proof'
+
+// Rate limit: 20 challenge requests per minute per IP to prevent nonce exhaustion / brute force
+const challengeLimiter = new RateLimiter({ capacity: 20, refillPerMinute: 20 })
+
+function clientKeyFor(request: NextRequest): string {
+  const headers = (request as { headers?: Headers }).headers
+  const forwarded = headers?.get?.('x-forwarded-for')
+  if (forwarded) return forwarded.split(',')[0].trim()
+  return headers?.get?.('x-real-ip') || 'unknown'
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,6 +37,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { error: 'A valid project ID is required' },
         { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (!isAuthBypassed() && !challengeLimiter.tryConsume(clientKeyFor(request))) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please wait and try again.' },
+        { status: 429, headers: { 'Content-Type': 'application/json' } }
       )
     }
 
