@@ -29,7 +29,6 @@ export async function requireAuth(
   }
 
   const token = authHeader.slice(7)
-
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -44,12 +43,56 @@ export async function requireAuth(
 }
 
 /**
- * Create a Supabase client scoped to the authenticated user's session.
- * Uses the service role key for server-side operations (RLS enforced via user_id filters).
+ * RAJ-783: Create a Supabase service client with automatic retry on HTTP 429.
+ *
+ * Uses the Supabase client's `fetch` option to intercept all REST/GraphQL calls
+ * and retry with exponential backoff + Retry-After header parsing when
+ * PostgREST returns 429 (rate limit exceeded — free projects cap at ~200 req/s).
+ *
+ * This prevents rate-limit errors from surfacing directly to end users;
+ * instead the server transparently retries after a short backoff.
  */
 export function getServiceClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  const maxAttempts = 3
+
+  // Custom fetch wrapper with retry-on-429
+  const resilientFetch: typeof fetch = async (input, init = {}) => {
+    const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    let response: Response
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      response = await fetch(input, init)
+
+      if (response.ok) return response
+
+      if (response.status === 429 && attempt < maxAttempts - 1) {
+        const retryAfter = response.headers.get('retry-after')
+        const delay = retryAfter
+          ? Math.min(parseFloat(retryAfter) * 1000, 10_000)
+          : Math.min(1000 * Math.pow(2, attempt), 10_000)
+
+        console.warn(
+          `[supabase-retry] 429 from ${urlStr}, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxAttempts})`
+        )
+
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => setTimeout(r, delay))
+        // Body may already be consumed; the fetch wrapper will re-send it
+        continue
+      }
+
+      return response
+    }
+
+    // All retries exhausted — return the last response (still a 429)
+    return response!
+  }
+
+  return createClient(supabaseUrl, supabaseKey, {
+    global: {
+      fetch: resilientFetch,
+    },
+  })
 }

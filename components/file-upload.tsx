@@ -375,8 +375,6 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                 console.error('Failed to trigger background processing:', err)
               })
 
-              const { supabase } = await import('@/lib/supabase')
-
               let isDone = false
               let attempts = 0
               let consecutiveErrors = 0
@@ -384,17 +382,26 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                 await new Promise(resolve => setTimeout(resolve, 2000))
                 attempts++
 
-                const { data: session, error: pollError } = await supabase
-                  .from('sessions')
-                  .select('processing_status, processing_error, total_messages, date_range_start, date_range_end')
-                  .eq('id', sessionId)
-                  .single()
+                const res = await fetch(`/api/sessions/${sessionId}?projectId=${projectId}`, {
+                  headers: { ...authHeader, ...(await projectAuthHeaders(projectId)) },
+                })
 
-                if (pollError) {
-                  console.error('Polling error:', pollError.message)
+                if (!res.ok) {
+                  console.error('Polling error status:', res.status)
                   consecutiveErrors++
                   if (consecutiveErrors >= 5) {
-                    throw new Error(`Database connection failed: ${pollError.message}`)
+                    throw new Error(`Database connection failed: HTTP ${res.status}`)
+                  }
+                  continue
+                }
+
+                const json = await res.json()
+                const session = json.session
+
+                if (!session) {
+                  consecutiveErrors++
+                  if (consecutiveErrors >= 5) {
+                    throw new Error(`Database connection failed: session not found`)
                   }
                   continue
                 }

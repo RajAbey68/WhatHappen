@@ -197,7 +197,9 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       await user.click(selectBtn)
 
       // Intro layout should be gone
-      expect(screen.queryByText('Complete WhatsApp Analysis Platform')).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.queryByText('Complete WhatsApp Analysis Platform')).not.toBeInTheDocument()
+      })
       
       // Selected project name and overview cards should be visible
       expect(screen.getByText('Test Chat Project')).toBeInTheDocument()
@@ -212,7 +214,9 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       await user.click(selectBtn)
 
       // Metrics: messages count badge and values
-      expect(screen.getByText('1,500 messages')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('1,500 messages')).toBeInTheDocument()
+      })
       expect(screen.getByText('2')).toBeInTheDocument() // 2 participants
       expect(screen.getByText('3')).toBeInTheDocument() // 3 keywords
       expect(screen.getByText('9')).toBeInTheDocument() // 9 days span (Jan 1 to Jan 10)
@@ -225,7 +229,9 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       const selectBtn = screen.getByTestId('select-project-btn')
       await user.click(selectBtn)
 
-      expect(screen.getByTestId('tabs')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByTestId('tabs')).toBeInTheDocument()
+      })
       expect(screen.getAllByTestId('tab-trigger-upload')[0]).toBeInTheDocument()
       expect(screen.getAllByTestId('tab-trigger-ai-chat')[0]).toBeInTheDocument()
       expect(screen.getAllByTestId('tab-trigger-analysis')[0]).toBeInTheDocument()
@@ -239,7 +245,9 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       const selectBtn = screen.getByTestId('select-project-btn')
       await user.click(selectBtn)
 
-      expect(screen.getAllByTestId('tab-trigger-ai-chat')[0]).not.toBeDisabled()
+      await waitFor(() => {
+        expect(screen.getAllByTestId('tab-trigger-ai-chat')[0]).not.toBeDisabled()
+      })
       expect(screen.getAllByTestId('tab-trigger-analysis')[0]).not.toBeDisabled()
       expect(screen.getAllByTestId('tab-trigger-documents')[0]).not.toBeDisabled()
     })
@@ -252,7 +260,9 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       await user.click(selectBtn)
 
       // Default active tab is 'upload', rendering file upload mock
-      expect(screen.getByTestId('tab-content-upload')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByTestId('tab-content-upload')).toBeInTheDocument()
+      })
       expect(screen.getByTestId('file-upload-mock')).toBeInTheDocument()
 
       // Should also render other tab contents
@@ -271,7 +281,9 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       const selectBtn = screen.getByTestId('select-project-btn')
       await user.click(selectBtn)
 
-      expect(screen.getByText('1,500 messages')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('1,500 messages')).toBeInTheDocument()
+      })
 
       // Click the file process mock button inside FileUpload component
       const processBtn = screen.getByTestId('mock-file-process-btn')
@@ -290,14 +302,18 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
       // Select project
       const selectBtn = screen.getByTestId('select-project-btn')
       await user.click(selectBtn)
-      expect(screen.getByText('Test Chat Project')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('Test Chat Project')).toBeInTheDocument()
+      })
 
       // Clear selection
       const clearBtn = screen.getByTestId('clear-project-btn')
       await user.click(clearBtn)
 
       // Intro layout should be back
-      expect(screen.getByText('Complete WhatsApp Analysis Platform')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('Complete WhatsApp Analysis Platform')).toBeInTheDocument()
+      })
       expect(screen.queryByText('Test Chat Project')).not.toBeInTheDocument()
     })
   })
