@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
 import { isValidProjectId, safeParseTimestamp, isAuthBypassed } from '@/lib/api-auth'
+import { computeMessageHash } from '@/lib/message-hash'
 
 // Batch size for Supabase inserts (PostgREST has practical row limits)
 const INSERT_BATCH_SIZE = 500
