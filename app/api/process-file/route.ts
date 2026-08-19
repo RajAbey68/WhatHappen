@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
       .from('sessions')
       .select('project_id')
       .eq('id', sessionId)
-      .single()
+      .maybeSingle()
     effectiveProjectId = sessionRow?.project_id || null
 
     // A sessionId that resolves to no project must not fall through to the
