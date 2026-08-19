@@ -740,7 +740,8 @@ export async function POST(request: NextRequest) {
         if (msgDate >= startDateLimit && msgDate < endDateLimit) {
           const timestamp = msg.timestamp.toISOString()
           const sender = (msg.sender || 'Unknown').trim()
-          const messageHash = computeMessageHash(sessionId, timestamp, sender)
+          const messageLength = msg.message ? msg.message.length : 0
+          const messageHash = computeMessageHash(sessionId, timestamp, sender, messageLength)
 
           metaRows.push({
             session_id: sessionId,
@@ -756,25 +757,50 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Bulk insert messages_meta in chunks of 1000
-      // Unique constraint on (session_id, message_hash) ensures deduplication.
-      // Constraint violations (code 23505) are silently skipped; duplicate messages
-      // are not re-inserted on re-upload.
+      // Bulk insert messages_meta with deduplication
+      // Strategy: pre-check for existing hashes, split into new/duplicate, insert only new.
+      // This prevents batch failures when duplicates exist.
       const CHUNK_SIZE = 1000
-      for (let i = 0; i < metaRows.length; i += CHUNK_SIZE) {
-        const chunk = metaRows.slice(i, i + CHUNK_SIZE)
+      let newMessageCount = 0
+      let duplicateCount = 0
+
+      // Pre-fetch all existing message hashes for this session
+      const { data: existingMetas, error: fetchErr } = await supabase
+        .from('messages_meta')
+        .select('message_hash')
+        .eq('session_id', sessionId)
+
+      if (fetchErr) {
+        console.error('Failed to fetch existing message hashes:', fetchErr)
+      }
+
+      const existingHashes = new Set(existingMetas?.map(m => m.message_hash) || [])
+
+      // Split rows into new and duplicate
+      const newRows = metaRows.filter(row => {
+        if (existingHashes.has(row.message_hash)) {
+          duplicateCount++
+          return false
+        }
+        newMessageCount++
+        return true
+      })
+
+      // Insert only new messages in chunks
+      for (let i = 0; i < newRows.length; i += CHUNK_SIZE) {
+        const chunk = newRows.slice(i, i + CHUNK_SIZE)
         const { error: insertErr } = await supabase
           .from('messages_meta')
           .insert(chunk)
 
         if (insertErr) {
-          // Unique constraint violations (23505) mean duplicates; silently skip
-          if (insertErr.code === '23505') {
-            console.log(`Skipped duplicate messages in session ${sessionId} (constraint violation)`)
-          } else {
-            console.error('Failed to insert messages_meta chunk:', insertErr)
-          }
+          console.error('Failed to insert messages_meta chunk:', insertErr)
+          throw insertErr
         }
+      }
+
+      if (duplicateCount > 0) {
+        console.log(`Deduplication: skipped ${duplicateCount} duplicate messages, inserted ${newMessageCount} new messages in session ${sessionId}`)
       }
 
       // 2. Prepare and insert message stats

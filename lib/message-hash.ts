@@ -10,8 +10,16 @@ export function computeMessageHash(
   sessionId: string,
   timestamp: string,
   sender: string,
-  recipient?: string
+  messageLength?: number
 ): string {
-  const content = [sessionId, timestamp, sender, recipient || ''].join('\x00')
+  // Include message length to prevent collision when multiple messages
+  // arrive in same second from same sender. Length is cheap to compute
+  // and adds entropy without exposing message content.
+  const content = [
+    sessionId,
+    timestamp,
+    sender,
+    String(messageLength || 0)
+  ].join('\x00')
   return createHash('sha256').update(content).digest('hex')
 }
