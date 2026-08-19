@@ -757,27 +757,24 @@ export async function POST(request: NextRequest) {
       }
 
       // Bulk insert messages_meta in chunks of 1000
-      // Use upsert with ON CONFLICT to deduplicate messages within a session
+      // Unique constraint on (session_id, message_hash) ensures deduplication.
+      // Constraint violations (code 23505) are silently skipped; duplicate messages
+      // are not re-inserted on re-upload.
       const CHUNK_SIZE = 1000
-      let duplicateCount = 0
       for (let i = 0; i < metaRows.length; i += CHUNK_SIZE) {
         const chunk = metaRows.slice(i, i + CHUNK_SIZE)
-        const { data, error: insertErr, status } = await supabase
+        const { error: insertErr } = await supabase
           .from('messages_meta')
-          .insert(chunk, { onConflict: 'session_id,message_hash' })
+          .insert(chunk)
 
         if (insertErr) {
-          // Unique constraint violations indicate duplicate messages; these are expected on re-upload
+          // Unique constraint violations (23505) mean duplicates; silently skip
           if (insertErr.code === '23505') {
-            duplicateCount += chunk.length
+            console.log(`Skipped duplicate messages in session ${sessionId} (constraint violation)`)
           } else {
             console.error('Failed to insert messages_meta chunk:', insertErr)
           }
         }
-      }
-
-      if (duplicateCount > 0) {
-        console.log(`Skipped ${duplicateCount} duplicate messages in session ${sessionId}`)
       }
 
       // 2. Prepare and insert message stats

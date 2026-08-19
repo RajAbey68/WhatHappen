@@ -36,7 +36,12 @@ jobs:
           echo "=== Verifying deployment ==="
 
           # Check container status
-          docker-compose ps whathappen | grep -q "Up" && echo "✓ Container running" || echo "✗ Container not running"
+          if docker-compose ps whathappen | grep -q "Up"; then
+            echo "✓ Container running"
+          else
+            echo "✗ Container not running"
+            exit 1
+          fi
 
           # Test HTTP endpoint
           if curl -s http://localhost:3000 > /dev/null; then
@@ -62,6 +67,10 @@ jobs:
           echo "✅ Deployment successful to hermes-dev (167.233.236.178)"
           echo "App URL: https://whathappen.internal.hermes.local"
           echo "Local testing: http://localhost:3000 (via SSH)"
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
 
       - name: Report deployment failure
         if: failure()

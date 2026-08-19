@@ -1,4 +1,4 @@
--- RAJ-XXX — message deduplication via content hash
+-- RAJ-749 — message deduplication via content hash
 --
 -- Adds message_hash column to messages_meta to enable deterministic deduplication.
 -- Re-uploads of the same file will skip duplicate messages via UPSERT ... ON CONFLICT.
@@ -24,13 +24,13 @@ ALTER TABLE public.messages_meta
 CREATE INDEX IF NOT EXISTS idx_messages_meta_hash ON public.messages_meta(message_hash);
 
 -- Backfill message_hash for existing rows
+-- Hash is based on: session_id + timestamp + sender (matches TypeScript computeMessageHash)
 UPDATE public.messages_meta
   SET message_hash = encode(
     digest(
       COALESCE(session_id::text, '') ||
       COALESCE(timestamp::text, '') ||
-      COALESCE(sender, '') ||
-      COALESCE(recipient, ''),
+      COALESCE(sender, ''),
       'sha256'
     ),
     'hex'
