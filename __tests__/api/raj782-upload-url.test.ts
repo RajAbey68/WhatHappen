@@ -67,7 +67,10 @@ jest.mock('../../lib/auth', () => ({
     storage: {
       from: () => ({
         createSignedUploadUrl: async (p: string) => ({
-          data: { signedUrl: `https://sb.invalid/${p}` },
+          data: {
+            signedUrl: `https://sb.invalid/${p}`,
+            token: 'mock-supabase-token',
+          },
           error: null,
         }),
       }),
@@ -128,6 +131,11 @@ describe('RAJ-782 — CLIENT CONTRACT (the shape file-upload.tsx destructures)',
     )
     expect(typeof body.uploadUrl).toBe('string')
     expect(body.uploadUrl).toContain('https://')
+
+    // RAJ-782 part 2: the client must receive the signed token and bucket
+    // so it can call uploadToSignedUrl instead of a raw PUT.
+    expect(body.token).toBe('mock-supabase-token')
+    expect(body.bucket).toBe('evidence')
   })
 
   it('creates the sessions row the client will poll, with an explicit storage_path', async () => {

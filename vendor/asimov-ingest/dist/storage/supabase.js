@@ -34,6 +34,7 @@ function createSupabaseStorageAdapter(opts) {
             return {
                 url: data.signedUrl,
                 path,
+                token: data.token,
                 expiresAt: Date.now() + (urlOpts?.expiresInSeconds ?? ttl) * 1000,
             };
         },

@@ -21,6 +21,8 @@ export interface SignedUploadUrl {
   path: string
   /** Epoch ms at which the URL stops working. */
   expiresAt: number
+  /** Signed-upload token. Required by Supabase Storage; absent for GCS. */
+  token?: string
 }
 
 export interface StorageAdapter {
