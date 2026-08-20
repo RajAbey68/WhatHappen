@@ -8,6 +8,7 @@ import { parse as csvParse } from 'csv-parse/sync'
 import { v4 as uuidv4 } from 'uuid'
 import { getServiceClient } from '@/lib/auth'
 import { requireProjectAccess, isAuthBypassed } from '@/lib/api-auth'
+import { computeMessageHash } from '@/lib/message-hash'
 import { detectType, RateLimiter, type DetectedType } from '@asimov/ingest'
 const Sentiment = require('sentiment')
 
@@ -737,11 +738,16 @@ export async function POST(request: NextRequest) {
       for (const msg of enrichedMessages) {
         const msgDate = new Date(msg.timestamp)
         if (msgDate >= startDateLimit && msgDate < endDateLimit) {
+          const timestamp = msg.timestamp.toISOString()
+          const sender = (msg.sender || 'Unknown').trim()
+          const messageHash = computeMessageHash(sessionId, timestamp, sender, msg.message?.slice(0, 100))
+
           metaRows.push({
             session_id: sessionId,
             source_type: 'whatsapp',
-            timestamp: msg.timestamp.toISOString(),
-            sender: (msg.sender || 'Unknown').trim(),
+            timestamp,
+            sender,
+            message_hash: messageHash,
             word_count: msg.message ? msg.message.split(/\s+/).length : 0,
             sentiment_score: msg.sentiment?.score || 0,
             has_media: msg.messageType === 'media',
@@ -751,13 +757,26 @@ export async function POST(request: NextRequest) {
       }
 
       // Bulk insert messages_meta in chunks of 1000
+      // Use upsert with ON CONFLICT to deduplicate messages within a session
       const CHUNK_SIZE = 1000
+      let duplicateCount = 0
       for (let i = 0; i < metaRows.length; i += CHUNK_SIZE) {
         const chunk = metaRows.slice(i, i + CHUNK_SIZE)
-        const { error: insertErr } = await supabase.from('messages_meta').insert(chunk)
+        const { error: insertErr } = await supabase
+          .from('messages_meta')
+          .insert(chunk, { onConflict: 'session_id,message_hash' })
+
         if (insertErr) {
-          console.error('Failed to insert messages_meta chunk:', insertErr)
+          if (insertErr.code === '23505') {
+            duplicateCount += chunk.length
+          } else {
+            console.error('Failed to insert messages_meta chunk:', insertErr)
+          }
         }
+      }
+
+      if (duplicateCount > 0) {
+        console.log(`[process-file] Skipped ${duplicateCount} duplicate messages in session ${sessionId}`)
       }
 
       // 2. Prepare and insert message stats

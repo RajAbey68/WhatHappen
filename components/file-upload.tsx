@@ -419,6 +419,23 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
                 if (session.processing_status === 'complete') {
                   isDone = true
+
+                  // Fetch the hydrated project analysis if projectId is available
+                  let projectAnalysis: any = null
+                  if (projectId) {
+                    try {
+                      const projRes = await fetch(`/api/projects/${projectId}`, {
+                        headers: { ...authHeader, ...(await projectAuthHeaders(projectId)) }
+                      })
+                      if (projRes.ok) {
+                        const projJson = await projRes.json()
+                        projectAnalysis = projJson.project?.analysis
+                      }
+                    } catch (e) {
+                      console.warn('Failed to fetch full project analysis after processing complete:', e)
+                    }
+                  }
+
                   resultData = {
                     fileId: sessionId,
                     chatId: sessionId,
@@ -426,25 +443,25 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                     fileSize: currentFile.size,
                     processedAt: new Date().toISOString(),
                     totalMessages: session.total_messages || 0,
-                    participants: [],
+                    participants: projectAnalysis?.participants || [],
                     messages: [],
                     analysis: {
                       totalMessages: session.total_messages || 0,
-                      participants: [],
+                      participants: projectAnalysis?.participants || [],
                       dateRange: {
                         start: session.date_range_start,
                         end: session.date_range_end,
                       },
-                      messagesByParticipant: {},
-                      averageSentiment: 0,
-                      topWords: [],
-                      dailyMessageCounts: [],
-                      hourlyDistribution: {},
+                      messagesByParticipant: projectAnalysis?.messagesByParticipant || {},
+                      averageSentiment: projectAnalysis?.sentiment?.average || 0,
+                      topWords: projectAnalysis?.keywords?.map((k: string) => ({ word: k, count: 1 })) || [],
+                      dailyMessageCounts: projectAnalysis?.dailyMessageCounts || [],
+                      hourlyDistribution: projectAnalysis?.hourlyDistribution || {},
                       mediaMessages: 0,
-                      textMessages: 0,
+                      textMessages: session.total_messages || 0,
                       averageMessageLength: 0
                     },
-                    sentimentAnalysis: { byParticipant: {}, average: 0 },
+                    sentimentAnalysis: { byParticipant: {}, average: projectAnalysis?.sentiment?.average || 0 },
                     timeAnalysis: { dailyDistribution: {}, hourlyDistribution: {} },
                     wordFrequency: {}
                   }
