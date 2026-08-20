@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  whathappen:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whathappen
+    restart: unless-stopped
+    ports:
+      - "3005:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - WHATSAPP_PASSPHRASE_HASH=${WHATSAPP_PASSPHRASE_HASH}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://167.233.236.178:11434}
+    env_file:
+      - .env.prod
+    networks:
+      - fleet-network
+
+networks:
+  fleet-network:
+    external: true

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
+import { version } from '../package.json'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -21,6 +22,9 @@ export default function RootLayout({
         <main className="min-h-screen bg-slate-950">
           {children}
         </main>
+        <footer className="fixed bottom-1 right-2 text-[10px] text-slate-600 select-none pointer-events-none z-50">
+          v{version}
+        </footer>
         <Toaster />
       </body>
     </html>

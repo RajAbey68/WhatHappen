@@ -25,6 +25,7 @@ export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
+import { RateLimiter } from '@asimov/ingest'
 import {
   isValidProjectId,
   issueProjectToken,
@@ -37,6 +38,16 @@ import {
   getConfiguredPassphraseHash,
   timingSafeEqualStr,
 } from '@/lib/passphrase-proof'
+
+// Rate limit token minting to prevent brute-forcing HMAC proofs: 10 attempts per minute per IP
+const projectTokenLimiter = new RateLimiter({ capacity: 10, refillPerMinute: 10 })
+
+function clientKeyFor(request: NextRequest): string {
+  const headers = (request as { headers?: Headers }).headers
+  const forwarded = headers?.get?.('x-forwarded-for')
+  if (forwarded) return forwarded.split(',')[0].trim()
+  return headers?.get?.('x-real-ip') || 'unknown'
+}
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
@@ -54,6 +65,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'A valid project ID is required' },
         { status: 400, headers: JSON_HEADERS }
+      )
+    }
+
+    if (!isAuthBypassed() && !projectTokenLimiter.tryConsume(clientKeyFor(request))) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please wait and try again.' },
+        { status: 429, headers: JSON_HEADERS }
       )
     }
 
