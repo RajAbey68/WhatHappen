@@ -5,7 +5,7 @@
 set -e
 
 REPO_DIR="/opt/services/whathappen"
-BRANCH="fix/raj749-rls-blocker"
+BRANCH="main"
 ENV_FILE=".env.prod"
 
 echo "======================================"

@@ -740,8 +740,8 @@ export async function POST(request: NextRequest) {
         if (msgDate >= startDateLimit && msgDate < endDateLimit) {
           const timestamp = msg.timestamp.toISOString()
           const sender = (msg.sender || 'Unknown').trim()
-          const messageLength = msg.message ? msg.message.length : 0
-          const messageHash = computeMessageHash(sessionId, timestamp, sender, messageLength)
+          const wordCount = msg.message ? msg.message.split(/\s+/).length : 0
+          const messageHash = computeMessageHash(sessionId, timestamp, sender, wordCount)
 
           metaRows.push({
             session_id: sessionId,
