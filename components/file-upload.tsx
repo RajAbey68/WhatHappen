@@ -384,20 +384,23 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                 await new Promise(resolve => setTimeout(resolve, 2000))
                 attempts++
 
-                const { data: session, error: pollError } = await supabase
-                  .from('sessions')
-                  .select('processing_status, processing_error, total_messages, date_range_start, date_range_end')
-                  .eq('id', sessionId)
-                  .single()
+                const pollRes = await fetch(
+                  `/api/sessions/${sessionId}?projectId=${encodeURIComponent(projectId)}`,
+                  { headers: await projectAuthHeaders(projectId) }
+                )
 
-                if (pollError) {
-                  console.error('Polling error:', pollError.message)
+                if (!pollRes.ok) {
+                  const errBody = await pollRes.json().catch(() => ({}))
+                  console.error('Polling error:', errBody.error || pollRes.statusText)
                   consecutiveErrors++
                   if (consecutiveErrors >= 5) {
-                    throw new Error(`Database connection failed: ${pollError.message}`)
+                    throw new Error(`Database connection failed: ${errBody.error || pollRes.statusText}`)
                   }
                   continue
                 }
+
+                const { session } = await pollRes.json()
+                const pollError = session ? null : new Error('No session data')
                 consecutiveErrors = 0
 
                 if (session.processing_status === 'processing' && session.processing_error) {

@@ -8,6 +8,7 @@ import { parse as csvParse } from 'csv-parse/sync'
 import { v4 as uuidv4 } from 'uuid'
 import { getServiceClient } from '@/lib/auth'
 import { requireProjectAccess, isAuthBypassed } from '@/lib/api-auth'
+import { computeMessageHash } from '@/lib/message-hash'
 import { detectType, RateLimiter, type DetectedType } from '@asimov/ingest'
 const Sentiment = require('sentiment')
 
@@ -737,11 +738,17 @@ export async function POST(request: NextRequest) {
       for (const msg of enrichedMessages) {
         const msgDate = new Date(msg.timestamp)
         if (msgDate >= startDateLimit && msgDate < endDateLimit) {
+          const timestamp = msg.timestamp.toISOString()
+          const sender = (msg.sender || 'Unknown').trim()
+          const wordCount = msg.message ? msg.message.split(/\s+/).length : 0
+          const messageHash = computeMessageHash(sessionId, timestamp, sender, wordCount)
+
           metaRows.push({
             session_id: sessionId,
             source_type: 'whatsapp',
-            timestamp: msg.timestamp.toISOString(),
-            sender: (msg.sender || 'Unknown').trim(),
+            timestamp,
+            sender,
+            message_hash: messageHash,
             word_count: msg.message ? msg.message.split(/\s+/).length : 0,
             sentiment_score: msg.sentiment?.score || 0,
             has_media: msg.messageType === 'media',
@@ -750,14 +757,50 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Bulk insert messages_meta in chunks of 1000
+      // Bulk insert messages_meta with deduplication
+      // Strategy: pre-check for existing hashes, split into new/duplicate, insert only new.
+      // This prevents batch failures when duplicates exist.
       const CHUNK_SIZE = 1000
-      for (let i = 0; i < metaRows.length; i += CHUNK_SIZE) {
-        const chunk = metaRows.slice(i, i + CHUNK_SIZE)
-        const { error: insertErr } = await supabase.from('messages_meta').insert(chunk)
+      let newMessageCount = 0
+      let duplicateCount = 0
+
+      // Pre-fetch all existing message hashes for this session
+      const { data: existingMetas, error: fetchErr } = await supabase
+        .from('messages_meta')
+        .select('message_hash')
+        .eq('session_id', sessionId)
+
+      if (fetchErr) {
+        console.error('Failed to fetch existing message hashes:', fetchErr)
+      }
+
+      const existingHashes = new Set(existingMetas?.map(m => m.message_hash) || [])
+
+      // Split rows into new and duplicate
+      const newRows = metaRows.filter(row => {
+        if (existingHashes.has(row.message_hash)) {
+          duplicateCount++
+          return false
+        }
+        newMessageCount++
+        return true
+      })
+
+      // Insert only new messages in chunks
+      for (let i = 0; i < newRows.length; i += CHUNK_SIZE) {
+        const chunk = newRows.slice(i, i + CHUNK_SIZE)
+        const { error: insertErr } = await supabase
+          .from('messages_meta')
+          .insert(chunk)
+
         if (insertErr) {
           console.error('Failed to insert messages_meta chunk:', insertErr)
+          throw insertErr
         }
+      }
+
+      if (duplicateCount > 0) {
+        console.log(`Deduplication: skipped ${duplicateCount} duplicate messages, inserted ${newMessageCount} new messages in session ${sessionId}`)
       }
 
       // 2. Prepare and insert message stats
