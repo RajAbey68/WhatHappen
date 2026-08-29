@@ -13,11 +13,18 @@
  * 6. Graceful shutdown on SIGTERM / SIGINT.
  */
 
-import { createClient } from '@supabase/supabase-js'
-import * as crypto from 'crypto'
-import * as fs from 'fs'
+import * as dotenv from 'dotenv'
 import * as path from 'path'
+import * as fs from 'fs'
 import * as os from 'os'
+import * as crypto from 'crypto'
+
+// Load environment variables from repo root
+dotenv.config({ path: path.resolve(__dirname, '../.env.production') })
+dotenv.config({ path: path.resolve(__dirname, '../.env.local') })
+dotenv.config({ path: path.resolve(__dirname, '../.env') })
+
+import { createClient } from '@supabase/supabase-js'
 import { extractImageText } from '../lib/gemini-ocr'
 import { transcribeAudio, isAudioFile } from '../lib/audio-transcriber'
 
