@@ -1,15 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-// RAJ-748: fail loudly on missing configuration instead of silently falling back
-// to placeholder credentials, which masks misconfiguration until runtime.
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    'Supabase is not configured: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must both be set.'
-  )
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key'
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 

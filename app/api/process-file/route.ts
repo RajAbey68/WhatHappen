@@ -1007,7 +1007,9 @@ function enrichMediaMessages(
 
     // 1. Match and inject audio transcriptions
     if (transcribedAudios && transcribedAudios.size > 0) {
-      for (const [filename, transcript] of transcribedAudios.entries()) {
+      const audioEntries = Array.from(transcribedAudios.entries())
+      for (let i = 0; i < audioEntries.length; i++) {
+        const [filename, transcript] = audioEntries[i]
         if (updatedMsg.includes(filename)) {
           updatedMsg = `${updatedMsg}\n\n[Voice Note Transcription]\n${transcript}`
           wasEnriched = true
@@ -1015,7 +1017,8 @@ function enrichMediaMessages(
         }
       }
       if (!wasEnriched && (msg.messageType === 'media' || updatedMsg.includes('audio omitted') || updatedMsg.includes('voice message') || updatedMsg.includes('PTT-'))) {
-        for (const [filename, transcript] of transcribedAudios.entries()) {
+        for (let i = 0; i < audioEntries.length; i++) {
+          const [filename, transcript] = audioEntries[i]
           updatedMsg = `${updatedMsg}\n\n[Voice Note: ${filename}]\n${transcript}`
           transcribedAudios.delete(filename)
           wasEnriched = true
