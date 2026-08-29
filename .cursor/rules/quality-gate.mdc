@@ -1,0 +1,25 @@
+---
+description: Standard Test Management Operating Process and Quality Gate
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Standard Test Management Operating Process (Quality Gate)
+
+All AI agents and developers working in this repository must adhere to the following rules:
+
+1. **Zero-Row PostgREST Coercion Safety**:
+   - Never use `.select(...).single()` for database record lookups.
+   - Always use `.maybeSingle()` so that non-existent rows return `{ data: null, error: null }` rather than crashing PostgREST with `PGRST116: Cannot coerce the result to a single JSON object`.
+
+2. **Pre-Commit / Pre-Completion Quality Gate**:
+   - Before completing any task, opening a PR, or declaring work finished, run:
+     ```bash
+     npm run quality-gate # executes scripts/quality-gate.sh
+     ```
+   - Must pass all 5 verification tiers:
+     - Typecheck and build (`next build`).
+     - SQL migration safety.
+     - PostgREST resilience & SDK contract unit tests.
+     - Static query scan (zero `.select(...).single()` violations).
+     - Clean exit code `0`.

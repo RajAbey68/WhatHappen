@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       .from('projects')
       .select('*')
       .eq('id', projectId)
-      .single()
+      .maybeSingle()
 
     if (projError || !dbProj) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })

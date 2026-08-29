@@ -1,0 +1,33 @@
+# CodeRabbit Configuration for Standard Quality Gate
+version: "2"
+language: "en-US"
+tone_instructions: "Be rigorous, focus on error handling, security, database resilience, PostgREST 0-row coercion safety, and SDK edge cases."
+
+reviews:
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  path_instructions:
+    - path: "app/api/**"
+      instructions: |
+        - Enforce that Supabase SELECT queries use `.maybeSingle()` rather than `.single()` to avoid PGRST116 crashes on 0 rows.
+        - Ensure every endpoint handling stored data verifies project authentication via project tokens or user ownership.
+        - Ensure all file processing routes validate magic-bytes and permit signatureless formats (.txt, .csv, .json, .pst).
+        - Verify all errors return structured JSON with status codes (e.g. 400, 401, 404, 415, 500).
+
+    - path: "lib/**"
+      instructions: |
+        - Verify database functions handle nullable records gracefully.
+        - Ensure zero-knowledge guarantees: no raw passphrases logged or stored.
+
+    - path: "supabase/migrations/**"
+      instructions: |
+        - Flag any non-idempotent DDL (require IF NOT EXISTS / OR REPLACE).
+        - Flag unindexed foreign keys or missing RLS policies.
+        - Flag destructive operations (DROP TABLE/COLUMN) without safe migration patterns.
+
+chat:
+  auto_reply: true

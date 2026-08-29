@@ -46,7 +46,7 @@ export async function GET(
       .from('projects')
       .select('*')
       .eq('id', params.id)
-      .single()
+      .maybeSingle()
 
     if (error || !data) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })

@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       .select('id')
       .eq('id', sessionId)
       .eq('user_id', authResult.user.id)
-      .single()
+      .maybeSingle()
 
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
