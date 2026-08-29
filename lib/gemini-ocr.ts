@@ -241,3 +241,47 @@ function sniffMimeType(base64: string): string {
 
   return 'image/jpeg';
 }
+
+/**
+ * Concurrency-bounded batch OCR extractor.
+ * Processes images in sliding window chunks of `concurrency` (default: 5)
+ * to avoid memory exhaustion and rate limiting.
+ */
+export async function extractBatchImageText(
+  images: Array<{ name: string; base64: string }>,
+  concurrency: number = 5,
+  onProgress?: (completed: number, total: number) => void
+): Promise<Array<{ name: string; text: string; success: boolean }>> {
+  const results: Array<{ name: string; text: string; success: boolean }> = [];
+  const total = images.length;
+  let completed = 0;
+
+  for (let i = 0; i < images.length; i += concurrency) {
+    const chunk = images.slice(i, i + concurrency);
+    const chunkPromises = chunk.map(async (img) => {
+      try {
+        const res = await extractImageText(img.base64);
+        completed++;
+        if (onProgress) onProgress(completed, total);
+        return {
+          name: img.name,
+          text: res.extractedText || '',
+          success: res.success,
+        };
+      } catch (err: any) {
+        completed++;
+        if (onProgress) onProgress(completed, total);
+        return {
+          name: img.name,
+          text: '',
+          success: false,
+        };
+      }
+    });
+
+    const chunkResults = await Promise.all(chunkPromises);
+    results.push(...chunkResults);
+  }
+
+  return results;
+}

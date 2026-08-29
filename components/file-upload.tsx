@@ -375,76 +375,103 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                 console.error('Failed to trigger background processing:', err)
               })
 
-              const { supabase } = await import('@/lib/supabase')
-
               let isDone = false
               let attempts = 0
               let consecutiveErrors = 0
-              while (!isDone && attempts < 60) {
+              while (!isDone && attempts < 90) {
                 await new Promise(resolve => setTimeout(resolve, 2000))
                 attempts++
 
-                const { data: session, error: pollError } = await supabase
-                  .from('sessions')
-                  .select('processing_status, processing_error, total_messages, date_range_start, date_range_end')
-                  .eq('id', sessionId)
-                  .single()
-
-                if (pollError) {
-                  console.error('Polling error:', pollError.message)
-                  consecutiveErrors++
-                  if (consecutiveErrors >= 5) {
-                    throw new Error(`Database connection failed: ${pollError.message}`)
+                try {
+                  const pollHeaders = {
+                    ...authHeader,
+                    ...(await projectAuthHeaders(projectId)),
                   }
-                  continue
-                }
-                consecutiveErrors = 0
 
-                if (session.processing_status === 'processing' && session.processing_error) {
-                  setUploadedFiles(prev => 
-                    prev.map(f => 
-                      f.file === uploadedFile.file 
-                        ? { ...f, processingStep: session.processing_error }
-                        : f
-                    )
+                  const pollRes = await fetch(
+                    `/api/process-file?sessionId=${sessionId}&projectId=${projectId}`,
+                    {
+                      method: 'GET',
+                      headers: pollHeaders,
+                    }
                   )
-                }
 
-                if (session.processing_status === 'complete') {
-                  isDone = true
-                  resultData = {
-                    fileId: sessionId,
-                    chatId: sessionId,
-                    fileName: currentFile.name,
-                    fileSize: currentFile.size,
-                    processedAt: new Date().toISOString(),
-                    totalMessages: session.total_messages || 0,
-                    participants: [],
-                    messages: [],
-                    analysis: {
+                  if (!pollRes.ok) {
+                    const errJson = await pollRes.json().catch(() => ({}))
+                    console.error('Polling error:', errJson.error || pollRes.statusText)
+                    consecutiveErrors++
+                    if (consecutiveErrors >= 8) {
+                      throw new Error(`Processing status poll failed: ${errJson.error || pollRes.statusText}`)
+                    }
+                    continue
+                  }
+
+                  const pollData = await pollRes.json()
+                  const session = pollData.session
+                  if (!session) {
+                    consecutiveErrors++
+                    if (consecutiveErrors >= 8) {
+                      throw new Error('Session data not found')
+                    }
+                    continue
+                  }
+
+                  consecutiveErrors = 0
+
+                  if (session.processing_status === 'processing' && session.processing_error) {
+                    setUploadedFiles(prev => 
+                      prev.map(f => 
+                        f.file === uploadedFile.file 
+                          ? { ...f, processingStep: session.processing_error }
+                          : f
+                      )
+                    )
+                  }
+
+                  if (session.processing_status === 'complete') {
+                    isDone = true
+                    resultData = {
+                      fileId: sessionId,
+                      chatId: sessionId,
+                      fileName: currentFile.name,
+                      fileSize: currentFile.size,
+                      processedAt: new Date().toISOString(),
                       totalMessages: session.total_messages || 0,
                       participants: [],
-                      dateRange: {
-                        start: session.date_range_start,
-                        end: session.date_range_end,
+                      messages: [],
+                      analysis: {
+                        totalMessages: session.total_messages || 0,
+                        participants: [],
+                        dateRange: {
+                          start: session.date_range_start,
+                          end: session.date_range_end,
+                        },
+                        messagesByParticipant: {},
+                        averageSentiment: 0,
+                        topWords: [],
+                        dailyMessageCounts: [],
+                        hourlyDistribution: {},
+                        mediaMessages: 0,
+                        textMessages: 0,
+                        averageMessageLength: 0
                       },
-                      messagesByParticipant: {},
-                      averageSentiment: 0,
-                      topWords: [],
-                      dailyMessageCounts: [],
-                      hourlyDistribution: {},
-                      mediaMessages: 0,
-                      textMessages: 0,
-                      averageMessageLength: 0
-                    },
-                    sentimentAnalysis: { byParticipant: {}, average: 0 },
-                    timeAnalysis: { dailyDistribution: {}, hourlyDistribution: {} },
-                    wordFrequency: {}
+                      sentimentAnalysis: { byParticipant: {}, average: 0 },
+                      timeAnalysis: { dailyDistribution: {}, hourlyDistribution: {} },
+                      wordFrequency: {}
+                    }
                   }
-                }
 
-                if (session.processing_status === 'failed') {
-                  throw new Error(session.processing_error || 'Processing failed on the server')
+                  if (session.processing_status === 'failed' || session.processing_status === 'error') {
+                    throw new Error(session.processing_error || 'Processing failed on the server')
+                  }
+                } catch (pollErr: any) {
+                  if (
+                    pollErr.message &&
+                    (pollErr.message.includes('Processing failed') || consecutiveErrors >= 8)
+                  ) {
+                    throw pollErr
+                  }
+                  consecutiveErrors++
                 }
               }
 

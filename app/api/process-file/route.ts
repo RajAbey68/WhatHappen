@@ -4,11 +4,13 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 import { NextRequest, NextResponse } from 'next/server'
+import path from 'path'
 import { parse as csvParse } from 'csv-parse/sync'
 import { v4 as uuidv4 } from 'uuid'
 import { getServiceClient } from '@/lib/auth'
 import { requireProjectAccess, isAuthBypassed } from '@/lib/api-auth'
 import { detectType, RateLimiter, type DetectedType } from '@asimov/ingest'
+import { isAudioFile } from '@/lib/audio-transcriber'
 const Sentiment = require('sentiment')
 
 // Firebase integration temporarily disabled due to compatibility issues
@@ -116,10 +118,67 @@ function clientKeyFor(request: NextRequest): string {
   return headers?.get?.('x-real-ip') || 'unknown'
 }
 
+/**
+ * GET /api/process-file?sessionId=...&projectId=...
+ *
+ * Authenticated polling endpoint to query processing status of an uploaded session.
+ * Uses service role client to bypass PostgREST RLS after verifying caller's project token.
+ */
+export async function GET(request: NextRequest) {
+  const url = request.nextUrl ?? new URL(request.url, 'http://localhost')
+  const sessionId = url.searchParams.get('sessionId')
+  const projectIdParam = url.searchParams.get('projectId')
+
+  if (!sessionId) {
+    return NextResponse.json(
+      { success: false, error: 'sessionId query parameter is required' },
+      { status: 400 }
+    )
+  }
+
+  const supabase = getServiceClient()
+  const { data: session, error: sessionError } = await supabase
+    .from('sessions')
+    .select('id, project_id, file_name, file_size_bytes, processing_status, processing_error, total_messages, date_range_start, date_range_end, created_at, processing_ms')
+    .eq('id', sessionId)
+    .maybeSingle()
+
+  if (sessionError || !session) {
+    return NextResponse.json(
+      { success: false, error: sessionError?.message || 'Session not found' },
+      { status: 404 }
+    )
+  }
+
+  const effectiveProjectId = session.project_id || projectIdParam
+  if (effectiveProjectId) {
+    const authError = await requireProjectAccess(request, effectiveProjectId)
+    if (authError) return authError
+  }
+
+  return NextResponse.json({
+    success: true,
+    session: {
+      id: session.id,
+      projectId: session.project_id,
+      fileName: session.file_name,
+      fileSizeBytes: session.file_size_bytes,
+      processing_status: session.processing_status,
+      processing_error: session.processing_error,
+      total_messages: session.total_messages,
+      date_range_start: session.date_range_start,
+      date_range_end: session.date_range_end,
+      created_at: session.created_at,
+      processing_ms: session.processing_ms,
+    }
+  })
+}
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
-  const sessionId = request.nextUrl.searchParams.get('sessionId')
-  const projectId = request.nextUrl.searchParams.get('projectId')
+  const url = request.nextUrl ?? new URL(request.url, 'http://localhost')
+  const sessionId = url.searchParams.get('sessionId')
+  const projectId = url.searchParams.get('projectId')
   let supabase: any = null
 
   // RAJ-780 / solar-wheel review — authorize every request that TOUCHES STORED
@@ -381,6 +440,7 @@ export async function POST(request: NextRequest) {
     const allowedExtensions = [
       '.txt', '.docx', '.pdf', '.csv', '.json',
       '.zip', '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif',
+      '.opus', '.m4a', '.mp3', '.wav', '.ogg',
     ]
     const lowerName = file.name.toLowerCase()
     const hasAllowedExtension = allowedExtensions.some(ext => lowerName.endsWith(ext))
@@ -416,11 +476,13 @@ export async function POST(request: NextRequest) {
     let fileContent: string = ''
     let ocrText: string = ''
     let ocrImagesProcessed: number = 0
+    const transcribedAudios = new Map<string, string>()
 
     // ── ZIP handling ──────────────────────────────────────────────────────
     // WhatsApp exports are often ZIP archives containing the chat .txt/.json
-    // alongside media files (images, videos). We extract the chat file and
-    // run OCR on any images found.
+    // alongside media files (images, audio, videos).
+    // Extract chat transcript, transcribe audio voice notes, OCR all images,
+    // and explicitly skip videos without decompressing them into RAM.
     if (file.name.endsWith('.zip')) {
       await updateSessionProgress('Extracting ZIP archive...')
       try {
@@ -428,115 +490,114 @@ export async function POST(request: NextRequest) {
         const zip = new AdmZipModule(fileBuffer)
         const entries = zip.getEntries()
 
-        // ZIP bomb protection: cap total entries and decompressed size
-        const MAX_ZIP_ENTRIES = 1000
-        const MAX_TOTAL_DECOMPRESSED = 200 * 1024 * 1024 // 200 MB
+        const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.mkv', '.3gp', '.m4v']
+        const AUDIO_EXTENSIONS = ['.opus', '.m4a', '.mp3', '.wav', '.ogg']
 
-        if (entries.length > MAX_ZIP_ENTRIES) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: `ZIP archive has too many entries (${entries.length}). Maximum allowed: ${MAX_ZIP_ENTRIES}.`
-            },
-            { status: 400 }
-          )
-        }
+        const chatEntries: any[] = []
+        const imageEntries: any[] = []
+        const audioEntries: any[] = []
 
-        // Separate chat files and image files from the ZIP
-        const chatFiles: Array<{ name: string; data: Buffer }> = []
-        const imageFiles: Array<{ name: string; data: Buffer }> = []
-        let totalDecompressedSize = 0
-
-        let totalUncompressedBytes = 0
         for (const entry of entries) {
           if (entry.isDirectory) continue
-          
-          totalUncompressedBytes += entry.header?.size || 0
-          if (totalUncompressedBytes > 300 * 1024 * 1024) { // 300MB limit
-            throw new Error('ZIP bomb protection: Uncompressed size exceeds 300MB limit')
-          }
-
           const name = entry.entryName || entry.getEntryName?.() || ''
           const lower = name.toLowerCase()
-          const data: Buffer | null = entry.getData()
 
-          if (!data) continue
-
-          // ZIP bomb protection: track cumulative decompressed size
-          totalDecompressedSize += data.length
-          if (totalDecompressedSize > MAX_TOTAL_DECOMPRESSED) {
-            return NextResponse.json(
-              {
-                success: false,
-                error: `ZIP archive decompresses to too much data (${(totalDecompressedSize / 1024 / 1024).toFixed(1)} MB). Maximum allowed: ${MAX_TOTAL_DECOMPRESSED / 1024 / 1024} MB.`
-              },
-              { status: 400 }
-            )
+          // Skip videos to preserve serverless RAM
+          if (VIDEO_EXTENSIONS.some(ext => lower.endsWith(ext))) {
+            continue
           }
 
           if (lower.endsWith('.txt') || lower.endsWith('.json') || lower.endsWith('.csv')) {
-            chatFiles.push({ name: lower, data })
+            chatEntries.push(entry)
           } else if (isImageExtension(lower)) {
-            imageFiles.push({ name, data })
+            imageEntries.push(entry)
+          } else if (AUDIO_EXTENSIONS.some(ext => lower.endsWith(ext))) {
+            audioEntries.push(entry)
           }
         }
 
-        // Process the best chat file found (prefer .txt, then .json, then .csv)
-        if (chatFiles.length > 0) {
-          let bestChat: { name: string; data: Buffer } | null = null
-          for (const ext of ['.txt', '.json', '.csv']) {
-            bestChat = chatFiles.find(c => c.name.endsWith(ext)) || null
-            if (bestChat) break
+        // 1. Extract the best chat transcript found (prefer .txt, then .json, then .csv)
+        if (chatEntries.length > 0) {
+          let bestChatEntry = chatEntries.find(c => (c.entryName || '').toLowerCase().endsWith('.txt')) ||
+                              chatEntries.find(c => (c.entryName || '').toLowerCase().endsWith('.json')) ||
+                              chatEntries[0]
+          processingFileName = bestChatEntry.entryName || 'chat.txt'
+          const chatBuf = bestChatEntry.getData()
+          if (chatBuf) {
+            fileContent = chatBuf.toString('utf-8')
           }
-          if (!bestChat) bestChat = chatFiles[0] // fallback
-
-          // Set file name to the inner chat file name for downstream parsing
-          processingFileName = bestChat.name
-          fileContent = bestChat.data.toString('utf-8')
         }
 
-        // Run OCR on images found in the ZIP (cap to 5 and process in parallel to avoid timeouts)
-        if (imageFiles.length > 0) {
-          await updateSessionProgress('Running OCR on images...')
-          const { extractImageText } = await import('@/lib/gemini-ocr')
-          
-          const MAX_OCR_IMAGES = 5
-          const imagesToProcess = imageFiles.slice(0, MAX_OCR_IMAGES)
-          
-          console.log(`[process-file] Running parallel OCR on ${imagesToProcess.length} of ${imageFiles.length} images`)
-          
-          const ocrPromises = imagesToProcess.map(async (img) => {
-            try {
-              const ext = getExtension(img.name)
-              const mimeType = imageExtToMime(ext)
-              const base64 = bufferToBase64(img.data, mimeType)
-              const result = await extractImageText(base64)
-              if (result.success && result.extractedText) {
-                ocrImagesProcessed++
-                return `[Image: ${img.name}]\n${result.extractedText}`
-              }
-            } catch (err: any) {
-              console.error(`OCR failed for image ${img.name}:`, err.message)
+        // 2. Transcribe voice notes and audio attachments
+        if (audioEntries.length > 0) {
+          await updateSessionProgress(`Transcribing ${audioEntries.length} voice notes...`)
+          const { transcribeBatchAudio } = await import('@/lib/audio-transcriber')
+
+          const audioFilesToTranscribe = audioEntries.map(entry => {
+            const entryName = entry.entryName || entry.getEntryName?.() || 'audio.opus'
+            return {
+              name: path.basename(entryName),
+              data: entry.getData() as Buffer,
             }
-            return null
-          })
+          }).filter(a => a.data && a.data.length > 0)
 
-          const results = await Promise.all(ocrPromises)
-          const ocrResults = results.filter(Boolean) as string[]
-          ocrText = ocrResults.join('\n\n')
+          const audioResults = await transcribeBatchAudio(
+            audioFilesToTranscribe,
+            3,
+            (completed, total) => {
+              updateSessionProgress(`Transcribing voice notes (${completed}/${total})...`)
+            }
+          )
+
+          audioResults.forEach((val, key) => transcribedAudios.set(key, val))
         }
 
-        // If no chat file found in the ZIP, try OCR on its own
-        if (!fileContent && imageFiles.length > 0) {
-          fileContent = `[ZIP upload with ${imageFiles.length} image(s)]\n\nOCR Extracted Text:\n${ocrText}`
+        // 3. Batch OCR across all images in the ZIP
+        if (imageEntries.length > 0) {
+          await updateSessionProgress(`Running OCR on ${imageEntries.length} images...`)
+          const { extractBatchImageText } = await import('@/lib/gemini-ocr')
+
+          const imagesToProcess = imageEntries.map(entry => {
+            const entryName = entry.entryName || entry.getEntryName?.() || 'image.jpg'
+            const ext = getExtension(entryName)
+            const mimeType = imageExtToMime(ext)
+            const buf = entry.getData() as Buffer
+            return {
+              name: path.basename(entryName),
+              base64: buf ? bufferToBase64(buf, mimeType) : '',
+            }
+          }).filter(img => img.base64.length > 0)
+
+          const batchOcrResults = await extractBatchImageText(
+            imagesToProcess,
+            5,
+            (completed, total) => {
+              updateSessionProgress(`Running OCR on images (${completed}/${total})...`)
+            }
+          )
+
+          const successfulBlocks = batchOcrResults
+            .filter(r => r.success && r.text)
+            .map(r => `[Image: ${r.name}]\n${r.text}`)
+          ocrText = successfulBlocks.join('\n\n')
+          ocrImagesProcessed = successfulBlocks.length
         }
 
-        // Fallback: if no chat file and no images, read the ZIP as text
+        // Fallback: If no chat file was found in ZIP, use OCR or audio transcriptions as primary text
+        if (!fileContent && (imageEntries.length > 0 || audioEntries.length > 0)) {
+          const parts: string[] = []
+          if (ocrText) parts.push(`[OCR Extracted Text]\n${ocrText}`)
+          if (transcribedAudios.size > 0) {
+            const audioTexts = Array.from(transcribedAudios.entries()).map(([k, v]) => `[Voice Note: ${k}]\n${v}`).join('\n\n')
+            parts.push(audioTexts)
+          }
+          fileContent = parts.join('\n\n')
+        }
+
         if (!fileContent) {
-          fileContent = `[ZIP archive: ${entries.length} entries. No chat files or images found.]`
+          fileContent = `[ZIP archive: ${entries.length} entries. No readable chat files found.]`
         }
       } catch (zipErr) {
-        // Fix #2: Corrupted ZIP should return 400 error
         console.error('ZIP extraction error:', zipErr)
         const errMsg = `Corrupted or invalid ZIP file: ${zipErr instanceof Error ? zipErr.message : String(zipErr)}`
         if (sessionId && supabase) {
@@ -553,6 +614,13 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
+    // ── Direct audio upload ────────────────────────────────────────────────
+    } else if (isAudioFile(processingFileName)) {
+      await updateSessionProgress('Transcribing audio...')
+      const { transcribeAudio } = await import('@/lib/audio-transcriber')
+      const res = await transcribeAudio(fileBuffer, processingFileName)
+      fileContent = `[Uploaded audio: ${processingFileName}]\n\nTranscribed Speech:\n${res.text}`
+      transcribedAudios.set(processingFileName, res.text)
     // ── Direct image upload ────────────────────────────────────────────────
     } else if (isImageExtension(processingFileName)) {
       await updateSessionProgress('Running OCR on images...')
@@ -580,7 +648,6 @@ export async function POST(request: NextRequest) {
       fileContent = result.value
     } else if (processingFileName.endsWith('.pdf')) {
       await updateSessionProgress('Running OCR on images...')
-      // Fix #3: PDF files should be sent to OCR microservice
       const mimeType = 'application/pdf'
       const base64 = fileBuffer.toString('base64')
 
@@ -606,13 +673,11 @@ export async function POST(request: NextRequest) {
           ocrText = ocrData.text || ''
           ocrImagesProcessed = ocrData.pages?.length || 1
         } else {
-          // Fallback to pdf-parse if microservice fails
           const pdfParseModule = await getPdfParse()
           const pdfData = await pdfParseModule.default(fileBuffer)
           fileContent = pdfData.text
         }
       } catch {
-        // Fallback to pdf-parse if microservice is unreachable
         const pdfParseModule = await getPdfParse()
         const pdfData = await pdfParseModule.default(fileBuffer)
         fileContent = pdfData.text
@@ -629,7 +694,7 @@ export async function POST(request: NextRequest) {
     } else {
       return NextResponse.json(
         { 
-          success: false,
+          success: false, 
           error: 'Unsupported file type' 
         },
         { status: 400 }
@@ -650,7 +715,7 @@ export async function POST(request: NextRequest) {
           const timestamp = msg.timestamp ? new Date(msg.timestamp) : new Date()
           
           let messageType: 'text' | 'media' | 'system' = 'text'
-          if (text.includes('<Media omitted>') || text.includes('image omitted') || text.includes('video omitted')) {
+          if (text.includes('<Media omitted>') || text.includes('image omitted') || text.includes('video omitted') || text.includes('audio omitted')) {
             messageType = 'media'
           } else if (text.includes('added') || text.includes('left') || text.includes('changed')) {
             messageType = 'system'
@@ -677,9 +742,8 @@ export async function POST(request: NextRequest) {
       messages = parseWhatsAppChat(fileContent)
     }
     
-    // If we have OCR text from images and there are media-omitted messages,
-    // enrich them with the OCR data
-    const enrichedMessages = enrichMediaMessages(messages, ocrText)
+    // Enrich messages with both image OCR text and voice transcriptions
+    const enrichedMessages = enrichMediaMessages(messages, ocrText, transcribedAudios)
     
     // Perform analysis
     const analysis = analyzeChat(enrichedMessages)
@@ -927,36 +991,67 @@ function getExtension(name: string): string {
 }
 
 /**
- * Enrich media-omitted messages with OCR text where applicable.
- * When images were found and OCR'd, replace "<Media omitted>" placeholders
- * with the actual OCR text so the analysis pipeline can use it.
+ * Enrich media-omitted and voice messages with OCR text and speech-to-text transcriptions.
  */
 function enrichMediaMessages(
   messages: ProcessedMessage[],
-  ocrText: string
+  ocrText: string,
+  transcribedAudios?: Map<string, string>
 ): ProcessedMessage[] {
-  if (!ocrText) return messages
-
-  const ocrBlocks = ocrText.split(/\n\n/)
+  const ocrBlocks = ocrText ? ocrText.split(/\n\n/) : []
   let ocrIndex = 0
 
   return messages.map((msg) => {
-    if (
-      msg.messageType === 'media' &&
-      (msg.message.includes('<Media omitted>') ||
-       msg.message.includes('image omitted') ||
-       msg.message.includes('video omitted'))
-    ) {
-      const block = ocrBlocks[ocrIndex]
-      if (block) {
-        ocrIndex++
-        return {
-          ...msg,
-          message: `${msg.message}\n\n[OCR Extracted Text]\n${block}`,
-          messageType: 'text', // Promote to text so it gets analyzed
+    let updatedMsg = msg.message
+    let wasEnriched = false
+
+    // 1. Match and inject audio transcriptions
+    if (transcribedAudios && transcribedAudios.size > 0) {
+      for (const [filename, transcript] of transcribedAudios.entries()) {
+        if (updatedMsg.includes(filename)) {
+          updatedMsg = `${updatedMsg}\n\n[Voice Note Transcription]\n${transcript}`
+          wasEnriched = true
+          break
+        }
+      }
+      if (!wasEnriched && (msg.messageType === 'media' || updatedMsg.includes('audio omitted') || updatedMsg.includes('voice message') || updatedMsg.includes('PTT-'))) {
+        for (const [filename, transcript] of transcribedAudios.entries()) {
+          updatedMsg = `${updatedMsg}\n\n[Voice Note: ${filename}]\n${transcript}`
+          transcribedAudios.delete(filename)
+          wasEnriched = true
+          break
         }
       }
     }
+
+    // 2. Match and inject image OCR text
+    if (ocrBlocks.length > 0) {
+      if (
+        msg.messageType === 'media' &&
+        (updatedMsg.includes('<Media omitted>') ||
+         updatedMsg.includes('image omitted') ||
+         updatedMsg.includes('photo omitted') ||
+         updatedMsg.includes('IMG-') ||
+         updatedMsg.includes('.jpg') ||
+         updatedMsg.includes('.png'))
+      ) {
+        const block = ocrBlocks[ocrIndex]
+        if (block) {
+          ocrIndex++
+          updatedMsg = `${updatedMsg}\n\n[OCR Extracted Text]\n${block}`
+          wasEnriched = true
+        }
+      }
+    }
+
+    if (wasEnriched) {
+      return {
+        ...msg,
+        message: updatedMsg,
+        messageType: 'text', // Promote to text so sentiment, search, and analytics process it
+      }
+    }
+
     return msg
   })
 }
