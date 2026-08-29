@@ -5,8 +5,7 @@ import { useDropzone } from 'react-dropzone'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
-import { Badge } from '@/components/ui/badge'
-import { Upload, File, CheckCircle, XCircle, Loader2, FileText, Archive, Code, Sparkles } from 'lucide-react'
+import { Upload, File, CheckCircle, CheckCircle2, XCircle, Loader2, FileText, Archive, Code, Sparkles, Clock, Image as ImageIcon, Mic, Zap } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { encryptText, encryptTextBatch } from '@/lib/crypto'
 import JSZip from 'jszip'
@@ -1035,14 +1034,84 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                   </div>
                   
                   {uploadedFile.status === 'processing' && (
-                    <div className="space-y-2">
+                    <div className="space-y-3 pt-2">
                       <Progress 
                         value={uploadedFile.progress} 
                         className="h-2 bg-slate-200 dark:bg-slate-600"
                       />
-                      <p className="text-xs text-slate-500 dark:text-slate-400 text-center">
-                        {uploadedFile.progress}% - {uploadedFile.processingStep || 'Analyzing with AI...'}
-                      </p>
+                      
+                      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                        <span className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          {uploadedFile.processingStep || 'Processing conversation data...'}
+                        </span>
+                        <span className="flex items-center gap-1 font-medium">
+                          <Clock className="h-3.5 w-3.5 text-slate-400" />
+                          {uploadedFile.progress < 40 ? 'Est. ~10-15s' : uploadedFile.progress < 80 ? 'Est. ~5s' : 'Finalizing...'}
+                        </span>
+                      </div>
+
+                      {/* 3-Stage Pipeline Breakdown Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
+                        {/* Stage 1: Text & Metadata */}
+                        <div className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 transition-all ${
+                          uploadedFile.progress >= 20 
+                            ? 'bg-emerald-50/80 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300' 
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                        }`}>
+                          {uploadedFile.progress >= 20 ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                          ) : (
+                            <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold truncate">1. Chat Data</p>
+                            <p className="text-[10px] opacity-75">{uploadedFile.progress >= 20 ? 'Ready for viewing' : 'Parsing...'}</p>
+                          </div>
+                        </div>
+
+                        {/* Stage 2: OCR Extraction */}
+                        <div className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 transition-all ${
+                          uploadedFile.progress >= 60 
+                            ? 'bg-emerald-50/80 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300' 
+                            : uploadedFile.progress >= 30
+                            ? 'bg-blue-50/80 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800/50 text-blue-800 dark:text-blue-300'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                        }`}>
+                          {uploadedFile.progress >= 60 ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                          ) : uploadedFile.progress >= 30 ? (
+                            <Loader2 className="h-4 w-4 text-blue-500 animate-spin flex-shrink-0" />
+                          ) : (
+                            <ImageIcon className="h-4 w-4 text-purple-500 flex-shrink-0" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold truncate">2. Image OCR</p>
+                            <p className="text-[10px] opacity-75">{uploadedFile.progress >= 60 ? 'Enriched' : uploadedFile.progress >= 30 ? 'In progress' : 'Queued'}</p>
+                          </div>
+                        </div>
+
+                        {/* Stage 3: Audio Transcription */}
+                        <div className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 transition-all ${
+                          uploadedFile.progress >= 85 
+                            ? 'bg-emerald-50/80 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300' 
+                            : uploadedFile.progress >= 60
+                            ? 'bg-blue-50/80 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800/50 text-blue-800 dark:text-blue-300'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                        }`}>
+                          {uploadedFile.progress >= 85 ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                          ) : uploadedFile.progress >= 60 ? (
+                            <Loader2 className="h-4 w-4 text-blue-500 animate-spin flex-shrink-0" />
+                          ) : (
+                            <Mic className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold truncate">3. Voice Notes</p>
+                            <p className="text-[10px] opacity-75">{uploadedFile.progress >= 85 ? 'Transcribed' : uploadedFile.progress >= 60 ? 'In progress' : 'Queued'}</p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                   
