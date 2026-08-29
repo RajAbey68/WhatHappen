@@ -378,7 +378,8 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
               let isDone = false
               let attempts = 0
               let consecutiveErrors = 0
-              while (!isDone && attempts < 90) {
+              let lastKnownError = ''
+              while (!isDone && attempts < 120) {
                 await new Promise(resolve => setTimeout(resolve, 2000))
                 attempts++
 
@@ -417,6 +418,9 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
                   }
 
                   consecutiveErrors = 0
+                  if (session.processing_error) {
+                    lastKnownError = session.processing_error
+                  }
 
                   if (session.processing_status === 'processing' && session.processing_error) {
                     setUploadedFiles(prev => 
@@ -476,7 +480,8 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
               }
 
               if (!isDone) {
-                throw new Error('Processing timed out. Please check session history later.')
+                const detail = lastKnownError ? ` (Last status: ${lastKnownError})` : ''
+                throw new Error(`Processing timed out. Please check session history later.${detail}`)
               }
             }
           } else {

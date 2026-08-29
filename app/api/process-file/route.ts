@@ -528,59 +528,71 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 2. Transcribe voice notes and audio attachments
+        // 2. Transcribe voice notes and audio attachments (bounded budget for serverless)
         if (audioEntries.length > 0) {
-          await updateSessionProgress(`Transcribing ${audioEntries.length} voice notes...`)
-          const { transcribeBatchAudio } = await import('@/lib/audio-transcriber')
+          const maxAudio = 5
+          const targetAudio = audioEntries.slice(0, maxAudio)
+          await updateSessionProgress(`Transcribing ${targetAudio.length} voice notes...`)
+          try {
+            const { transcribeBatchAudio } = await import('@/lib/audio-transcriber')
 
-          const audioFilesToTranscribe = audioEntries.map(entry => {
-            const entryName = entry.entryName || entry.getEntryName?.() || 'audio.opus'
-            return {
-              name: path.basename(entryName),
-              data: entry.getData() as Buffer,
-            }
-          }).filter(a => a.data && a.data.length > 0)
+            const audioFilesToTranscribe = targetAudio.map(entry => {
+              const entryName = entry.entryName || entry.getEntryName?.() || 'audio.opus'
+              return {
+                name: path.basename(entryName),
+                data: entry.getData() as Buffer,
+              }
+            }).filter(a => a.data && a.data.length > 0)
 
-          const audioResults = await transcribeBatchAudio(
-            audioFilesToTranscribe,
-            3,
-            (completed, total) => {
-              updateSessionProgress(`Transcribing voice notes (${completed}/${total})...`)
-            }
-          )
+            const audioResults = await transcribeBatchAudio(
+              audioFilesToTranscribe,
+              3,
+              (completed, total) => {
+                updateSessionProgress(`Transcribing voice notes (${completed}/${total})...`)
+              }
+            )
 
-          audioResults.forEach((val, key) => transcribedAudios.set(key, val))
+            audioResults.forEach((val, key) => transcribedAudios.set(key, val))
+          } catch (audioErr: any) {
+            console.warn('[process-file] Audio transcription skipped or timed out:', audioErr?.message)
+          }
         }
 
-        // 3. Batch OCR across all images in the ZIP
+        // 3. Batch OCR across images in the ZIP (bounded budget for serverless)
         if (imageEntries.length > 0) {
-          await updateSessionProgress(`Running OCR on ${imageEntries.length} images...`)
-          const { extractBatchImageText } = await import('@/lib/gemini-ocr')
+          const maxImages = 10
+          const targetImages = imageEntries.slice(0, maxImages)
+          await updateSessionProgress(`Running OCR on ${targetImages.length} images...`)
+          try {
+            const { extractBatchImageText } = await import('@/lib/gemini-ocr')
 
-          const imagesToProcess = imageEntries.map(entry => {
-            const entryName = entry.entryName || entry.getEntryName?.() || 'image.jpg'
-            const ext = getExtension(entryName)
-            const mimeType = imageExtToMime(ext)
-            const buf = entry.getData() as Buffer
-            return {
-              name: path.basename(entryName),
-              base64: buf ? bufferToBase64(buf, mimeType) : '',
-            }
-          }).filter(img => img.base64.length > 0)
+            const imagesToProcess = targetImages.map(entry => {
+              const entryName = entry.entryName || entry.getEntryName?.() || 'image.jpg'
+              const ext = getExtension(entryName)
+              const mimeType = imageExtToMime(ext)
+              const buf = entry.getData() as Buffer
+              return {
+                name: path.basename(entryName),
+                base64: buf ? bufferToBase64(buf, mimeType) : '',
+              }
+            }).filter(img => img.base64.length > 0)
 
-          const batchOcrResults = await extractBatchImageText(
-            imagesToProcess,
-            5,
-            (completed, total) => {
-              updateSessionProgress(`Running OCR on images (${completed}/${total})...`)
-            }
-          )
+            const batchOcrResults = await extractBatchImageText(
+              imagesToProcess,
+              5,
+              (completed, total) => {
+                updateSessionProgress(`Running OCR on images (${completed}/${total})...`)
+              }
+            )
 
-          const successfulBlocks = batchOcrResults
-            .filter(r => r.success && r.text)
-            .map(r => `[Image: ${r.name}]\n${r.text}`)
-          ocrText = successfulBlocks.join('\n\n')
-          ocrImagesProcessed = successfulBlocks.length
+            const successfulBlocks = batchOcrResults
+              .filter(r => r.success && r.text)
+              .map(r => `[Image: ${r.name}]\n${r.text}`)
+            ocrText = successfulBlocks.join('\n\n')
+            ocrImagesProcessed = successfulBlocks.length
+          } catch (ocrErr: any) {
+            console.warn('[process-file] Batch OCR skipped or timed out:', ocrErr?.message)
+          }
         }
 
         // Fallback: If no chat file was found in ZIP, use OCR or audio transcriptions as primary text
@@ -814,14 +826,22 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Bulk insert messages_meta in chunks of 1000
+      // Bulk insert messages_meta in parallel chunks
       const CHUNK_SIZE = 1000
+      const chunks: any[][] = []
       for (let i = 0; i < metaRows.length; i += CHUNK_SIZE) {
-        const chunk = metaRows.slice(i, i + CHUNK_SIZE)
-        const { error: insertErr } = await supabase.from('messages_meta').insert(chunk)
-        if (insertErr) {
-          console.error('Failed to insert messages_meta chunk:', insertErr)
-        }
+        chunks.push(metaRows.slice(i, i + CHUNK_SIZE))
+      }
+      for (let i = 0; i < chunks.length; i += 5) {
+        const batch = chunks.slice(i, i + 5)
+        await Promise.all(
+          batch.map(async (chunk) => {
+            const { error: insertErr } = await supabase.from('messages_meta').insert(chunk)
+            if (insertErr) {
+              console.error('Failed to insert messages_meta chunk:', insertErr)
+            }
+          })
+        )
       }
 
       // 2. Prepare and insert message stats
