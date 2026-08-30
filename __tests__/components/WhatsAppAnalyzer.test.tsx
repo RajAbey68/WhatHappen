@@ -17,6 +17,14 @@ jest.mock('../../components/database-viewer', () => ({
   DatabaseViewer: () => <div data-testid="database-viewer-mock" />
 }))
 
+jest.mock('../../lib/session-store', () => ({
+  setPassphrase: jest.fn(),
+  getPassphrase: jest.fn(() => 'mock-passphrase'),
+  clearPassphrase: jest.fn(),
+  ensureProjectToken: jest.fn(() => Promise.resolve('mock-token')),
+  projectAuthHeaders: jest.fn(() => Promise.resolve({ 'x-project-token': 'mock-token' })),
+}))
+
 jest.mock('../../components/ui/bottom-sheet', () => ({
   BottomSheet: ({ children }: any) => <div data-testid="bottom-sheet">{children}</div>,
   BottomSheetContent: ({ children }: any) => <div data-testid="bottom-sheet-content">{children}</div>,

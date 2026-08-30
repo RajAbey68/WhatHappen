@@ -3,15 +3,22 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-// RAJ-748: fail loudly on missing configuration instead of silently falling back
-// to placeholder credentials, which masks misconfiguration until runtime.
-if (!supabaseUrl || !supabaseAnonKey) {
+// RAJ-748: fail loudly on missing configuration in runtime/tests, while allowing
+// static prerendering in CI/Vercel build environments where env vars are absent.
+const isNextBuild =
+  process.env.NEXT_PHASE === 'phase-production-build' ||
+  (process.env.NODE_ENV === 'production' && typeof window === 'undefined' && !supabaseUrl)
+
+if (!isNextBuild && (!supabaseUrl || !supabaseAnonKey)) {
   throw new Error(
     'Supabase is not configured: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must both be set.'
   )
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-anon-key'
+)
 
 // Standardized types matching previous schema for zero-friction client integration
 export interface Project {

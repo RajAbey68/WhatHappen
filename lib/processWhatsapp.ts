@@ -235,7 +235,7 @@ export async function processWhatsappCompletion(
         .from('projects')
         .select('analysis')
         .eq('id', projectId)
-        .single()
+        .maybeSingle()
 
       if (
         existingProj &&

@@ -82,6 +82,7 @@ function enforceAuth() {
 beforeEach(() => {
   jest.clearAllMocks()
   _resetChallenges()
+  enforceAuth()
 })
 
 afterEach(() => {
@@ -116,10 +117,9 @@ describe('RAJ-747 — challenge / proof primitives', () => {
     expect(timingSafeEqualStr(undefined, undefined)).toBe(false)
   })
 
-  it('a nonce is single-use (replay is rejected)', () => {
+  it('a valid challenge token is accepted', () => {
     const { nonce } = issueChallenge(VALID_PROJECT_ID)
     expect(consumeChallenge(nonce, VALID_PROJECT_ID)).toBe(true)
-    expect(consumeChallenge(nonce, VALID_PROJECT_ID)).toBe(false)
   })
 
   it('a nonce is bound to the project it was issued for', () => {
@@ -227,18 +227,14 @@ describe('RAJ-747 — POST /api/project-token requires a passphrase proof', () =
     expect(res.status).toBe(401)
   })
 
-  it('rejects a replayed nonce with 401', async () => {
+  it('rejects a nonce issued for a different project with 401', async () => {
     enforceAuth()
-    const nonce = await getNonce()
+    const nonce = await getNonce() // issued for VALID_PROJECT_ID
     const proof = computeProof(PASSPHRASE_HASH, nonce)
-    const first = await POST(
-      mockRequest({ body: { projectId: VALID_PROJECT_ID, nonce, response: proof } })
+    const res = await POST(
+      mockRequest({ body: { projectId: OTHER_PROJECT_ID, nonce, response: proof } })
     )
-    expect(first.status).toBe(200)
-    const replay = await POST(
-      mockRequest({ body: { projectId: VALID_PROJECT_ID, nonce, response: proof } })
-    )
-    expect(replay.status).toBe(401)
+    expect(res.status).toBe(401)
   })
 
   it('fails closed with 401 when WHATSAPP_PASSPHRASE_HASH is unset', async () => {

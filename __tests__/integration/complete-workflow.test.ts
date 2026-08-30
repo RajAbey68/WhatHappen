@@ -28,6 +28,7 @@ jest.mock('@/lib/auth', () => {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     single: jest.fn().mockResolvedValue({ data: { id: '12345678-1234-1234-1234-1234567890ab' }, error: null }),
+    maybeSingle: jest.fn().mockResolvedValue({ data: { id: '12345678-1234-1234-1234-1234567890ab' }, error: null }),
     order: jest.fn().mockReturnThis(),
     limit: jest.fn().mockResolvedValue({ data: [], error: null })
   }

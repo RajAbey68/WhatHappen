@@ -5,7 +5,8 @@ import { NextRequest, NextResponse } from 'next/server'
 const mockRpc = jest.fn();
 const mockSingle = jest.fn();
 const mockEq2 = jest.fn().mockImplementation(() => ({
-  single: mockSingle
+  single: mockSingle,
+  maybeSingle: mockSingle
 }));
 const mockEq1 = jest.fn().mockImplementation(() => ({
   eq: mockEq2

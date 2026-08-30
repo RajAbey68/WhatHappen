@@ -52,7 +52,11 @@ const DEFAULT_ARCHIVE_DAYS = 7
 /** Bound the filename so it cannot bloat the object key or the DB row. */
 const MAX_FILENAME_LENGTH = 200
 
-const ALLOWED_EXTENSIONS = ['.txt', '.zip', '.pst', '.csv', '.json', '.pdf', '.docx']
+const ALLOWED_EXTENSIONS = [
+  '.txt', '.zip', '.pst', '.csv', '.json', '.pdf', '.docx',
+  '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif',
+  '.opus', '.m4a', '.mp3', '.wav', '.ogg'
+]
 
 /**
  * `sessions.user_id` is NOT NULL, but this app has no user accounts. Derive a
