@@ -131,13 +131,20 @@ Rules:
       formData.append('file', blob, filename)
       formData.append('model', 'whisper-1')
 
+      // Bound the Whisper call so a hung request cannot stall the batch.
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 45000)
+
       const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${openaiKey}`,
         },
         body: formData,
+        signal: controller.signal,
       })
+
+      clearTimeout(timeout)
 
       if (response.ok) {
         const data = await response.json()
@@ -175,18 +182,25 @@ export async function transcribeBatchAudio(
 
   if (total === 0) return results
 
-  // Process in chunks of `concurrency`
+  // Process in chunks of `concurrency`.
+  // allSettled: one failed/hung transcription must not reject the whole chunk —
+  // failed items fall back to a placeholder so the rest of the upload still processes.
   for (let i = 0; i < audioFiles.length; i += concurrency) {
     const chunk = audioFiles.slice(i, i + concurrency)
-    const promises = chunk.map(async item => {
-      const res = await transcribeAudio(item.data, item.name)
-      results.set(item.name, res.text)
-      completed++
-      if (onProgress) {
-        onProgress(completed, total)
+    const outcomes = await Promise.allSettled(
+      chunk.map(item => transcribeAudio(item.data, item.name))
+    )
+    outcomes.forEach((outcome, j) => {
+      const item = chunk[j]
+      if (outcome.status === 'fulfilled') {
+        results.set(item.name, outcome.value.text)
+      } else {
+        console.warn(`[audio-transcriber] batch item failed unexpectedly: ${item.name}`, outcome.reason)
+        results.set(item.name, `[Voice Note: ${item.name} (Transcription unavailable)]`)
       }
+      completed++
+      onProgress?.(completed, total)
     })
-    await Promise.all(promises)
   }
 
   return results

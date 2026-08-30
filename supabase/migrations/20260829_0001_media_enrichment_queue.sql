@@ -1,7 +1,9 @@
 -- Migration: Media Enrichment Queue & Distributed Ingestion
 -- Ticket: RAJ-784 (Decoupled Hermes Ingestion & Media Queue)
 
-SET lock_timeout = '3s';
+-- lock_timeout 10s: a busy prod database holding locks (long transactions,
+-- autovacuum) should not fail the deployment. statement_timeout stays generous.
+SET lock_timeout = '10s';
 SET statement_timeout = '60s';
 
 BEGIN;

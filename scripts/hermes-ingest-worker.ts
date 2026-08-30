@@ -28,13 +28,18 @@ import { createClient } from '@supabase/supabase-js'
 import { extractImageText } from '../lib/gemini-ocr'
 import { transcribeAudio, isAudioFile } from '../lib/audio-transcriber'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pomgvxdokjmxyfbgazls.supabase.co'
+// Fail fast on missing env instead of falling back to a hardcoded URL.
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'evidence'
 const WORKER_ID = `hermes-worker-${os.hostname()}-${process.pid}`
 const POLL_INTERVAL_MS = 3000
 const MAX_CONCURRENT_MEDIA_JOBS = 3
 
+if (!SUPABASE_URL) {
+  console.error('[Hermes Ingest] Fatal: NEXT_PUBLIC_SUPABASE_URL is required.')
+  process.exit(1)
+}
 if (!SUPABASE_SERVICE_ROLE_KEY) {
   console.error('[Hermes Ingest] Fatal: SUPABASE_SERVICE_ROLE_KEY is required.')
   process.exit(1)
