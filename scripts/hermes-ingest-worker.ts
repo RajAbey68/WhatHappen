@@ -27,6 +27,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') })
 import { createClient } from '@supabase/supabase-js'
 import { extractImageText } from '../lib/gemini-ocr'
 import { transcribeAudio, isAudioFile } from '../lib/audio-transcriber'
+import { BuzzClient, createUploadCompletedEvent, createChatReadyEvent } from '../lib/swarm/BuzzClient'
 
 // Fail fast on missing env instead of falling back to a hardcoded URL.
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -47,6 +48,11 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false }
+})
+
+// Initialize BuzzBar CloudEvents client
+const buzzClient = new BuzzClient({
+  nsec: process.env.BUZZBAR_NSEC, // Read from env, never log
 })
 
 let isShuttingDown = false
@@ -166,16 +172,33 @@ async function processZipArchive(session: any, buffer: Buffer) {
     }
 
     // Mark session complete immediately so the user can access their chat
+    const messageCount = chatText ? chatText.split('\n').length : 0
     await supabase
       .from('sessions')
       .update({
         processing_status: 'complete',
         processing_error: null,
-        total_messages: chatText ? chatText.split('\n').length : 0,
+        total_messages: messageCount,
       })
       .eq('id', session.id)
 
     console.log(`[Hermes Ingest] ✅ Session ${session.id} chat unblocked & marked complete!`)
+
+    // Publish CloudEvents to BuzzBar ingest channel
+    if (buzzClient.getConnectionStatus()) {
+      try {
+        // UPLOAD_COMPLETED event
+        const uploadEvent = createUploadCompletedEvent(session.id, session.project_id, session.file_name)
+        await buzzClient.publish('ingest', uploadEvent)
+
+        // CHAT_READY_FOR_ANALYSIS event
+        const readyEvent = createChatReadyEvent(session.id, session.project_id, messageCount)
+        await buzzClient.publish('ingest', readyEvent)
+      } catch (err: any) {
+        console.error(`[Hermes Ingest] Failed to publish CloudEvents for session ${session.id}:`, err.message)
+        // Non-fatal: continue even if CloudEvents publish fails
+      }
+    }
   } catch (err: any) {
     console.error(`[Hermes Ingest] Failed to process ZIP archive for ${session.id}:`, err.message)
     await supabase
@@ -311,12 +334,23 @@ async function startDaemon() {
   console.log(`🚀 [Hermes Ingest Daemon] Started on ${os.hostname()} (PID: ${process.pid})`)
   console.log(`Worker ID: ${WORKER_ID} | Polling every ${POLL_INTERVAL_MS}ms`)
 
+  // Connect to BuzzBar CloudEvents
+  try {
+    await buzzClient.connect()
+    console.log('[Hermes Ingest] ✅ Connected to BuzzBar CloudEvents')
+  } catch (err: any) {
+    console.error('[Hermes Ingest] Warning: Failed to connect to BuzzBar:', err.message)
+    console.error('[Hermes Ingest] Continuing without CloudEvents publishing...')
+  }
+
   while (!isShuttingDown) {
     await processPendingSessions()
     await processMediaEnrichmentJobs()
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
   }
 
+  // Graceful shutdown
+  buzzClient.disconnect()
   console.log('[Hermes Ingest Daemon] Stopped gracefully.')
 }
 

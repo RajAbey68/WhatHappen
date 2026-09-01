@@ -3,7 +3,11 @@ const getCrypto = (): Crypto => {
     return window.crypto
   }
   // Fallback for Node.js test environment
-  return require('crypto').webcrypto as unknown as Crypto
+  if (typeof require !== 'undefined') {
+    return require('crypto').webcrypto as unknown as Crypto
+  }
+  // P1-1: Explicit error when SubtleCrypto is unavailable (HTTP non-localhost)
+  throw new Error('SubtleCrypto is unavailable. HTTPS or localhost is required for cryptographic operations.')
 }
 
 // Convert ArrayBuffer to Hex string
