@@ -54,6 +54,38 @@ export default function Home() {
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
 
+  // Auto-restore active project (last project, single migrated project, or Ko Lake project)
+  useEffect(() => {
+    const restoreProject = async () => {
+      if (typeof window === 'undefined') return
+      const lastProjectId = localStorage.getItem('whathappen-last-project-id')
+
+      try {
+        const res = await fetch('/api/projects')
+        if (res.ok) {
+          const projects: Project[] = await res.json()
+          if (!projects || projects.length === 0) return
+
+          // 1. Check last active project from localStorage
+          let target = lastProjectId ? projects.find((p) => p.id === lastProjectId) : null
+
+          // 2. If no last project stored, check for Ko Lake project or single migrated project
+          if (!target) {
+            target = projects.find((p) => /ko\s*lake/i.test(p.name)) || (projects.length === 1 ? projects[0] : null)
+          }
+
+          if (target) {
+            handleProjectSelect(target)
+          }
+        }
+      } catch (e) {
+        console.error('Failed to auto-restore project:', e)
+      }
+    }
+
+    restoreProject()
+  }, [])
+
   // Handle tab changes with mobile bottom sheet redirection
   const handleTabChange = (value: string) => {
     if (value === 'ai-chat' && typeof window !== 'undefined' && window.innerWidth < 640) {
@@ -170,7 +202,14 @@ export default function Home() {
     if (!project) {
       setSelectedProject(null)
       setPassphrase('')
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('whathappen-last-project-id')
+      }
       return
+    }
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('whathappen-last-project-id', project.id)
     }
 
     // RAJ-746: read from the in-memory store, never sessionStorage.

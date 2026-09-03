@@ -74,11 +74,19 @@ async function processPendingSessions() {
       if (isShuttingDown) break
       console.log(`[Hermes Ingest] Claiming session ${session.id} (${session.file_name})`)
 
-      // Mark processing
-      await supabase
+      // Atomic claim: update to 'processing' only if still 'pending' to prevent race conditions
+      const { data: claimedSession, error: claimError } = await supabase
         .from('sessions')
         .update({ processing_status: 'processing', processing_error: 'Downloading archive...' })
         .eq('id', session.id)
+        .eq('processing_status', 'pending')
+        .select('*')
+        .maybeSingle()
+
+      if (claimError || !claimedSession) {
+        console.log(`[Hermes Ingest] Session ${session.id} already claimed by another worker or API`)
+        continue
+      }
 
       const { data: blob, error: dlError } = await supabase.storage
         .from(STORAGE_BUCKET)

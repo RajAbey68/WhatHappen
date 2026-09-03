@@ -125,14 +125,21 @@ function verifyChallenge(token: string): ChallengePayload | null {
   }
 }
 
+// In-memory single-use consumed nonce store with TTL pruning
+const consumedNonces = new Map<string, number>()
+
+function pruneExpiredNonces(): void {
+  const now = Date.now()
+  consumedNonces.forEach((expiresAt, nonce) => {
+    if (expiresAt <= now) {
+      consumedNonces.delete(nonce)
+    }
+  })
+}
+
 /**
  * Issue a stateless challenge: returns a signed token that encodes the nonce,
- * project ID, and expiry. No server-side state is stored — the token itself
- * is the single-use credential.
- *
- * Re-use is prevented by the 60s TTL + HMAC binding. An attacker who can
- * observe the token already has network access to the challenge endpoint.
- * True single-use enforcement would require a consumed-token store (Redis).
+ * project ID, and expiry.
  */
 export function issueChallenge(
   projectId: string,
@@ -148,9 +155,9 @@ export function issueChallenge(
 }
 
 /**
- * Consume a challenge: verifies the token signature, checks expiry, and
- * confirms it was issued for the given project. Returns false for
- * tampered/expired/mismatched tokens.
+ * Consume a challenge: verifies the token signature, checks expiry,
+ * confirms project binding, and atomically enforces single-use consumption.
+ * Returns false for tampered, expired, mismatched, or already-consumed tokens.
  */
 export function consumeChallenge(token: unknown, projectId: string): boolean {
   if (typeof token !== 'string' || token.length === 0) return false
@@ -158,10 +165,20 @@ export function consumeChallenge(token: unknown, projectId: string): boolean {
   const payload = verifyChallenge(token)
   if (!payload) return false
 
-  return payload.projectId === projectId
+  if (payload.projectId !== projectId) return false
+
+  // Replay protection: enforce single-use consumption
+  if (consumedNonces.has(payload.nonce)) {
+    return false
+  }
+
+  pruneExpiredNonces()
+  consumedNonces.set(payload.nonce, payload.expiresAt)
+
+  return true
 }
 
-/** Test/maintenance helper — no-op now (stateless). */
+/** Test helper — resets the in-memory consumed nonces store. */
 export function _resetChallenges(): void {
-  // No-op: challenges are stateless signed tokens, no in-memory store to clear.
+  consumedNonces.clear()
 }

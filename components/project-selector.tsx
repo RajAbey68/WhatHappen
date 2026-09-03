@@ -43,9 +43,11 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
       console.error('Error loading projects:', error)
       // Fallback to localStorage if API fails (for demo/development convenience)
       try {
-        const stored = localStorage.getItem('whatsapp-analyzer-projects')
-        if (stored) {
-          setProjects(JSON.parse(stored))
+        if (typeof window !== 'undefined') {
+          const stored = window.localStorage.getItem('whatsapp-analyzer-projects')
+          if (stored) {
+            setProjects(JSON.parse(stored))
+          }
         }
       } catch (e) {
         console.error('LocalStorage fallback error:', e)
@@ -78,7 +80,9 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
           setProjects(updatedProjects)
           
           // Also sync to localStorage fallback
-          localStorage.setItem('whatsapp-analyzer-projects', JSON.stringify(updatedProjects))
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem('whatsapp-analyzer-projects', JSON.stringify(updatedProjects))
+          }
 
           setNewProjectName('')
           setNewProjectDescription('')
@@ -101,21 +105,25 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
   }
 
   const deleteProject = async (projectId: string) => {
-    if (confirm('Are you sure you want to delete this project? All associated messages and analysis will be permanently removed.')) {
+    if (typeof window !== 'undefined' && window.confirm('Are you sure you want to delete this project? All associated messages and analysis will be permanently removed.')) {
       setIsLoading(true)
       try {
+        const authHeaders = await projectAuthHeaders(projectId)
         const response = await fetch(`/api/projects/${projectId}`, {
           method: 'DELETE',
           headers: {
-            // RAJ-747: authorize this in-app call with the short-lived token.
-            ...(await projectAuthHeaders(projectId)),
+            'Content-Type': 'application/json',
+            ...authHeaders,
           }
         })
 
         if (response.ok) {
           const updatedProjects = projects.filter(p => p.id !== projectId)
           setProjects(updatedProjects)
-          localStorage.setItem('whatsapp-analyzer-projects', JSON.stringify(updatedProjects))
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem('whatsapp-analyzer-projects', JSON.stringify(updatedProjects))
+            window.localStorage.removeItem('whathappen-last-project-id')
+          }
           
           if (selectedProject?.id === projectId) {
             onProjectSelect(null)
@@ -125,7 +133,9 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
         }
       } catch (error) {
         console.error('Error deleting project:', error)
-        alert('Error deleting project. Please try again.')
+        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+          window.alert('Error deleting project. Please try again.')
+        }
       } finally {
         setIsLoading(false)
       }
@@ -249,9 +259,20 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="flex justify-between text-sm text-slate-400">
-                  <span>{project.messageCount.toLocaleString()} messages</span>
-                  <span>Updated: {new Date(project.updatedAt || project.createdAt).toLocaleDateString()}</span>
+                <div className="flex justify-between items-center text-sm text-slate-400 mb-3">
+                  <span className="font-medium text-slate-300">{project.messageCount.toLocaleString()} messages</span>
+                  <span className="text-xs text-slate-500">Updated: {new Date(project.updatedAt || project.createdAt).toLocaleDateString()}</span>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-slate-800/60">
+                  {selectedProject?.id === project.id ? (
+                    <span className="inline-flex items-center text-xs font-semibold text-blue-400">
+                      ✓ Active Selected Project
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium text-blue-400/90 hover:text-blue-300">
+                      Click to Open & Import Chats →
+                    </span>
+                  )}
                 </div>
               </CardContent>
             </Card>

@@ -10,6 +10,8 @@
  * the server for authorization, instead of the passphrase itself.
  */
 
+import CryptoJS from 'crypto-js'
+
 const passphrases = new Map<string, string>()
 const tokens = new Map<string, { token: string; expiresAt: number }>()
 
@@ -26,10 +28,14 @@ export function clearPassphrase(projectId: string): void {
   tokens.delete(projectId)
 }
 
+export const clearProjectSession = clearPassphrase
+
 export function clearAll(): void {
   passphrases.clear()
   tokens.clear()
 }
+
+export const clearAllSessions = clearAll
 
 export function getProjectToken(projectId: string): string | undefined {
   const entry = tokens.get(projectId)
@@ -41,14 +47,37 @@ export function getProjectToken(projectId: string): string | undefined {
   return entry.token
 }
 
+function getSafeCrypto(): Crypto | undefined {
+  if (typeof window !== 'undefined' && window.crypto) {
+    return window.crypto
+  }
+  if (typeof globalThis !== 'undefined' && globalThis.crypto) {
+    return globalThis.crypto as Crypto
+  }
+  try {
+    const nodeCrypto = require('crypto')
+    return (nodeCrypto.webcrypto || nodeCrypto) as unknown as Crypto
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Browser-side sha256 → hex (mirrors the server's `sha256Hex`).
  */
 async function sha256Hex(value: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+  const c = getSafeCrypto()
+  if (c && c.subtle) {
+    try {
+      const buf = await c.subtle.digest('SHA-256', new TextEncoder().encode(value))
+      return Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+    } catch {
+      // Fall through to CryptoJS
+    }
+  }
+  return CryptoJS.SHA256(value).toString(CryptoJS.enc.Hex)
 }
 
 /**
@@ -58,17 +87,25 @@ async function sha256Hex(value: string): Promise<string> {
  */
 export async function computeProof(passphrase: string, nonce: string): Promise<string> {
   const keyHex = await sha256Hex(passphrase)
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(keyHex),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  )
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(nonce))
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+  const c = getSafeCrypto()
+  if (c && c.subtle) {
+    try {
+      const key = await c.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(keyHex),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      )
+      const sig = await c.subtle.sign('HMAC', key, new TextEncoder().encode(nonce))
+      return Array.from(new Uint8Array(sig))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+    } catch {
+      // Fall through to CryptoJS
+    }
+  }
+  return CryptoJS.HmacSHA256(nonce, keyHex).toString(CryptoJS.enc.Hex)
 }
 
 /**
@@ -86,27 +123,32 @@ export async function ensureProjectToken(projectId: string): Promise<string | un
   if (!passphrase) return undefined
 
   try {
-    // 1. Get a single-use, short-TTL nonce.
-    const challengeRes = await fetch(
-      `/api/auth/challenge?projectId=${encodeURIComponent(projectId)}`
-    )
+    // 1. Get challenge nonce
+    const challengeRes = await fetch(`/api/auth/challenge?projectId=${encodeURIComponent(projectId)}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    })
     if (!challengeRes.ok) return undefined
-    const { nonce } = await challengeRes.json()
-    if (typeof nonce !== 'string') return undefined
+    const challengeData = await challengeRes.json()
+    if (!challengeData?.nonce) return undefined
 
-    // 2. Prove passphrase knowledge without disclosing the passphrase.
-    const proof = await computeProof(passphrase, nonce)
+    // 2. Compute HMAC proof with passphrase
+    const proof = await computeProof(passphrase, challengeData.nonce)
 
-    // 3. Exchange the proof for the 2h HMAC project token.
+    // 3. Request token with challenge and proof
     const res = await fetch('/api/project-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, nonce, response: proof }),
+      body: JSON.stringify({
+        projectId,
+        challenge: challengeData.nonce,
+        proof,
+      }),
     })
     if (!res.ok) return undefined
     const data = await res.json()
     if (typeof data?.token !== 'string') return undefined
-    tokens.set(projectId, { token: data.token, expiresAt: data.expiresAt ?? Date.now() + 60_000 })
+    tokens.set(projectId, { token: data.token, expiresAt: data.expiresAt ?? Date.now() + 2 * 3600 * 1000 })
     return data.token
   } catch {
     return undefined

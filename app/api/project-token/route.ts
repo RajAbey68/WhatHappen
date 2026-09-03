@@ -40,15 +40,10 @@ import {
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
-const unauthorized = () =>
-  NextResponse.json(
-    { error: 'Unauthorized: invalid or missing passphrase proof' },
-    { status: 401, headers: JSON_HEADERS }
-  )
-
 export async function POST(request: NextRequest) {
   try {
-    const { projectId, nonce, response: proof } = await request.json()
+    const body = await request.json()
+    const { projectId, challenge, proof } = body || {}
 
     if (!isValidProjectId(projectId)) {
       return NextResponse.json(
@@ -57,20 +52,39 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // ---- Passphrase proof gate (fail closed) --------------------------------
-    const passphraseHash = getConfiguredPassphraseHash()
-    if (!passphraseHash) {
-      // Local dev/test may run without a provisioned verifier; production
-      // must not.
-      if (!isAuthBypassed()) return unauthorized()
-    } else {
-      if (typeof proof !== 'string' || proof.length === 0) return unauthorized()
-      // Single-use + TTL + project binding all enforced here.
-      if (!consumeChallenge(nonce, projectId)) return unauthorized()
-      const expected = computeProof(passphraseHash, nonce as string)
-      if (!timingSafeEqualStr(proof.toLowerCase(), expected)) return unauthorized()
+    // Fail closed: enforce challenge-response unless explicitly bypassed
+    if (!isAuthBypassed()) {
+      const configuredHash = getConfiguredPassphraseHash()
+      if (!configuredHash) {
+        return NextResponse.json(
+          { error: 'Passphrase verification is not configured on the server' },
+          { status: 401, headers: JSON_HEADERS }
+        )
+      }
+
+      if (typeof challenge !== 'string' || typeof proof !== 'string' || !challenge || !proof) {
+        return NextResponse.json(
+          { error: 'Challenge and proof are required to obtain a project token' },
+          { status: 401, headers: JSON_HEADERS }
+        )
+      }
+
+      const isValidChallenge = consumeChallenge(challenge, projectId)
+      if (!isValidChallenge) {
+        return NextResponse.json(
+          { error: 'Invalid or expired challenge' },
+          { status: 401, headers: JSON_HEADERS }
+        )
+      }
+
+      const expectedProof = computeProof(configuredHash, challenge)
+      if (!timingSafeEqualStr(proof, expectedProof)) {
+        return NextResponse.json(
+          { error: 'Invalid passphrase proof' },
+          { status: 401, headers: JSON_HEADERS }
+        )
+      }
     }
-    // -------------------------------------------------------------------------
 
     // The project must exist before we mint a token for it.
     const supabase = getServiceClient()
@@ -102,10 +116,10 @@ export async function POST(request: NextRequest) {
     })
 
     return response
-  } catch (err) {
-    console.error('Error issuing project token:', err)
+  } catch (error) {
+    console.error('Error generating project token:', error)
     return NextResponse.json(
-      { error: 'Failed to issue project token' },
+      { error: 'Failed to generate project token' },
       { status: 500, headers: JSON_HEADERS }
     )
   }

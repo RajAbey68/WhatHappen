@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Download, Search, RefreshCw, Database, Trash2, Eye } from 'lucide-react'
+import { Download, Search, RefreshCw, Database, Trash2, Eye, ArrowUpDown, ArrowDown, ArrowUp } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
 interface DatabaseViewerProps {
@@ -17,6 +17,7 @@ interface DatabaseViewerProps {
 
 export function DatabaseViewer({ data }: DatabaseViewerProps) {
   const [searchTerm, setSearchTerm] = useState('')
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc') // Most recent first by default
   const [filteredData, setFilteredData] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({})
@@ -27,9 +28,16 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
         message.message?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         message.sender?.toLowerCase().includes(searchTerm.toLowerCase())
       )
+
+      filtered.sort((a: any, b: any) => {
+        const timeA = new Date(a.timestamp || 0).getTime()
+        const timeB = new Date(b.timestamp || 0).getTime()
+        return sortOrder === 'desc' ? timeB - timeA : timeA - timeB
+      })
+
       setFilteredData(filtered)
     }
-  }, [data, searchTerm])
+  }, [data, searchTerm, sortOrder])
 
   const handleExportData = async (format: 'json' | 'csv') => {
     if (!data) {
@@ -264,7 +272,23 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Timestamp</TableHead>
+                      <TableHead 
+                        className="cursor-pointer select-none hover:text-slate-900 transition-colors"
+                        onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                        title={`Click to sort (${sortOrder === 'desc' ? 'Newest first' : 'Oldest first'})`}
+                      >
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          <span>Timestamp</span>
+                          {sortOrder === 'desc' ? (
+                            <ArrowDown className="h-3.5 w-3.5 text-blue-600" />
+                          ) : (
+                            <ArrowUp className="h-3.5 w-3.5 text-blue-600" />
+                          )}
+                          <span className="text-[10px] font-normal text-muted-foreground ml-1">
+                            ({sortOrder === 'desc' ? 'Newest' : 'Oldest'})
+                          </span>
+                        </div>
+                      </TableHead>
                       <TableHead>Sender</TableHead>
                       <TableHead>Message</TableHead>
                       <TableHead>Type</TableHead>

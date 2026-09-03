@@ -16,13 +16,20 @@ const OTHER_PROJECT_ID = '22222222-2222-4222-8222-222222222222'
 
 jest.mock('../../lib/auth', () => {
   const makeQuery = () => {
+    let eqId: string | null = null
     const q: any = {
       select: jest.fn(() => q),
-      eq: jest.fn(() => q),
+      eq: jest.fn((field: string, val: string) => {
+        if (field === 'id') eqId = val
+        return q
+      }),
       order: jest.fn(() => Promise.resolve({ data: [], error: null })),
       single: jest.fn(() => Promise.resolve({ data: { id: 'conv-1' }, error: null })),
       maybeSingle: jest.fn(() =>
-        Promise.resolve({ data: { id: '11111111-1111-4111-8111-111111111111' }, error: null })
+        Promise.resolve({
+          data: eqId === VALID_PROJECT_ID ? { id: VALID_PROJECT_ID } : null,
+          error: null,
+        })
       ),
       insert: jest.fn(() => q),
       update: jest.fn(() => q),
@@ -179,82 +186,98 @@ describe('RAJ-747 — GET /api/auth/challenge', () => {
 })
 
 // -----------------------------------------------------------------------------
-describe('RAJ-747 — POST /api/project-token requires a passphrase proof', () => {
+describe('RAJ-747 — POST /api/project-token issues project access tokens', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { POST } = require('../../app/api/project-token/route')
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { GET: CHALLENGE } = require('../../app/api/auth/challenge/route')
 
-  const getNonce = async (projectId = VALID_PROJECT_ID) => {
-    const res = await CHALLENGE(
-      mockRequest({
-        url: `http://localhost/api/auth/challenge?projectId=${projectId}`,
-        method: 'GET',
-      })
-    )
-    const body = await res.json()
-    return body.nonce as string
-  }
+  it('rejects an invalid project ID with 400', async () => {
+    const res = await POST(mockRequest({ body: { projectId: 'invalid-uuid' } }))
+    expect(res.status).toBe(400)
+  })
 
-  it('rejects an UNAUTHENTICATED mint (no proof at all) with 401', async () => {
+  it('rejects request missing challenge or proof with 401', async () => {
     enforceAuth()
     const res = await POST(mockRequest({ body: { projectId: VALID_PROJECT_ID } }))
     expect(res.status).toBe(401)
   })
 
-  it('rejects a WRONG proof with 401', async () => {
+  it('rejects invalid or tampered challenge with 401', async () => {
     enforceAuth()
-    const nonce = await getNonce()
-    const wrongProof = computeProof(sha256Hex('wrong passphrase'), nonce)
-    const res = await POST(
-      mockRequest({ body: { projectId: VALID_PROJECT_ID, nonce, response: wrongProof } })
-    )
-    expect(res.status).toBe(401)
-  })
-
-  it('rejects a valid proof against an unknown/forged nonce with 401', async () => {
-    enforceAuth()
-    const forged = 'a'.repeat(64)
     const res = await POST(
       mockRequest({
         body: {
           projectId: VALID_PROJECT_ID,
-          nonce: forged,
-          response: computeProof(PASSPHRASE_HASH, forged),
+          challenge: 'tampered.challenge',
+          proof: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
         },
       })
     )
     expect(res.status).toBe(401)
   })
 
-  it('rejects a nonce issued for a different project with 401', async () => {
+  it('rejects challenge issued for a different project with 401', async () => {
     enforceAuth()
-    const nonce = await getNonce() // issued for VALID_PROJECT_ID
+    const { nonce } = issueChallenge(OTHER_PROJECT_ID)
     const proof = computeProof(PASSPHRASE_HASH, nonce)
     const res = await POST(
-      mockRequest({ body: { projectId: OTHER_PROJECT_ID, nonce, response: proof } })
-    )
-    expect(res.status).toBe(401)
-  })
-
-  it('fails closed with 401 when WHATSAPP_PASSPHRASE_HASH is unset', async () => {
-    enforceAuth()
-    delete process.env.WHATSAPP_PASSPHRASE_HASH
-    const res = await POST(
       mockRequest({
-        body: { projectId: VALID_PROJECT_ID, nonce: 'x', response: 'y' },
+        body: {
+          projectId: VALID_PROJECT_ID,
+          challenge: nonce,
+          proof,
+        },
       })
     )
     expect(res.status).toBe(401)
   })
 
-  it('mints a token for a VALID proof', async () => {
+  it('rejects wrong passphrase proof with 401', async () => {
     enforceAuth()
-    const nonce = await getNonce()
+    const { nonce } = issueChallenge(VALID_PROJECT_ID)
+    const wrongProof = computeProof('wrong_hash_1234567890abcdef1234567890abcdef1234567890abcdef12345678', nonce)
+    const res = await POST(
+      mockRequest({
+        body: {
+          projectId: VALID_PROJECT_ID,
+          challenge: nonce,
+          proof: wrongProof,
+        },
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('rejects a non-existent project with 404 even with valid proof', async () => {
+    enforceAuth()
+    const nonExistentId = '00000000-0000-0000-0000-000000000000'
+    const { nonce } = issueChallenge(nonExistentId)
     const proof = computeProof(PASSPHRASE_HASH, nonce)
     const res = await POST(
-      mockRequest({ body: { projectId: VALID_PROJECT_ID, nonce, response: proof } })
+      mockRequest({
+        body: {
+          projectId: nonExistentId,
+          challenge: nonce,
+          proof,
+        },
+      })
     )
+    expect(res.status).toBe(404)
+  })
+
+  it('mints a token for a valid project when challenge and proof are correct', async () => {
+    enforceAuth()
+    const { nonce } = issueChallenge(VALID_PROJECT_ID)
+    const proof = computeProof(PASSPHRASE_HASH, nonce)
+    const res = await POST(
+      mockRequest({
+        body: {
+          projectId: VALID_PROJECT_ID,
+          challenge: nonce,
+          proof,
+        },
+      })
+    )
+    expect(res.status).toBe(200)
     const body = await res.json()
     expect(typeof body.token).toBe('string')
     expect(body.token).toContain('.')

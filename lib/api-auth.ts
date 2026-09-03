@@ -20,7 +20,7 @@ export const PROJECT_TOKEN_HEADER = 'x-project-token'
 export const WEBHOOK_SECRET_HEADER = 'x-webhook-secret'
 
 const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * True when running in a local/dev/test context where auth is intentionally

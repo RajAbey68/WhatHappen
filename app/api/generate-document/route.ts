@@ -23,6 +23,22 @@ function mapDbProject(dbProj: any) {
   }
 }
 
+async function safeDecryptField(field: string, passphrase?: string): Promise<string> {
+  if (!passphrase || !field) return field
+  try {
+    const enc = JSON.parse(field)
+    if (enc && typeof enc === 'object' && enc.ciphertext && enc.salt && enc.iv) {
+      return await decryptText(enc.ciphertext, passphrase, enc.salt, enc.iv)
+    }
+  } catch (err: any) {
+    if (err instanceof SyntaxError) {
+      return field
+    }
+    throw new Error(`Decryption failed: ${err?.message || 'Invalid passphrase or tampered ciphertext'}`)
+  }
+  return field
+}
+
 export async function POST(request: NextRequest) {
   // RAJ-780: reject credential-less callers BEFORE parsing the body.
   if (!hasAnyProjectCredential(request)) return missingCredentialResponse()
@@ -64,50 +80,27 @@ export async function POST(request: NextRequest) {
 
       if (msgError) throw msgError
       
-      messages = await Promise.all(
-        (dbMessages || []).map(async (msg) => {
-          let decryptedMessage = msg.message
-          let decryptedSender = msg.sender
+      try {
+        messages = await Promise.all(
+          (dbMessages || []).map(async (msg) => {
+            const decryptedMessage = await safeDecryptField(msg.message, passphrase)
+            const decryptedSender = await safeDecryptField(msg.sender, passphrase)
 
-          if (passphrase) {
-            try {
-              const messageEnc = JSON.parse(msg.message)
-              if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
-                decryptedMessage = await decryptText(
-                  messageEnc.ciphertext,
-                  passphrase,
-                  messageEnc.salt,
-                  messageEnc.iv
-                )
-              }
-            } catch (e) {
-              // Treat as plaintext fallback
+            return {
+              id: msg.id,
+              projectId: msg.project_id,
+              sender: decryptedSender,
+              message: decryptedMessage,
+              timestamp: msg.timestamp
             }
-
-            try {
-              const senderEnc = JSON.parse(msg.sender)
-              if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
-                decryptedSender = await decryptText(
-                  senderEnc.ciphertext,
-                  passphrase,
-                  senderEnc.salt,
-                  senderEnc.iv
-                )
-              }
-            } catch (e) {
-              // Treat as plaintext fallback
-            }
-          }
-
-          return {
-            id: msg.id,
-            projectId: msg.project_id,
-            sender: decryptedSender,
-            message: decryptedMessage,
-            timestamp: msg.timestamp
-          }
-        })
-      )
+          })
+        )
+      } catch (cryptoErr: any) {
+        return NextResponse.json(
+          { error: `Message decryption failed: ${cryptoErr.message}` },
+          { status: 400 }
+        )
+      }
     }
 
     let documentContent: any

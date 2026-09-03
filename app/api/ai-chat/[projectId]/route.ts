@@ -43,22 +43,69 @@ export async function GET(
 
     const project = mapDbProject(dbProj) as any
 
-    // Get recent messages for context
-    const { data: dbMessages, error: msgError } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('timestamp', { ascending: true })
+    // Get messages for context
+    const passphrase = process.env.PROJECT_PASSPHRASE
+    const allDbMessages: any[] = []
+    let offset = 0
+    const batchSize = 1000
 
-    if (msgError) throw msgError
+    while (true) {
+      const { data: chunk, error: msgError } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('timestamp', { ascending: false })
+        .range(offset, offset + batchSize - 1)
 
-    const recentMessages = (dbMessages || []).map(msg => ({
-      id: msg.id,
-      sender: msg.sender,
-      message: msg.message,
-      timestamp: msg.timestamp,
-      projectId: msg.project_id
-    }))
+      if (msgError) throw msgError
+      if (!chunk || chunk.length === 0) break
+      allDbMessages.push(...chunk)
+      if (chunk.length < batchSize) break
+      offset += batchSize
+    }
+
+    const { decryptText } = await import('@/lib/crypto')
+
+    const recentMessages = await Promise.all(
+      allDbMessages.map(async msg => {
+        let decryptedMessage = msg.message
+        let decryptedSender = msg.sender
+
+        if (passphrase) {
+          try {
+            const messageEnc = JSON.parse(msg.message)
+            if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
+              decryptedMessage = await decryptText(
+                messageEnc.ciphertext,
+                passphrase,
+                messageEnc.salt,
+                messageEnc.iv
+              )
+            }
+          } catch {}
+
+          try {
+            const senderEnc = JSON.parse(msg.sender)
+            if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
+              decryptedSender = await decryptText(
+                senderEnc.ciphertext,
+                passphrase,
+                senderEnc.salt,
+                senderEnc.iv
+              )
+            }
+          } catch {}
+        }
+
+        return {
+          id: msg.id,
+          sender: decryptedSender,
+          message: decryptedMessage,
+          timestamp: msg.timestamp,
+          projectId: msg.project_id
+        }
+      })
+    )
 
     // Get AI conversation history
     const { data: dbConversations, error: convError } = await supabase

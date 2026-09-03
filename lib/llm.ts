@@ -13,44 +13,26 @@ import OpenAI from 'openai'
  * collection does NOT throw when env vars are absent.
  */
 
-function getUseOpenRouter() {
-  return !!process.env.OPENROUTER_API_KEY
-}
-
 let _llm: OpenAI | null = null
 
 function getLLM(): OpenAI {
   if (_llm) return _llm
-  const useOpenRouter = getUseOpenRouter()
-  _llm = useOpenRouter
-    ? new OpenAI({
-        baseURL: 'https://openrouter.ai/api/v1',
-        apiKey: process.env.OPENROUTER_API_KEY!,
-        defaultHeaders: {
-          'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL ?? 'https://whathappen.app',
-          'X-Title': 'WhatHappen Analyser',
-        },
-      })
-    : new OpenAI({
-        baseURL: 'https://api.deepseek.com/v1',
-        apiKey: process.env.DEEPSEEK_API_KEY ?? 'not-set',
-      })
+  // 100% Local Inference on Hermes-Dev (Zero External Cloud Egress for Legal Compliance)
+  const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434/v1'
+  _llm = new OpenAI({
+    baseURL: ollamaUrl,
+    apiKey: 'ollama-local-key',
+  })
   return _llm
 }
 
 function getModels() {
-  const useOpenRouter = getUseOpenRouter()
-  return useOpenRouter
-    ? {
-        primary:   process.env.LLM_MODEL_PRIMARY   ?? 'deepseek/deepseek-chat-v3-0324',
-        fallback:  process.env.LLM_MODEL_FALLBACK  ?? 'anthropic/claude-3-haiku',
-        emergency: process.env.LLM_MODEL_EMERGENCY ?? 'openai/gpt-4o-mini',
-      }
-    : {
-        primary:   'deepseek-chat',
-        fallback:  'deepseek-chat',
-        emergency: 'deepseek-chat',
-      }
+  const defaultModel = process.env.OLLAMA_MODEL || 'gemma3:4b'
+  return {
+    primary:   defaultModel,
+    fallback:  defaultModel,
+    emergency: defaultModel,
+  }
 }
 
 /**

@@ -490,6 +490,26 @@ export async function POST(request: NextRequest) {
         const zip = new AdmZipModule(fileBuffer)
         const entries = zip.getEntries()
 
+        const MAX_ZIP_ENTRIES = 1000
+        const MAX_TOTAL_DECOMPRESSED = 300 * 1024 * 1024 // 300MB
+        if (entries.length > MAX_ZIP_ENTRIES) {
+          throw new Error(`ZIP archive has too many entries (${entries.length}). Maximum allowed: ${MAX_ZIP_ENTRIES}.`)
+        }
+
+        let totalDecompressedBytes = 0
+        const safeGetData = (entry: any): Buffer | null => {
+          const uncompressedSize = entry.header?.size || 0
+          if (totalDecompressedBytes + uncompressedSize > MAX_TOTAL_DECOMPRESSED) {
+            console.warn(`[process-file] Skipping entry ${entry.entryName || ''} to prevent decompression memory exhaustion`)
+            return null
+          }
+          const buf = entry.getData() as Buffer
+          if (buf) {
+            totalDecompressedBytes += buf.length
+          }
+          return buf
+        }
+
         const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.mkv', '.3gp', '.m4v']
         const AUDIO_EXTENSIONS = ['.opus', '.m4a', '.mp3', '.wav', '.ogg']
 
@@ -497,9 +517,15 @@ export async function POST(request: NextRequest) {
         const imageEntries: any[] = []
         const audioEntries: any[] = []
 
+        const isHiddenOrSystemEntry = (entryName: string): boolean => {
+          const parts = entryName.split(/[\/\\]/)
+          return parts.some(p => p.startsWith('__MACOSX') || p.startsWith('._') || p === '.DS_Store' || (p.startsWith('.') && p !== '.' && p !== '..'))
+        }
+
         for (const entry of entries) {
           if (entry.isDirectory) continue
           const name = entry.entryName || entry.getEntryName?.() || ''
+          if (isHiddenOrSystemEntry(name)) continue
           const lower = name.toLowerCase()
 
           // Skip videos to preserve serverless RAM
@@ -516,13 +542,18 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 1. Extract the best chat transcript found (prefer .txt, then .json, then .csv)
+        // 1. Extract the best chat transcript found (prioritize _chat.txt, then files containing whatsapp, then other .txt/.json)
         if (chatEntries.length > 0) {
-          let bestChatEntry = chatEntries.find(c => (c.entryName || '').toLowerCase().endsWith('.txt')) ||
-                              chatEntries.find(c => (c.entryName || '').toLowerCase().endsWith('.json')) ||
-                              chatEntries[0]
+          let bestChatEntry =
+            chatEntries.find(c => {
+              const base = path.basename(c.entryName || '').toLowerCase()
+              return base === '_chat.txt' || base === 'chat.txt' || base.startsWith('whatsapp chat')
+            }) ||
+            chatEntries.find(c => (c.entryName || '').toLowerCase().endsWith('.txt')) ||
+            chatEntries.find(c => (c.entryName || '').toLowerCase().endsWith('.json')) ||
+            chatEntries[0]
           processingFileName = bestChatEntry.entryName || 'chat.txt'
-          const chatBuf = bestChatEntry.getData()
+          const chatBuf = safeGetData(bestChatEntry)
           if (chatBuf) {
             fileContent = chatBuf.toString('utf-8')
           }
@@ -538,9 +569,10 @@ export async function POST(request: NextRequest) {
 
             const audioFilesToTranscribe = targetAudio.map(entry => {
               const entryName = entry.entryName || entry.getEntryName?.() || 'audio.opus'
+              const buf = safeGetData(entry)
               return {
                 name: path.basename(entryName),
-                data: entry.getData() as Buffer,
+                data: buf as Buffer,
               }
             }).filter(a => a.data && a.data.length > 0)
 
@@ -570,7 +602,7 @@ export async function POST(request: NextRequest) {
               const entryName = entry.entryName || entry.getEntryName?.() || 'image.jpg'
               const ext = getExtension(entryName)
               const mimeType = imageExtToMime(ext)
-              const buf = entry.getData() as Buffer
+              const buf = safeGetData(entry)
               return {
                 name: path.basename(entryName),
                 base64: buf ? bufferToBase64(buf, mimeType) : '',
@@ -1010,6 +1042,11 @@ function getExtension(name: string): string {
   return idx >= 0 ? name.slice(idx).toLowerCase() : ''
 }
 
+function extractAttachmentFilename(text: string): string | null {
+  const match = text.match(/<attached:\s*([^>]+)>/i) || text.match(/([^\s()]+\.[a-zA-Z0-9]{3,4})\s*\((?:file attached|archivo adjunto|fichier joint)\)/i)
+  return match ? match[1].trim() : null
+}
+
 /**
  * Enrich media-omitted and voice messages with OCR text and speech-to-text transcriptions.
  */
@@ -1024,40 +1061,57 @@ function enrichMediaMessages(
   return messages.map((msg) => {
     let updatedMsg = msg.message
     let wasEnriched = false
+    const attachedFile = extractAttachmentFilename(updatedMsg)
 
     // 1. Match and inject audio transcriptions
     if (transcribedAudios && transcribedAudios.size > 0) {
-      const audioEntries = Array.from(transcribedAudios.entries())
-      for (let i = 0; i < audioEntries.length; i++) {
-        const [filename, transcript] = audioEntries[i]
-        if (updatedMsg.includes(filename)) {
-          updatedMsg = `${updatedMsg}\n\n[Voice Note Transcription]\n${transcript}`
-          wasEnriched = true
-          break
-        }
-      }
-      if (!wasEnriched && (msg.messageType === 'media' || updatedMsg.includes('audio omitted') || updatedMsg.includes('voice message') || updatedMsg.includes('PTT-'))) {
+      if (attachedFile && transcribedAudios.has(attachedFile)) {
+        const transcript = transcribedAudios.get(attachedFile)!
+        updatedMsg = `${updatedMsg}\n\n[Voice Note Transcription]\n${transcript}`
+        transcribedAudios.delete(attachedFile)
+        wasEnriched = true
+      } else {
+        const audioEntries = Array.from(transcribedAudios.entries())
         for (let i = 0; i < audioEntries.length; i++) {
           const [filename, transcript] = audioEntries[i]
-          updatedMsg = `${updatedMsg}\n\n[Voice Note: ${filename}]\n${transcript}`
-          transcribedAudios.delete(filename)
-          wasEnriched = true
-          break
+          if (updatedMsg.includes(filename)) {
+            updatedMsg = `${updatedMsg}\n\n[Voice Note Transcription]\n${transcript}`
+            transcribedAudios.delete(filename)
+            wasEnriched = true
+            break
+          }
+        }
+        if (!wasEnriched && (msg.messageType === 'media' || updatedMsg.includes('audio omitted') || updatedMsg.includes('voice message') || updatedMsg.includes('PTT-'))) {
+          for (let i = 0; i < audioEntries.length; i++) {
+            const [filename, transcript] = audioEntries[i]
+            updatedMsg = `${updatedMsg}\n\n[Voice Note: ${filename}]\n${transcript}`
+            transcribedAudios.delete(filename)
+            wasEnriched = true
+            break
+          }
         }
       }
     }
 
     // 2. Match and inject image OCR text
     if (ocrBlocks.length > 0) {
-      if (
-        msg.messageType === 'media' &&
-        (updatedMsg.includes('<Media omitted>') ||
-         updatedMsg.includes('image omitted') ||
-         updatedMsg.includes('photo omitted') ||
-         updatedMsg.includes('IMG-') ||
-         updatedMsg.includes('.jpg') ||
-         updatedMsg.includes('.png'))
-      ) {
+      if (attachedFile) {
+        const matchingBlock = ocrBlocks.find(b => b.includes(attachedFile))
+        if (matchingBlock) {
+          updatedMsg = `${updatedMsg}\n\n[OCR Extracted Text]\n${matchingBlock}`
+          wasEnriched = true
+        }
+      }
+
+      if (!wasEnriched && (
+        msg.messageType === 'media' ||
+        updatedMsg.includes('<Media omitted>') ||
+        updatedMsg.includes('image omitted') ||
+        updatedMsg.includes('photo omitted') ||
+        updatedMsg.includes('IMG-') ||
+        updatedMsg.includes('.jpg') ||
+        updatedMsg.includes('.png')
+      )) {
         const block = ocrBlocks[ocrIndex]
         if (block) {
           ocrIndex++
@@ -1079,19 +1133,28 @@ function enrichMediaMessages(
   })
 }
 
+function cleanChatLine(l: string): string {
+  return l
+    .replace(/[\u200e\u200f\u202a-\u202e\u200b\u2060\u00ad\ufeff]/g, '')
+    .replace(/[\u202f\u00a0]/g, ' ')
+    .trim()
+}
+
 function parseWhatsAppChat(content: string): ProcessedMessage[] {
   const messages: ProcessedMessage[] = []
   const lines = content.split('\n')
   
   // WhatsApp message patterns supporting different delimiters (/, ., -) and 2-4 digit years
-  const messagePattern = /^\[(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}),?\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AP]M)?)\]\s*([^:]+):\s*(.*)$/i
-  const altPattern = /^(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}),?\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AP]M)?)\s*-\s*([^:]+):\s*(.*)$/i
+  const messagePattern = /^\[(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}),?\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s?[APap][Mm])?)\]\s*([^:]+):\s*(.*)$/
+  const altPattern = /^(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}),?\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s?[APap][Mm])?)\s*-\s*([^:]+):\s*(.*)$/
+  const sysPattern1 = /^\[(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}),?\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s?[APap][Mm])?)\]\s*([^:]+)$/
+  const sysPattern2 = /^(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}),?\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s?[APap][Mm])?)\s*-\s*([^:]+)$/
 
   // Pre-scan all valid messages to auto-detect the date locale (DD/MM vs MM/DD)
   let detectedLocale: 'DMY' | 'MDY' = 'DMY'
-  for (const line of lines) {
-    const trimmed = line.trim()
-    const match = trimmed.match(messagePattern) || trimmed.match(altPattern)
+  for (const rawLine of lines) {
+    const trimmed = cleanChatLine(rawLine)
+    const match = trimmed.match(messagePattern) || trimmed.match(altPattern) || trimmed.match(sysPattern1) || trimmed.match(sysPattern2)
     if (match) {
       const dateStr = match[1]
       const parts = dateStr.split(/[\/\-\.]/).map(Number)
@@ -1109,19 +1172,30 @@ function parseWhatsAppChat(content: string): ProcessedMessage[] {
 
   let currentMessage: ProcessedMessage | null = null
 
-  for (const line of lines) {
-    const trimmedLine = line.trim()
+  for (const rawLine of lines) {
+    const trimmedLine = cleanChatLine(rawLine)
     if (!trimmedLine) continue
 
     let match = trimmedLine.match(messagePattern) || trimmedLine.match(altPattern)
+    let isSystemLine = false
+    let sysMatch = null
+    if (!match) {
+      sysMatch = trimmedLine.match(sysPattern1) || trimmedLine.match(sysPattern2)
+      if (sysMatch) {
+        isSystemLine = true
+      }
+    }
     
-    if (match) {
+    if (match || isSystemLine) {
       // Save previous message if exists
       if (currentMessage) {
         messages.push(currentMessage)
       }
 
-      const [, dateStr, timeStr, sender, message] = match
+      const dateStr = match ? match[1] : sysMatch![1]
+      const timeStr = match ? match[2] : sysMatch![2]
+      const sender = isSystemLine ? 'System' : match![3]
+      const message = isSystemLine ? sysMatch![3] : match![4]
       
       try {
         // Parse date
