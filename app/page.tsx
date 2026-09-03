@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Project } from '@/lib/supabase'
-import { Upload, MessageSquare, BarChart3, FileText, Bot, Database, Key, Shield, RefreshCw, Clock } from 'lucide-react'
+import { Upload, MessageSquare, BarChart3, FileText, Bot, Database, Key, Shield, RefreshCw, Clock, Eye } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,6 +23,7 @@ import {
   projectAuthHeaders,
 } from '@/lib/session-store'
 import { BottomSheet, BottomSheetContent, BottomSheetHeader, BottomSheetTitle } from '@/components/ui/bottom-sheet'
+import { ReportViewerModal } from '@/components/report-viewer-modal'
 
 // Strip path separators / control chars and bound length so a project name
 // can't produce a malformed or unsafe download filename.
@@ -53,6 +54,19 @@ export default function Home() {
   const [decryptedData, setDecryptedData] = useState<any>(null)
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+
+  // On-screen Report Preview state
+  const [previewModal, setPreviewModal] = useState<{
+    isOpen: boolean
+    title: string
+    subtitle: string
+    documentType: string
+  }>({
+    isOpen: false,
+    title: '',
+    subtitle: '',
+    documentType: 'summary'
+  })
 
   // Auto-restore active project (last project, single migrated project, or Ko Lake project)
   useEffect(() => {
@@ -831,73 +845,112 @@ export default function Home() {
                             <li>Timeline analysis</li>
                             <li>Legal formatting</li>
                           </ul>
-                          <button 
-                            onClick={() => handleDownloadDocument('detailed_analysis', 'pdf')}
-                            disabled={isGeneratingDoc !== null}
-                            aria-busy={isGeneratingDoc === 'detailed_analysis_pdf'}
-                            className="w-full px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                          >
-                            {isGeneratingDoc === 'detailed_analysis_pdf' ? 'Generating...' : 'Generate Legal PDF'}
-                          </button>
+                          <div className="space-y-2">
+                            <button 
+                              onClick={() => setPreviewModal({
+                                isOpen: true,
+                                title: 'Legal & Evidentiary Report',
+                                subtitle: 'Chronological transcript and participant verification',
+                                documentType: 'detailed_analysis'
+                              })}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded-xl transition-colors text-sm font-semibold"
+                            >
+                              <Eye className="h-4 w-4" />
+                              View Report on Screen
+                            </button>
+                            <button 
+                              onClick={() => handleDownloadDocument('detailed_analysis', 'pdf')}
+                              disabled={isGeneratingDoc !== null}
+                              aria-busy={isGeneratingDoc === 'detailed_analysis_pdf'}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              {isGeneratingDoc === 'detailed_analysis_pdf' ? 'Generating...' : 'Convert to PDF'}
+                            </button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
 
-                    <Card className="rounded-2xl shadow-sm">
+                    <Card className="rounded-2xl shadow-sm bg-slate-900/60 border-slate-800">
                       <CardHeader>
-                        <CardTitle>Analysis Summary</CardTitle>
-                        <CardDescription>Executive summary with key insights</CardDescription>
+                        <CardTitle className="text-white">Analysis Summary</CardTitle>
+                        <CardDescription className="text-slate-400">Executive summary with key insights</CardDescription>
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-4">
-                          <ul className="text-sm text-slate-600 list-disc list-inside space-y-1">
-                            <li>Key statistics</li>
-                            <li>Sentiment overview</li>
-                            <li>Activity patterns</li>
-                            <li>Important highlights</li>
-                          </ul>
-                          <button 
-                            onClick={() => handleDownloadDocument('summary', 'pdf')}
-                            disabled={isGeneratingDoc !== null}
-                            aria-busy={isGeneratingDoc === 'summary_pdf'}
-                            className="w-full px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                          >
-                            {isGeneratingDoc === 'summary_pdf' ? 'Generating...' : 'Generate Summary PDF'}
-                          </button>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="rounded-2xl shadow-sm">
-                      <CardHeader>
-                        <CardTitle>Raw Data Export</CardTitle>
-                        <CardDescription>Complete data in multiple formats</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          <ul className="text-sm text-slate-600 list-disc list-inside space-y-1">
-                            <li>JSON format</li>
-                            <li>CSV spreadsheet</li>
-                            <li>Full message data</li>
-                            <li>Metadata included</li>
+                          <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
+                            <li>Key statistics & metrics</li>
+                            <li>Sentiment & stress overview</li>
+                            <li>Activity & temporal patterns</li>
+                            <li>Top discussion highlights</li>
                           </ul>
                           <div className="space-y-2">
                             <button 
-                              onClick={() => handleDownloadDocument('summary', 'json')}
-                              disabled={isGeneratingDoc !== null}
-                              aria-busy={isGeneratingDoc === 'summary_json'}
-                              className="w-full px-4 py-2 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                              onClick={() => setPreviewModal({
+                                isOpen: true,
+                                title: 'Executive Analysis Summary',
+                                subtitle: 'Operational metrics, sentiment, and activity trends',
+                                documentType: 'summary'
+                              })}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-500/30 rounded-xl transition-colors text-sm font-semibold"
                             >
-                              {isGeneratingDoc === 'summary_json' ? 'Generating...' : 'Export JSON'}
+                              <Eye className="h-4 w-4" />
+                              View Summary on Screen
                             </button>
                             <button 
-                              onClick={() => handleDownloadDocument('summary', 'csv')}
+                              onClick={() => handleDownloadDocument('summary', 'pdf')}
                               disabled={isGeneratingDoc !== null}
-                              aria-busy={isGeneratingDoc === 'summary_csv'}
-                              className="w-full px-4 py-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                              aria-busy={isGeneratingDoc === 'summary_pdf'}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium"
                             >
-                              {isGeneratingDoc === 'summary_csv' ? 'Generating...' : 'Export CSV'}
+                              <FileText className="h-3.5 w-3.5" />
+                              {isGeneratingDoc === 'summary_pdf' ? 'Generating...' : 'Convert to PDF'}
                             </button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="rounded-2xl shadow-sm bg-slate-900/60 border-slate-800">
+                      <CardHeader>
+                        <CardTitle className="text-white">Raw Data Export</CardTitle>
+                        <CardDescription className="text-slate-400">Complete data in multiple formats</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
+                            <li>View interactive table in Chat Reader</li>
+                            <li>JSON raw export</li>
+                            <li>CSV spreadsheet format</li>
+                            <li>Metadata & timestamps included</li>
+                          </ul>
+                          <div className="space-y-2">
+                            <button 
+                              onClick={() => setActiveTab('chat-reader')}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30 rounded-xl transition-colors text-sm font-semibold"
+                            >
+                              <Database className="h-4 w-4" />
+                              Browse Data on Screen
+                            </button>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button 
+                                onClick={() => handleDownloadDocument('summary', 'json')}
+                                disabled={isGeneratingDoc !== null}
+                                aria-busy={isGeneratingDoc === 'summary_json'}
+                                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium text-center"
+                              >
+                                {isGeneratingDoc === 'summary_json' ? '...' : 'Export JSON'}
+                              </button>
+                              <button 
+                                onClick={() => handleDownloadDocument('summary', 'csv')}
+                                disabled={isGeneratingDoc !== null}
+                                aria-busy={isGeneratingDoc === 'summary_csv'}
+                                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium text-center"
+                              >
+                                {isGeneratingDoc === 'summary_csv' ? '...' : 'Export CSV'}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </CardContent>
@@ -1045,6 +1098,21 @@ export default function Home() {
           </div>
         </BottomSheetContent>
       </BottomSheet>
+
+      {/* On-Screen Report & Analysis Viewer Modal */}
+      {selectedProject && (
+        <ReportViewerModal
+          isOpen={previewModal.isOpen}
+          onClose={() => setPreviewModal(prev => ({ ...prev, isOpen: false }))}
+          title={previewModal.title}
+          subtitle={previewModal.subtitle}
+          documentType={previewModal.documentType}
+          project={selectedProject}
+          messages={decryptedData?.messages || []}
+          onDownload={handleDownloadDocument}
+          isDownloading={isGeneratingDoc !== null}
+        />
+      )}
     </div>
   )
 }
