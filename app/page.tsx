@@ -52,6 +52,7 @@ export default function Home() {
 
   // Client-side decrypted messages data
   const [decryptedData, setDecryptedData] = useState<any>(null)
+  const [decryptedResponseTimes, setDecryptedResponseTimes] = useState<Record<string, number> | null>(null)
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
 
@@ -99,6 +100,36 @@ export default function Home() {
 
     restoreProject()
   }, [])
+
+  // Automatically decrypt response times participant keys when project or passphrase changes
+  useEffect(() => {
+    const decryptTimes = async () => {
+      const times = selectedProject?.analysis?.averageResponseTimes
+      if (!times || typeof times !== 'object') {
+        setDecryptedResponseTimes(null)
+        return
+      }
+
+      const decrypted: Record<string, number> = {}
+      for (const [key, seconds] of Object.entries(times)) {
+        let displayName = key
+        if (passphrase) {
+          try {
+            const enc = JSON.parse(key)
+            if (enc.ciphertext && enc.salt && enc.iv) {
+              displayName = await decryptText(enc.ciphertext, passphrase, enc.salt, enc.iv)
+            }
+          } catch (e) {
+            // Keep plaintext or formatted name
+          }
+        }
+        decrypted[displayName] = seconds as number
+      }
+      setDecryptedResponseTimes(decrypted)
+    }
+
+    decryptTimes()
+  }, [selectedProject?.analysis?.averageResponseTimes, passphrase])
 
   // Handle tab changes with mobile bottom sheet redirection
   const handleTabChange = (value: string) => {
@@ -771,16 +802,16 @@ export default function Home() {
                           <CardDescription>Average reply speed per participant</CardDescription>
                         </CardHeader>
                         <CardContent>
-                          {selectedProject.analysis?.averageResponseTimes ? (
+                          {decryptedResponseTimes || selectedProject.analysis?.averageResponseTimes ? (
                             <div className="space-y-2 text-sm text-slate-600">
-                              {Object.entries(selectedProject.analysis.averageResponseTimes).map(([participant, seconds]: [string, any]) => {
+                              {Object.entries(decryptedResponseTimes || selectedProject.analysis?.averageResponseTimes || {}).map(([participant, seconds]: [string, any]) => {
                                 const m = Math.floor(seconds / 60);
                                 const s = seconds % 60;
                                 const timeStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
                                 return (
-                                  <div key={participant} className="flex justify-between">
-                                    <span className="font-medium">{participant}</span>
-                                    <span className="font-bold text-blue-600">{timeStr}</span>
+                                  <div key={participant} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
+                                    <span className="font-medium text-slate-700">{participant}</span>
+                                    <span className="font-bold text-blue-600 font-mono">{timeStr}</span>
                                   </div>
                                 );
                               })}

@@ -34,7 +34,10 @@ async function getAuthToken(projectId) {
   if (!challengeRes.ok) throw new Error(`Challenge failed: ${challengeRes.statusText}`)
   const { nonce } = await challengeRes.json()
 
-  const hash = process.env.WHATSAPP_PASSPHRASE_HASH || 'e2e5fd9baa544fdf08a97645940de04e3843a44bfdcca387d18b00b737a609d0'
+  const hash = process.env.WHATSAPP_PASSPHRASE_HASH
+  if (!hash) {
+    throw new Error('WHATSAPP_PASSPHRASE_HASH must be configured in the environment')
+  }
   const proof = crypto.createHmac('sha256', hash).update(nonce).digest('hex')
 
   const tokenRes = await fetch(`${HERMES_URL}/api/project-token`, {
