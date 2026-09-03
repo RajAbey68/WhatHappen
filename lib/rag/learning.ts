@@ -248,3 +248,18 @@ export function logFeedback(
   fs.writeFileSync(filePath, JSON.stringify(list, null, 2), 'utf8')
   return newRecord
 }
+
+/**
+ * Invalidate all golden Q&A entries for a project (e.g. when new messages are uploaded).
+ */
+export function invalidateGoldenCache(projectId: string): void {
+  try {
+    const filePath = getGoldenQAPath(projectId)
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+      console.log(`[Learning RAG] Invalidated Golden Q&A cache for project ${projectId}`)
+    }
+  } catch (err) {
+    console.warn(`[Learning RAG] Failed to delete Golden Q&A cache for ${projectId}:`, err)
+  }
+}

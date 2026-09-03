@@ -259,6 +259,17 @@ export async function processWhatsappCompletion(
 
     if (projectUpdateError) throw projectUpdateError
 
+    // Automatically invalidate stale vector cache and golden Q&A memory for this project
+    try {
+      const { invalidateVectorCache } = await import('@/lib/rag/embedder')
+      const { invalidateGoldenCache } = await import('@/lib/rag/learning')
+      invalidateVectorCache(projectId)
+      invalidateGoldenCache(projectId)
+      console.log(`[RAG] Invalidated cached vectors and Golden Q&A for project ${projectId} after new upload.`)
+    } catch (cacheErr) {
+      console.warn('[RAG] Cache invalidation warning:', cacheErr)
+    }
+
     // RAJ-759: always respond as JSON, never a request-derived content type.
     return NextResponse.json(responsePayload, {
       headers: { 'Content-Type': 'application/json' },

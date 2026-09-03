@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 import { SessionWindow } from './sessionizer'
 
 export interface EmbeddedSession {
@@ -5,8 +7,73 @@ export interface EmbeddedSession {
   embedding: number[]
 }
 
+// Data directory for persistent vector storage
+const DATA_DIR = process.env.RAG_DATA_DIR || path.join(process.cwd(), 'data', 'rag')
+
+function ensureDir() {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+  }
+}
+
+function getVectorStorePath(projectId: string): string {
+  ensureDir()
+  return path.join(DATA_DIR, `vectors_${projectId}.json`)
+}
+
 // In-memory embedding cache keyed by projectId
 const vectorStoreCache = new Map<string, EmbeddedSession[]>()
+
+/**
+ * Load vector store from disk if not present in memory.
+ */
+function loadVectorStoreFromDisk(projectId: string): EmbeddedSession[] | null {
+  try {
+    const filePath = getVectorStorePath(projectId)
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf8')
+      const parsed = JSON.parse(content)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        console.log(`[RAG] Loaded ${parsed.length} persistent vectors from disk for project ${projectId}`)
+        return parsed
+      }
+    }
+  } catch (err) {
+    console.warn(`[RAG] Failed to load disk vector cache for project ${projectId}:`, err)
+  }
+  return null
+}
+
+/**
+ * Save vector store to disk atomically.
+ */
+function saveVectorStoreToDisk(projectId: string, data: EmbeddedSession[]): void {
+  try {
+    const filePath = getVectorStorePath(projectId)
+    const tempPath = `${filePath}.tmp_${Date.now()}`
+    fs.writeFileSync(tempPath, JSON.stringify(data), 'utf8')
+    fs.renameSync(tempPath, filePath)
+    console.log(`[RAG] Persisted ${data.length} vectors to disk at ${filePath}`)
+  } catch (err) {
+    console.warn(`[RAG] Failed to write vector cache to disk for project ${projectId}:`, err)
+  }
+}
+
+/**
+ * Invalidate vector cache for a project (e.g. after new messages are uploaded).
+ */
+export function invalidateVectorCache(projectId: string): void {
+  vectorStoreCache.delete(projectId)
+  try {
+    const filePath = getVectorStorePath(projectId)
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+      console.log(`[RAG] Invalidated disk vector cache for project ${projectId}`)
+    }
+  } catch (err) {
+    console.warn(`[RAG] Failed to delete disk vector cache for ${projectId}:`, err)
+  }
+}
 
 /**
  * Compute embeddings using bge-m3 on local Ollama daemon on Hermes-Dev.
@@ -68,23 +135,42 @@ export async function retrieveRelevantSessions(
 ): Promise<{ session: SessionWindow; score: number }[]> {
   let embedded = vectorStoreCache.get(projectId)
 
-  // Lazy index on first query or if session count changed
-  if (!embedded || embedded.length !== sessions.length) {
-    embedded = []
-    console.log(`[RAG] Generating bge-m3 embeddings for ${sessions.length} session windows...`)
+  // 1. Try warm start from disk if memory is cold
+  if (!embedded) {
+    const diskStore = loadVectorStoreFromDisk(projectId)
+    if (diskStore && diskStore.length > 0) {
+      embedded = diskStore
+      vectorStoreCache.set(projectId, embedded)
+    }
+  }
 
-    // Embed in sequential batches to protect Hermes CPU
-    for (let i = 0; i < sessions.length; i++) {
-      const sess = sessions[i]
+  if (!embedded) {
+    embedded = []
+  }
+
+  // 2. Identify which sessions need embeddings
+  const existingSessionIds = new Set(embedded.map(e => e.session.sessionId))
+  const missingSessions = sessions.filter(s => !existingSessionIds.has(s.sessionId))
+
+  // If missing sessions exist, embed candidate window (prioritize most recent up to 20 to avoid CPU stalls)
+  if (missingSessions.length > 0) {
+    const toEmbed = missingSessions.slice(-25)
+    console.log(`[RAG] Progressively embedding ${toEmbed.length} new sessions for project ${projectId}...`)
+
+    for (const sess of toEmbed) {
       try {
         const emb = await getEmbedding(sess.formattedContent)
         embedded.push({ session: sess, embedding: emb })
+        existingSessionIds.add(sess.sessionId)
       } catch (e) {
         console.warn(`[RAG] Skipping session ${sess.sessionId} embedding error:`, e)
       }
     }
+
+    // Persist incrementally to disk
     vectorStoreCache.set(projectId, embedded)
-    console.log(`[RAG] Successfully indexed ${embedded.length} sessions in RAM.`)
+    saveVectorStoreToDisk(projectId, embedded)
+    console.log(`[RAG] Incremental index now holds ${embedded.length} persisted sessions.`)
   }
 
   // Embed query

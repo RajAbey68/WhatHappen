@@ -194,27 +194,24 @@ Chat Meta-Context:
 
         let relevantSessions: any[] = []
 
-        // If specific months are queried, gather matching session windows first
+        // If specific months are queried, narrow candidate pool to those months
+        let candidateSessions = sessions
         if (matchedMonths.length > 0) {
-          relevantSessions = sessions.filter(s => {
+          const filtered = sessions.filter(s => {
             const startM = new Date(s.startTime).getMonth()
             const endM = new Date(s.endTime).getMonth()
             return matchedMonths.some(m => monthIndexMap[m] === startM || monthIndexMap[m] === endM)
           })
+          if (filtered.length > 0) candidateSessions = filtered
         }
 
-        // If intent didn't isolate sessions, retrieve top 6 sessions via in-memory similarity or recency
-        if (relevantSessions.length === 0) {
-          try {
-            const ranked = await retrieveRelevantSessions(projectId, sessions.slice(-100), expandedQuery, 6)
-            relevantSessions = ranked.map(r => r.session)
-          } catch (embedErr) {
-            console.warn('[RAG] Fallback to recency session windowing:', embedErr)
-            relevantSessions = sessions.slice(-6)
-          }
-        } else if (relevantSessions.length > 8) {
-          // Cap to most relevant 8 sessions within the requested timeframe
-          relevantSessions = relevantSessions.slice(-8)
+        // Rank and retrieve top 3 sessions via dense vector similarity
+        try {
+          const ranked = await retrieveRelevantSessions(projectId, candidateSessions.slice(-100), expandedQuery, 3)
+          relevantSessions = ranked.map(r => r.session)
+        } catch (embedErr) {
+          console.warn('[RAG] Fallback to recency session windowing:', embedErr)
+          relevantSessions = candidateSessions.slice(-3)
         }
 
         // Sort relevant sessions chronologically
@@ -275,9 +272,14 @@ Provide a concise, direct operational summary strictly derived from the quotes a
     let responseText = ''
 
     try {
+      // Use 180s timeout so CPU inference is never prematurely severed by Node fetch
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 180_000)
+
       const ollamaRes = await fetch(localOllamaUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           model: localModel,
           messages: [
@@ -287,12 +289,13 @@ Provide a concise, direct operational summary strictly derived from the quotes a
           ],
           stream: false,
           options: {
-            num_ctx: 16384, // Prevent silent prompt truncation on sessionized transcripts (RAJ-936)
-            num_predict: 2500,
+            num_ctx: 4096, // Fast CPU prefill (~1,500 tokens in <12s)
+            num_predict: 1200,
             temperature: 0.2
           }
         })
       })
+      clearTimeout(timeoutId)
 
       if (ollamaRes.ok) {
         const ollamaData = await ollamaRes.json()
