@@ -137,7 +137,7 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
       if (response.ok) {
         const data = await response.json()
         if (!data.response) {
-          throw new Error('Malformed API response')
+          throw new Error('Malformed API response: missing response field')
         }
         const assistantMessage: ChatMessage = {
           id: `assistant-${Date.now()}`,
@@ -148,8 +148,8 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
 
         setMessages(prev => [...prev, assistantMessage])
 
-        // Save conversation
-        await fetch('/api/ai-chat/save', {
+        // Save conversation asynchronously (non-blocking)
+        fetch('/api/ai-chat/save', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -160,16 +160,23 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
             projectId: selectedProject.id,
             messages: [...messages, userMessage, assistantMessage]
           })
-        })
+        }).catch(saveErr => console.warn('Could not save conversation history:', saveErr))
       } else {
-        throw new Error('Failed to get AI response')
+        let errorDetail = `HTTP ${response.status}`
+        try {
+          const errBody = await response.json()
+          if (errBody?.error) errorDetail = errBody.error
+        } catch {
+          // ignore json parse error
+        }
+        throw new Error(errorDetail)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending message:', error)
       const errorMessage: ChatMessage = {
         id: `error-${Date.now()}`,
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: `Sorry, I encountered an error: ${error?.message || 'Please try again.'}`,
         timestamp: new Date()
       }
       setMessages(prev => [...prev, errorMessage])
