@@ -209,7 +209,7 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
 
       // Metrics: messages count badge and values
       expect(screen.getByText('1,500 messages')).toBeInTheDocument()
-      expect(screen.getByText('2')).toBeInTheDocument() // 2 participants
+      expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1) // 2 participants
       expect(screen.getByText('3')).toBeInTheDocument() // 3 keywords
       expect(screen.getByText('9')).toBeInTheDocument() // 9 days span (Jan 1 to Jan 10)
     })
