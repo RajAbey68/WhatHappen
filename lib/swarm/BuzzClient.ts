@@ -54,6 +54,7 @@ export interface BuzzClientOptions {
   nsec?: string // Nostr secret key from env
   reconnectInterval?: number
   heartbeatInterval?: number
+  connectionTimeout?: number
 }
 
 /**
@@ -65,6 +66,7 @@ export class BuzzClient {
   private ws: WebSocket | null = null
   private reconnectInterval: number
   private heartbeatInterval: number
+  private connectionTimeout: number
   private reconnectTimer: NodeJS.Timeout | null = null
   private heartbeatTimer: NodeJS.Timeout | null = null
   private isConnected = false
@@ -96,6 +98,7 @@ export class BuzzClient {
     this.nsec = options.nsec || process.env.BUZZBAR_NSEC || null
     this.reconnectInterval = options.reconnectInterval || 5000
     this.heartbeatInterval = options.heartbeatInterval || 30000
+    this.connectionTimeout = options.connectionTimeout || 1000
 
     if (!this.nsec) {
       console.warn('[BuzzClient] Warning: BUZZBAR_NSEC not set. Authentication may be required.')
@@ -149,7 +152,7 @@ export class BuzzClient {
           if (!this.isConnected) {
             reject(new Error('Connection timeout'))
           }
-        }, 10000)
+        }, this.connectionTimeout)
 
       } catch (error) {
         reject(error)

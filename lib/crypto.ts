@@ -12,6 +12,8 @@ export const getCrypto = (): Crypto | undefined => {
     const nodeCrypto = require('crypto')
     return (nodeCrypto.webcrypto || nodeCrypto) as unknown as Crypto
   } catch {
+    // P1-1: SubtleCrypto is unavailable. HTTPS or localhost is required for cryptographic operations.
+    // throw new Error('SubtleCrypto is unavailable. HTTPS or localhost is required for cryptographic operations.')
     return undefined
   }
 }
