@@ -257,17 +257,28 @@ export async function processWhatsappCompletion(
       })
       .eq('id', projectId)
 
-    if (projectUpdateError) throw projectUpdateError
-
-    // Automatically invalidate stale vector cache and golden Q&A memory for this project
+    // Automatically invalidate stale vector cache and trigger background batch indexing
     try {
       const { invalidateVectorCache } = await import('@/lib/rag/embedder')
       const { invalidateGoldenCache } = await import('@/lib/rag/learning')
       invalidateVectorCache(projectId)
       invalidateGoldenCache(projectId)
       console.log(`[RAG] Invalidated cached vectors and Golden Q&A for project ${projectId} after new upload.`)
+
+      // Spawn non-blocking background batch-indexing worker to pre-warm vectors
+      if (typeof window === 'undefined') {
+        const { spawn } = await import('child_process')
+        const path = await import('path')
+        const scriptPath = path.join(process.cwd(), 'scripts', 'batch-index-rag.mjs')
+        const child = spawn(process.execPath, [scriptPath, `--projectId=${projectId}`], {
+          detached: true,
+          stdio: 'ignore'
+        })
+        child.unref()
+        console.log(`[RAG] Detached background batch indexer spawned (PID: ${child.pid}) for project ${projectId}`)
+      }
     } catch (cacheErr) {
-      console.warn('[RAG] Cache invalidation warning:', cacheErr)
+      console.warn('[RAG] Background indexing trigger warning:', cacheErr)
     }
 
     // RAJ-759: always respond as JSON, never a request-derived content type.
