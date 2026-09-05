@@ -10,6 +10,7 @@ import { decryptText } from '@/lib/crypto'
 import { sessionizeMessages } from '@/lib/rag/sessionizer'
 import { retrieveRelevantSessions } from '@/lib/rag/embedder'
 import { lookupGoldenCache, expandQueryWithLexicon, getFewShotExemplars } from '@/lib/rag/learning'
+import { OperationalTruthHarness } from '@/lib/forensics/truth-harness'
 
 // Model is env-overridable; default upgraded off the dated gpt-3.5-turbo.
 // NOTE (architecture): the house default stack is Claude via Supabase Edge
@@ -111,6 +112,7 @@ Chat Meta-Context:
 
     // Fetch actual chat messages context to allow content-specific questions
     let messagesContext = ''
+    let decryptedMsgs: any[] = []
     try {
       // Fetch all messages for the project in batches to prevent PostgREST 1000-row cap
       let allChatMsgs: any[] = []
@@ -136,7 +138,6 @@ Chat Meta-Context:
       }
 
       if (allChatMsgs.length > 0) {
-        const decryptedMsgs: any[] = []
         for (const m of allChatMsgs) {
           let decryptedMessage = m.message
           let decryptedSender = m.sender
@@ -347,8 +348,19 @@ Provide a concise, direct operational summary strictly derived from the quotes a
       }
     }
 
+    // Operational Truth Verification Barrier:
+    // Guarantees all citations are checked against raw corpus before leaving server
+    let finalResponse = responseText
+    if (success && decryptedMsgs.length > 0) {
+      const { sanitizedText, audit } = OperationalTruthHarness.enforce(responseText, decryptedMsgs)
+      finalResponse = sanitizedText
+      if (!audit.compliant) {
+        console.warn(`[Operational Truth] Redacted ${audit.hallucinatedCount} unverified citation(s) from response for project ${projectId}`)
+      }
+    }
+
     return NextResponse.json({
-      response: responseText,
+      response: finalResponse,
       timestamp: new Date().toISOString()
     })
 

@@ -2,6 +2,8 @@ import { BM25Index } from '@/lib/rag/bm25'
 import { CitationGate } from '@/lib/forensics/citation-gate'
 import { ForensicReconciler, BookLetsExpenseRecord } from '@/lib/forensics/reconciler'
 import { BookLetsIntentBridge } from '@/lib/integrations/booklets/intent-bridge'
+import { OperationalTruthHarness } from '@/lib/forensics/truth-harness'
+import { AdversarialProber } from '@/lib/forensics/adversarial-prober'
 import { FinancialMention } from '@/lib/swarm/types'
 import { RawChatMessage, SessionWindow } from '@/lib/rag/sessionizer'
 
@@ -169,6 +171,62 @@ describe('Operational Truth & BookLets Integration Test Harness', () => {
       expect(intentPayloads[0].action).toBe('EXPENSE_RECORD_INTENT')
       expect(intentPayloads[0].payload.amount).toBe(50000)
       expect(intentPayloads[0].payload.sourceCitation).toBe('Received 50000 cash advance for paint')
+    })
+  })
+
+  describe('OperationalTruthHarness (Runtime Response Guardrail)', () => {
+    const rawCorpus: RawChatMessage[] = [
+      {
+        id: 'msg_1',
+        sender: 'Indrajith Accountant',
+        timestamp: '2026-05-10T10:00:00Z',
+        message: 'The contractor agreed to 50k cash float for the paint and supplies.'
+      }
+    ]
+
+    it('passes compliant responses with valid verbatim quotes', () => {
+      const validResponse = `### 1. 🔍 Verbatim Evidence Citations\n- [2026-05-10T10:00:00Z] Indrajith Accountant: "The contractor agreed to 50k cash float"\n\n### 4. 📋 Grounded Operational Synthesis\nTransaction confirmed.`
+      const { sanitizedText, audit } = OperationalTruthHarness.enforce(validResponse, rawCorpus)
+
+      expect(audit.compliant).toBe(true)
+      expect(audit.hallucinatedCount).toBe(0)
+      expect(sanitizedText).toBe(validResponse)
+    })
+
+    it('intercepts and redacts fabricated citations in runtime output', () => {
+      const fabricatedResponse = `### 1. 🔍 Verbatim Evidence Citations\n- [2026-05-10T10:00:00Z] Indrajith Accountant: "We will hide the invoice from the tax authorities"\n\n### 4. 📋 Grounded Operational Synthesis\nFraudulent intent.`
+      const { sanitizedText, audit } = OperationalTruthHarness.enforce(fabricatedResponse, rawCorpus)
+
+      expect(audit.compliant).toBe(false)
+      expect(audit.hallucinatedCount).toBe(1)
+      expect(sanitizedText).toContain('REDACTED BY OPERATIONAL HARNESS')
+      expect(sanitizedText).toContain('Operational Truth Audit Flag')
+    })
+  })
+
+  describe('AdversarialProber (Red-Teaming Boundary Harness)', () => {
+    const rawCorpus: RawChatMessage[] = [
+      {
+        id: 'real_1',
+        sender: 'Channa Lawn Chamila',
+        timestamp: '2026-06-15T09:00:00Z',
+        message: 'Grass cutting finished today, fuel cost was 4500 rupees.'
+      }
+    ]
+
+    it('runs adversarial boundary probes and validates edge rejection rate', () => {
+      const { totalCases, passedCases, probeResults } = AdversarialProber.runProbes(rawCorpus)
+
+      expect(totalCases).toBe(4)
+      expect(passedCases).toBe(4)
+      
+      const paraphrasedProbe = probeResults.find(p => p.caseName.includes('Paraphrasing'))
+      expect(paraphrasedProbe?.passed).toBe(true)
+      expect(paraphrasedProbe?.audit.compliant).toBe(false)
+
+      const identityTheftProbe = probeResults.find(p => p.caseName.includes('Identity Swap'))
+      expect(identityTheftProbe?.passed).toBe(true)
+      expect(identityTheftProbe?.audit.compliant).toBe(false)
     })
   })
 })
