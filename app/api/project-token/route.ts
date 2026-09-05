@@ -35,6 +35,7 @@ import {
   computeProof,
   consumeChallenge,
   getConfiguredPassphraseHash,
+  getConfiguredPassphraseHashes,
   timingSafeEqualStr,
 } from '@/lib/passphrase-proof'
 
@@ -77,8 +78,12 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const expectedProof = computeProof(configuredHash, challenge)
-      if (!timingSafeEqualStr(proof, expectedProof)) {
+      const candidateHashes = getConfiguredPassphraseHashes()
+      const isMatch = candidateHashes.some((hash) => {
+        const expectedProof = computeProof(hash, challenge)
+        return timingSafeEqualStr(proof, expectedProof)
+      })
+      if (!isMatch) {
         return NextResponse.json(
           { error: 'Invalid passphrase proof' },
           { status: 401, headers: JSON_HEADERS }

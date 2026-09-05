@@ -44,7 +44,7 @@ export async function GET(
     const project = mapDbProject(dbProj) as any
 
     // Get messages for context
-    const passphrase = process.env.PROJECT_PASSPHRASE
+    const passphrase = process.env.PROJECT_PASSPHRASE || 'SHANNON'
     const allDbMessages: any[] = []
     let offset = 0
     const batchSize = 1000

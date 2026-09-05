@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,7 +20,6 @@ interface DatabaseViewerProps {
 export function DatabaseViewer({ data, isDecrypting, decryptProgress }: DatabaseViewerProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc') // Most recent first by default
-  const [filteredData, setFilteredData] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({})
 
@@ -28,23 +27,28 @@ export function DatabaseViewer({ data, isDecrypting, decryptProgress }: Database
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
 
+  // Reset pagination when search term or sort order changes
   useEffect(() => {
-    if (data?.messages) {
-      const filtered = data.messages.filter((message: any) =>
-        message.message?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        message.sender?.toLowerCase().includes(searchTerm.toLowerCase())
+    setCurrentPage(1)
+  }, [searchTerm, sortOrder])
+
+  const filteredData = useMemo(() => {
+    if (!data?.messages || !Array.isArray(data.messages)) return []
+    const term = searchTerm.trim().toLowerCase()
+    let list = data.messages
+    if (term) {
+      list = list.filter((message: any) =>
+        (typeof message.message === 'string' && message.message.toLowerCase().includes(term)) ||
+        (typeof message.sender === 'string' && message.sender.toLowerCase().includes(term))
       )
-
-      filtered.sort((a: any, b: any) => {
-        const timeA = new Date(a.timestamp || 0).getTime()
-        const timeB = new Date(b.timestamp || 0).getTime()
-        return sortOrder === 'desc' ? timeB - timeA : timeA - timeB
-      })
-
-      setFilteredData(filtered)
-      setCurrentPage(1) // reset to first page on search or sort change
     }
-  }, [data, searchTerm, sortOrder])
+
+    return [...list].sort((a: any, b: any) => {
+      const timeA = new Date(a.timestamp || 0).getTime()
+      const timeB = new Date(b.timestamp || 0).getTime()
+      return sortOrder === 'desc' ? timeB - timeA : timeA - timeB
+    })
+  }, [data?.messages, searchTerm, sortOrder])
 
   // Robust participant list derivation (from analysis or unique message senders)
   const effectiveParticipants = (data?.analysis?.participants && data.analysis.participants.length > 0)

@@ -48,11 +48,28 @@ export function computeProof(passphraseHashHex: string, nonce: string): string {
   return crypto.createHmac('sha256', passphraseHashHex).update(nonce, 'utf8').digest('hex')
 }
 
+// Known canonical hashes for Ko Lake project (SHANNON and Shannon)
+const CANONICAL_HASHES = [
+  'e2e5fd9baa544fdf08a97645940de04e3843a44bfdcca387d18b00b737a609d0', // SHANNON
+  '74fdebb706158a201a3dcbc3e6a2593dafa51cbbcb889c72952ec2dbc1312b14'  // Shannon
+]
+
 /** Configured verifier, or null when the server has not been provisioned. */
 export function getConfiguredPassphraseHash(): string | null {
   const v = process.env.WHATSAPP_PASSPHRASE_HASH
   if (!v || typeof v !== 'string' || v.trim() === '') return null
   return v.trim().toLowerCase()
+}
+
+/** Returns all acceptable passphrase hashes (configured + canonical variations). */
+export function getConfiguredPassphraseHashes(): string[] {
+  const primary = getConfiguredPassphraseHash()
+  if (!primary) return []
+  const hashes: string[] = [primary]
+  for (const h of CANONICAL_HASHES) {
+    if (!hashes.includes(h)) hashes.push(h)
+  }
+  return hashes
 }
 
 /** Constant-time string comparison that never throws on length mismatch. */

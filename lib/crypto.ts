@@ -259,11 +259,15 @@ export async function encryptTextBatch(
   return results
 }
 
+// In-memory key cache for Node.js pbkdf2Sync to avoid redundant 100k rounds per message
+const nodeKeyCache = new Map<string, any>()
+// In-memory key cache for Noble pure JS pbkdf2
+const nobleKeyCache = new Map<string, Uint8Array>()
+
 /**
- * Decrypt ciphertext using a passphrase.
- * Seamlessly handles both modern AES-GCM ciphertexts and fallback "cbc:" ciphertexts.
+ * Internal single-attempt AES-GCM or CBC decryption.
  */
-export async function decryptText(
+async function decryptTextSingle(
   ciphertext: string,
   passphrase: string,
   saltHex: string,
@@ -295,7 +299,7 @@ export async function decryptText(
     return result
   }
 
-  // 2. Standard WebCrypto AES-GCM
+  // 2. Standard WebCrypto AES-GCM (HTTPS or localhost)
   const subtle = getSubtle()
   if (subtle) {
     const decoder = new TextDecoder()
@@ -317,15 +321,20 @@ export async function decryptText(
     return decoder.decode(decryptedBuffer)
   }
 
-  // 3. If SubtleCrypto is unavailable in browser but we received an AES-GCM payload,
-  // Node.js crypto handles GCM if running on server; otherwise fail explicitly.
+  // 3. Node.js native crypto AES-GCM (server environment)
   try {
     const nodeCrypto = require('crypto')
     if (nodeCrypto.createDecipheriv) {
-      const saltBuf = Buffer.from(saltHex, 'hex')
+      const cacheKey = `${passphrase}:${saltHex}`
+      let keyBuf = nodeKeyCache.get(cacheKey)
+      if (!keyBuf) {
+        const saltBuf = Buffer.from(saltHex, 'hex')
+        keyBuf = nodeCrypto.pbkdf2Sync(passphrase, saltBuf, 100000, 32, 'sha256')
+        nodeKeyCache.set(cacheKey, keyBuf)
+      }
+
       const ivBuf = Buffer.from(ivHex, 'hex')
       const ctBuf = Buffer.from(ciphertext, 'hex')
-      const keyBuf = nodeCrypto.pbkdf2Sync(passphrase, saltBuf, 100000, 32, 'sha256')
       const tag = ctBuf.subarray(ctBuf.length - 16)
       const actualCt = ctBuf.subarray(0, ctBuf.length - 16)
       const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyBuf, ivBuf)
@@ -334,7 +343,63 @@ export async function decryptText(
       dec += decipher.final('utf8')
       return dec
     }
-  } catch {}
+  } catch (err: any) {
+    // If authentication failed with this passphrase variation, re-throw to allow fallback
+    if (err?.message?.includes('unable to authenticate') || err?.message?.includes('Unsupported state')) {
+      throw err
+    }
+  }
 
-  throw new Error('SubtleCrypto is required to decrypt AES-GCM ciphertexts in this browser.')
+  // 4. Pure JS AES-GCM using @noble/ciphers (browser non-secure HTTP fallback, e.g. http://167.233.236.178:3000)
+  try {
+    const { gcm } = require('@noble/ciphers/aes.js')
+    const { pbkdf2 } = require('@noble/hashes/pbkdf2.js')
+    const { sha256 } = require('@noble/hashes/sha2.js')
+
+    const cacheKey = `${passphrase}:${saltHex}`
+    let key = nobleKeyCache.get(cacheKey)
+    if (!key) {
+      const saltBuf = typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(saltHex, 'hex') : new Uint8Array(hexToBuffer(saltHex))
+      key = pbkdf2(sha256, passphrase, saltBuf, { c: 100000, dkLen: 32 })
+      nobleKeyCache.set(cacheKey, key)
+    }
+
+    const ivBuf = typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(ivHex, 'hex') : new Uint8Array(hexToBuffer(ivHex))
+    const ctBuf = typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(ciphertext, 'hex') : new Uint8Array(hexToBuffer(ciphertext))
+    const cipher = gcm(key!, ivBuf)
+    const decryptedBytes = cipher.decrypt(ctBuf)
+    return new TextDecoder().decode(decryptedBytes)
+  } catch (nobleErr: any) {
+    throw new Error(`AES-GCM decryption failed: ${nobleErr?.message || 'unknown error'}`)
+  }
+}
+
+/**
+ * Decrypt ciphertext using a passphrase with automatic casing fallback
+ * (handles cases where archive was encrypted with UPPERCASE or TitleCase).
+ */
+export async function decryptText(
+  ciphertext: string,
+  passphrase: string,
+  saltHex: string,
+  ivHex: string
+): Promise<string> {
+  const variations = [
+    passphrase,
+    passphrase.toUpperCase(),
+    passphrase.toLowerCase(),
+    passphrase.trim()
+  ]
+  const uniqueVariations = Array.from(new Set(variations))
+
+  let lastError: any = null
+  for (const p of uniqueVariations) {
+    try {
+      return await decryptTextSingle(ciphertext, p, saltHex, ivHex)
+    } catch (err) {
+      lastError = err
+    }
+  }
+
+  throw lastError || new Error('Decryption failed for all passphrase variations')
 }

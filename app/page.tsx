@@ -112,18 +112,19 @@ export default function Home() {
         return
       }
 
+      const effectivePassphrase = passphrase || 'SHANNON'
       const decrypted: Record<string, number> = {}
       for (const [key, seconds] of Object.entries(times)) {
         let displayName = key
-        if (passphrase) {
-          try {
+        try {
+          if (key.startsWith('{')) {
             const enc = JSON.parse(key)
             if (enc.ciphertext && enc.salt && enc.iv) {
-              displayName = await decryptText(enc.ciphertext, passphrase, enc.salt, enc.iv)
+              displayName = await decryptText(enc.ciphertext, effectivePassphrase, enc.salt, enc.iv)
             }
-          } catch (e) {
-            // Keep plaintext or formatted name
           }
+        } catch (e) {
+          // Keep plaintext or formatted name
         }
         decrypted[displayName] = seconds as number
       }
@@ -158,53 +159,74 @@ export default function Home() {
         const total = recentMessages.length
         setDecryptProgress({ current: 0, total })
 
-        // Process in non-blocking batches of 100 to yield to the browser's render loop
-        const CHUNK_SIZE = 100
-        const decrypted: any[] = []
+        // Check if messages were already decrypted by the server
+        const needsDecryption = recentMessages.slice(0, 10).some((msg: any) => {
+          try {
+            if (typeof msg.message === 'string' && msg.message.startsWith('{')) {
+              const parsed = JSON.parse(msg.message)
+              return !!(parsed && parsed.ciphertext && parsed.salt)
+            }
+          } catch {}
+          return false
+        })
 
-        for (let i = 0; i < recentMessages.length; i += CHUNK_SIZE) {
-          const chunk = recentMessages.slice(i, i + CHUNK_SIZE)
-          const decryptedChunk = await Promise.all(
-            chunk.map(async (msg: any) => {
-              let decryptedMessage = msg.message
-              let decryptedSender = msg.sender
+        let decrypted: any[] = []
 
-              try {
-                const messageEnc = JSON.parse(msg.message)
-                if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
-                  decryptedMessage = await decryptText(
-                    messageEnc.ciphertext,
-                    currentPassphrase,
-                    messageEnc.salt,
-                    messageEnc.iv
-                  )
+        if (!needsDecryption) {
+          // Fast path: Server already decrypted all messages using OpenSSL hardware acceleration
+          decrypted = recentMessages
+          setDecryptProgress({ current: total, total })
+        } else {
+          // Client-side batch decryption with UI thread yielding
+          const CHUNK_SIZE = 200
+          for (let i = 0; i < recentMessages.length; i += CHUNK_SIZE) {
+            const chunk = recentMessages.slice(i, i + CHUNK_SIZE)
+            const decryptedChunk = await Promise.all(
+              chunk.map(async (msg: any) => {
+                let decryptedMessage = msg.message
+                let decryptedSender = msg.sender
+
+                try {
+                  if (typeof msg.message === 'string' && msg.message.startsWith('{')) {
+                    const messageEnc = JSON.parse(msg.message)
+                    if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
+                      decryptedMessage = await decryptText(
+                        messageEnc.ciphertext,
+                        currentPassphrase || 'SHANNON',
+                        messageEnc.salt,
+                        messageEnc.iv
+                      )
+                    }
+                  }
+                } catch (e) {}
+
+                try {
+                  if (typeof msg.sender === 'string' && msg.sender.startsWith('{')) {
+                    const senderEnc = JSON.parse(msg.sender)
+                    if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
+                      decryptedSender = await decryptText(
+                        senderEnc.ciphertext,
+                        currentPassphrase || 'SHANNON',
+                        senderEnc.salt,
+                        senderEnc.iv
+                      )
+                    }
+                  }
+                } catch (e) {}
+
+                return {
+                  ...msg,
+                  sender: decryptedSender,
+                  message: decryptedMessage
                 }
-              } catch (e) {}
+              })
+            )
+            decrypted.push(...decryptedChunk)
+            setDecryptProgress({ current: decrypted.length, total })
 
-              try {
-                const senderEnc = JSON.parse(msg.sender)
-                if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
-                  decryptedSender = await decryptText(
-                    senderEnc.ciphertext,
-                    currentPassphrase,
-                    senderEnc.salt,
-                    senderEnc.iv
-                  )
-                }
-              } catch (e) {}
-
-              return {
-                ...msg,
-                sender: decryptedSender,
-                message: decryptedMessage
-              }
-            })
-          )
-          decrypted.push(...decryptedChunk)
-          setDecryptProgress({ current: decrypted.length, total })
-
-          // Yield to browser UI thread
-          await new Promise(resolve => setTimeout(resolve, 0))
+            // Yield to browser UI thread
+            await new Promise(resolve => setTimeout(resolve, 0))
+          }
         }
 
         const constructedData = {

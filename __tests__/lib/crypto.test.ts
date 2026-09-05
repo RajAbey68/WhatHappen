@@ -70,4 +70,16 @@ describe('Cryptographic Utilities', () => {
 
     expect(decodedText).toBe(text)
   })
+
+  test('should decrypt successfully when ciphertext was encrypted in UPPERCASE but decrypted in TitleCase', async () => {
+    const enc = await encryptText('Secret Message', 'SHANNON')
+    // Decrypt with 'Shannon'
+    const dec1 = await decryptText(enc.ciphertext, 'Shannon', enc.salt, enc.iv)
+    expect(dec1).toBe('Secret Message')
+
+    // Decrypt with 'shannon'
+    const dec2 = await decryptText(enc.ciphertext, 'shannon', enc.salt, enc.iv)
+    expect(dec2).toBe('Secret Message')
+  })
 })
+
