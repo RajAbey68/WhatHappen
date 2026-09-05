@@ -31,7 +31,9 @@ export async function POST(request: NextRequest) {
   if (!hasAnyProjectCredential(request)) return missingCredentialResponse()
 
   try {
-    const { projectId, analysisType = 'comprehensive', passphrase } = await request.json()
+    const body = await request.json()
+    const { projectId, analysisType = 'comprehensive' } = body
+    const passphrase = body.passphrase || process.env.PROJECT_PASSPHRASE
 
     if (!projectId) {
       return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })

@@ -77,22 +77,48 @@ const BASELINE_LEXICON: LexiconEntry[] = [
   }
 ]
 
+import { BookLetsLexiconSync } from '../integrations/booklets/lexicon-sync'
+
 /**
  * Read the active operational lexicon for a project.
+ * Merges baseline WhatsApp operational terms with BookLets accounting/vendor entities.
  */
 export function getLexicon(projectId: string): LexiconEntry[] {
   const filePath = getLexiconPath(projectId)
-  if (!fs.existsSync(filePath)) {
-    // Seed baseline
-    saveLexicon(projectId, BASELINE_LEXICON)
-    return BASELINE_LEXICON
+  let baseEntries = BASELINE_LEXICON
+
+  if (fs.existsSync(filePath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      if (Array.isArray(parsed)) {
+        baseEntries = parsed
+      }
+    } catch (e) {
+      console.error('Failed to read lexicon:', e)
+    }
+  } else {
+    // Seed baseline + BookLets entities
+    const defaultSnapshot = BookLetsLexiconSync.getDefaultKoLakeSnapshot()
+    const bookletsEntries = BookLetsLexiconSync.toLexiconEntries(defaultSnapshot)
+    const combined = [...BASELINE_LEXICON, ...bookletsEntries]
+    saveLexicon(projectId, combined)
+    return combined
   }
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'))
-  } catch (e) {
-    console.error('Failed to read lexicon:', e)
-    return BASELINE_LEXICON
+
+  // Ensure BookLets entities are present in lexicon
+  const defaultSnapshot = BookLetsLexiconSync.getDefaultKoLakeSnapshot()
+  const bookletsEntries = BookLetsLexiconSync.toLexiconEntries(defaultSnapshot)
+  const existingTerms = new Set(baseEntries.map(e => e.term.toLowerCase()))
+  const merged = [...baseEntries]
+
+  for (const entry of bookletsEntries) {
+    if (!existingTerms.has(entry.term.toLowerCase())) {
+      merged.push(entry)
+      existingTerms.add(entry.term.toLowerCase())
+    }
   }
+
+  return merged
 }
 
 /**
