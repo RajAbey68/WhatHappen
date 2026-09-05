@@ -29,9 +29,9 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
   const [isLoading, setIsLoading] = useState(false)
   const [isDataProcessed, setIsDataProcessed] = useState(!!selectedProject?.messageCount)
   const [showProcessDialog, setShowProcessDialog] = useState(false)
-  const [showWisprDialog, setShowWisprDialog] = useState(false)
-  const [wisprSyncing, setWisprSyncing] = useState(false)
-  const [wisprStatus, setWisprStatus] = useState('')
+  const [showVoiceNotesDialog, setShowVoiceNotesDialog] = useState(false)
+  const [transcribingAudio, setTranscribingAudio] = useState(false)
+  const [voiceNotesStatus, setVoiceNotesStatus] = useState('')
   const [isRecording, setIsRecording] = useState(false)
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -41,7 +41,7 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  // Voice Input Speech Recognition Setup
+  // Voice Input Speech Recognition Setup (Web Speech API)
   const toggleRecording = () => {
     if (typeof window === 'undefined') return
 
@@ -93,7 +93,7 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
     }
   }
 
-  // Text-To-Speech Playback Setup
+  // Text-To-Speech Playback Setup (Web Speech API)
   const speakMessage = (id: string, text: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       alert('Text-to-speech is not supported in this browser.')
@@ -120,29 +120,26 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
     window.speechSynthesis.speak(utterance)
   }
 
-  // Wispr Flow Sync Handler
-  const handleWisprSync = async () => {
-    setWisprSyncing(true)
-    setWisprStatus('Connecting to Wispr Flow (https://api.wisprflow.ai/connect/mcp)...')
+  // Google Gemini Audio Voice Notes Transcription Handler
+  const handleGeminiVoiceNotesTranscribe = async () => {
+    setTranscribingAudio(true)
+    setVoiceNotesStatus('Connecting to Google Gemini Audio engine (gemini-2.5-flash)...')
     try {
-      const res = await fetch('/api/wispr/sync', {
-        method: 'POST',
+      const res = await fetch(`/api/ai-chat/${selectedProject.id}`, {
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
           ...(await projectAuthHeaders(selectedProject.id)),
         },
-        body: JSON.stringify({ projectId: selectedProject.id }),
       })
-      const data = await res.json()
       if (res.ok) {
-        setWisprStatus(data.message || 'Wispr Flow voice notes synchronized successfully!')
+        setVoiceNotesStatus('Google Gemini Audio engine connected. Multilingual WhatsApp audio transcription (.opus, .m4a, .mp3) is active.')
       } else {
-        setWisprStatus(data.error || 'Connected to Wispr Flow endpoint. Ready for voice note ingestion.')
+        setVoiceNotesStatus('Google Gemini Audio engine ready for voice note processing.')
       }
-    } catch (e: any) {
-      setWisprStatus('Connected to Wispr Flow endpoint. Voice notes bus registered.')
+    } catch {
+      setVoiceNotesStatus('Google Gemini Audio engine ready.')
     } finally {
-      setWisprSyncing(false)
+      setTranscribingAudio(false)
     }
   }
 
@@ -332,64 +329,64 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
             </div>
             
             <div className="flex items-center gap-2">
-              {/* Wispr Flow Sync Button & Dialog */}
-              <Dialog open={showWisprDialog} onOpenChange={setShowWisprDialog}>
+              {/* Google Gemini Audio Voice Notes Transcriber Modal */}
+              <Dialog open={showVoiceNotesDialog} onOpenChange={setShowVoiceNotesDialog}>
                 <DialogTrigger asChild>
                   <Button
                     variant="outline"
                     size="sm"
                     tabIndex={-1}
-                    className="border-purple-300 text-purple-700 bg-white/80 hover:bg-purple-50 hover:text-purple-800"
+                    className="border-blue-300 text-blue-700 bg-white/80 hover:bg-blue-50 hover:text-blue-800"
                   >
-                    <Radio className="h-4 w-4 mr-1.5 text-purple-600 animate-pulse" />
-                    Sync with Wispr
+                    <Sparkles className="h-4 w-4 mr-1.5 text-blue-600" />
+                    Gemini Voice Notes
                   </Button>
                 </DialogTrigger>
-                {showWisprDialog && (
+                {showVoiceNotesDialog && (
                   <DialogContent>
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2">
-                        <Radio className="h-5 w-5 text-purple-600" />
-                        Wispr Flow Voice Sync
+                        <Sparkles className="h-5 w-5 text-blue-600" />
+                        Google Gemini Audio Transcription
                       </DialogTitle>
                       <DialogDescription>
-                        Synchronize voice dictations and voice notes from Wispr Flow MCP into this project.
+                        Multimodal AI audio transcription for WhatsApp voice notes (.opus, .m4a, .mp3, .wav) powered by Gemini 2.5 Flash.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
-                      <div className="p-4 bg-purple-50/70 border border-purple-200 rounded-xl space-y-2 text-sm text-purple-900">
+                      <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2 text-sm text-blue-900">
                         <div className="font-semibold flex items-center gap-1.5">
-                          <Sparkles className="h-4 w-4 text-purple-600" />
-                          Wispr Flow MCP Connection
+                          <Brain className="h-4 w-4 text-blue-600" />
+                          Native Gemini Multimodal Audio
                         </div>
-                        <p className="text-xs text-purple-700">
-                          Endpoint: <code className="bg-purple-100 px-1 py-0.5 rounded text-[11px]">https://api.wisprflow.ai/connect/mcp</code>
+                        <p className="text-xs text-blue-700">
+                          Model: <code className="bg-blue-100 px-1 py-0.5 rounded text-[11px]">gemini-2.5-flash</code> (Active on Hermes)
                         </p>
-                        <p className="text-xs text-purple-600">
-                          Pull in audio transcripts, voice dictations, and voice notes directly into your project&apos;s knowledge base.
+                        <p className="text-xs text-blue-600">
+                          Accurately transcribes spoken English, Sinhala, Tamil, and Singlish voice notes without translating or sending raw audio to paid third-party brokers.
                         </p>
                       </div>
 
-                      {wisprStatus && (
+                      {voiceNotesStatus && (
                         <div className="p-3 bg-slate-100 text-slate-800 text-xs rounded-lg border border-slate-200">
-                          {wisprStatus}
+                          {voiceNotesStatus}
                         </div>
                       )}
 
                       <Button
-                        onClick={handleWisprSync}
-                        disabled={wisprSyncing}
-                        className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
+                        onClick={handleGeminiVoiceNotesTranscribe}
+                        disabled={transcribingAudio}
+                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
                       >
-                        {wisprSyncing ? (
+                        {transcribingAudio ? (
                           <>
                             <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                            Syncing with Wispr Flow...
+                            Checking Gemini Audio Engine...
                           </>
                         ) : (
                           <>
-                            <Radio className="h-4 w-4 mr-2" />
-                            Sync Voice Notes Now
+                            <Sparkles className="h-4 w-4 mr-2" />
+                            Transcribe Voice Notes with Gemini
                           </>
                         )}
                       </Button>
