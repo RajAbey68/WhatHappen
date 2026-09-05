@@ -13,9 +13,11 @@ import { toast } from '@/hooks/use-toast'
 
 interface DatabaseViewerProps {
   data?: any
+  isDecrypting?: boolean
+  decryptProgress?: { current: number; total: number }
 }
 
-export function DatabaseViewer({ data }: DatabaseViewerProps) {
+export function DatabaseViewer({ data, isDecrypting, decryptProgress }: DatabaseViewerProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc') // Most recent first by default
   const [filteredData, setFilteredData] = useState<any[]>([])
@@ -43,6 +45,11 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
       setCurrentPage(1) // reset to first page on search or sort change
     }
   }, [data, searchTerm, sortOrder])
+
+  // Robust participant list derivation (from analysis or unique message senders)
+  const effectiveParticipants = (data?.analysis?.participants && data.analysis.participants.length > 0)
+    ? data.analysis.participants
+    : Array.from(new Set((data?.messages || []).map((m: any) => m.sender).filter(Boolean)))
 
   // Slice paginated items
   const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize))
@@ -141,6 +148,38 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
   }
 
   if (!data) {
+    if (isDecrypting) {
+      return (
+        <Card className="rounded-2xl border-blue-900/40 bg-slate-900/60 shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-blue-400" />
+              Database Viewer
+            </CardTitle>
+            <CardDescription>
+              Decrypting your private chat archive client-side using your zero-knowledge key...
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center py-12 space-y-4">
+              <RefreshCw className="h-12 w-12 mx-auto text-blue-400 animate-spin" />
+              <div className="text-lg font-semibold text-slate-200">
+                Decrypting Messages...
+              </div>
+              {decryptProgress && decryptProgress.total > 0 && (
+                <p className="text-sm text-blue-300 font-mono">
+                  {decryptProgress.current.toLocaleString()} / {decryptProgress.total.toLocaleString()} messages decrypted
+                </p>
+              )}
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                Processing in non-blocking background batches to keep your browser responsive.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )
+    }
+
     return (
       <Card>
         <CardHeader>
@@ -217,7 +256,7 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
             <CardTitle className="text-sm font-medium">Participants</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{data.analysis?.participants?.length || 0}</div>
+            <div className="text-2xl font-bold">{effectiveParticipants.length}</div>
           </CardContent>
         </Card>
         
@@ -436,7 +475,7 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
                     <div><strong>Total Messages:</strong> {data.totalMessages || 0}</div>
                     <div><strong>Text Messages:</strong> {data.analysis?.textMessages || 0}</div>
                     <div><strong>Media Messages:</strong> {data.analysis?.mediaMessages || 0}</div>
-                    <div><strong>Participants:</strong> {data.analysis?.participants?.length || 0}</div>
+                    <div><strong>Participants:</strong> {effectiveParticipants.length}</div>
                   </div>
                 </div>
               </div>

@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Project } from '@/lib/supabase'
-import { Upload, MessageSquare, BarChart3, FileText, Bot, Database, Key, Shield, RefreshCw, Clock, Eye } from 'lucide-react'
+import { Upload, MessageSquare, BarChart3, FileText, Bot, Database, Key, Shield, RefreshCw, Clock, Eye, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -213,11 +213,19 @@ export default function Home() {
           processedAt: result.project?.updatedAt,
           totalMessages: result.project?.messageCount || decrypted.length,
           messages: decrypted,
-          analysis: result.project?.analysis
+          analysis: {
+            ...result.project?.analysis,
+            participants: (result.project?.participants && result.project.participants.length > 0)
+              ? result.project.participants
+              : Array.from(new Set(decrypted.map((m: any) => m.sender).filter(Boolean)))
+          }
         }
 
         setDecryptedData(constructedData)
         setProcessedData(constructedData)
+
+        // Automatically switch to chat reader once messages are ready
+        setActiveTab((prev) => (prev === 'upload' ? 'chat-reader' : prev))
       }
     } catch (error) {
       console.error('Error loading or decrypting messages:', error)
@@ -700,7 +708,11 @@ export default function Home() {
               {/* Chat Reader Tab */}
               <TabsContent value="chat-reader" className="space-y-6">
                 {selectedProject.messageCount > 0 ? (
-                  <DatabaseViewer data={decryptedData} />
+                  <DatabaseViewer 
+                    data={decryptedData} 
+                    isDecrypting={isDecrypting}
+                    decryptProgress={decryptProgress}
+                  />
                 ) : (
                   <Card className="rounded-2xl shadow-sm">
                     <CardContent className="text-center py-12">
@@ -1085,55 +1097,71 @@ export default function Home() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="passphrase">Project Passphrase</Label>
-              <Input
-                id="passphrase"
-                type="password"
-                placeholder="Enter passphrase"
-                value={tempPassphrase}
-                onChange={(e) => setTempPassphrase(e.target.value)}
-                className="rounded-xl"
-              />
-            </div>
-
-            {isNewProjectPassphrase && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (!isVerifyingPassphrase) {
+                handlePassphraseSubmit()
+              }
+            }}
+          >
+            <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="confirmPassphrase">Confirm Passphrase</Label>
+                <Label htmlFor="passphrase">Project Passphrase</Label>
                 <Input
-                  id="confirmPassphrase"
+                  id="passphrase"
                   type="password"
-                  placeholder="Repeat passphrase"
-                  value={confirmPassphrase}
-                  onChange={(e) => setConfirmPassphrase(e.target.value)}
+                  autoFocus
+                  placeholder="Enter passphrase"
+                  value={tempPassphrase}
+                  onChange={(e) => setTempPassphrase(e.target.value)}
                   className="rounded-xl"
+                  disabled={isVerifyingPassphrase}
                 />
               </div>
-            )}
 
-            {passphraseError && (
-              <div className="text-sm font-semibold text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-200">
-                {passphraseError}
-              </div>
-            )}
+              {isNewProjectPassphrase && (
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassphrase">Confirm Passphrase</Label>
+                  <Input
+                    id="confirmPassphrase"
+                    type="password"
+                    placeholder="Repeat passphrase"
+                    value={confirmPassphrase}
+                    onChange={(e) => setConfirmPassphrase(e.target.value)}
+                    className="rounded-xl"
+                    disabled={isVerifyingPassphrase}
+                  />
+                </div>
+              )}
 
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-start gap-2.5">
-              <Shield className="h-4 w-4 flex-shrink-0 mt-0.5" />
-              <div>
-                <strong>Security Notice:</strong> WhatHappen uses client-side AES-GCM cryptography. Your passphrase is never sent to our servers. If forgotten, your chat history cannot be decrypted or recovered.
+              {passphraseError && (
+                <div className="text-sm font-semibold text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-200">
+                  {passphraseError}
+                </div>
+              )}
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-start gap-2.5">
+                <Shield className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <div>
+                  <strong>Security Notice:</strong> WhatHappen uses client-side AES-GCM cryptography. Your passphrase is never sent to our servers. If forgotten, your chat history cannot be decrypted or recovered.
+                </div>
               </div>
             </div>
-          </div>
 
-          <DialogFooter className="flex flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={handlePassphraseCancel} className="rounded-xl">
-              Cancel
-            </Button>
-            <Button onClick={handlePassphraseSubmit} disabled={isVerifyingPassphrase} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl">
-              {isVerifyingPassphrase ? 'Verifying…' : isNewProjectPassphrase ? 'Configure Key' : 'Unlock Project'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter className="flex flex-col sm:flex-row gap-2">
+              <Button type="button" variant="outline" onClick={handlePassphraseCancel} disabled={isVerifyingPassphrase} className="rounded-xl">
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isVerifyingPassphrase || !tempPassphrase.trim()} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl">
+                {isVerifyingPassphrase ? (
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Verifying…
+                  </span>
+                ) : isNewProjectPassphrase ? 'Configure Key' : 'Unlock Project'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
