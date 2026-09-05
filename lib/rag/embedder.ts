@@ -162,7 +162,8 @@ export async function retrieveRelevantSessions(
   projectId: string,
   sessions: SessionWindow[],
   query: string,
-  topK: number = 6
+  topK: number = 6,
+  existingBm25?: BM25Index
 ): Promise<{ session: SessionWindow; score: number }[]> {
   let embedded = vectorStoreCache.get(projectId)
 
@@ -205,8 +206,11 @@ export async function retrieveRelevantSessions(
   }
 
   // 3. Compute lexical BM25 scores
-  const bm25 = new BM25Index()
-  bm25.buildIndex(sessions)
+  const bm25 = existingBm25 || (() => {
+    const b = new BM25Index()
+    b.buildIndex(sessions)
+    return b
+  })()
   const bm25Matches = bm25.search(query, Math.max(topK * 4, 20))
   const bm25RankMap = new Map<string, number>()
   bm25Matches.forEach((m, idx) => bm25RankMap.set(m.sessionId, idx + 1))

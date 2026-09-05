@@ -7,10 +7,11 @@ import {
   missingCredentialResponse,
 } from '@/lib/api-auth'
 import { decryptText } from '@/lib/crypto'
-import { sessionizeMessages } from '@/lib/rag/sessionizer'
+import { getOrLoadProjectSessions } from '@/lib/rag/session-cache'
 import { retrieveRelevantSessions } from '@/lib/rag/embedder'
 import { lookupGoldenCache, expandQueryWithLexicon, getFewShotExemplars } from '@/lib/rag/learning'
 import { OperationalTruthHarness } from '@/lib/forensics/truth-harness'
+import { priorityGovernor } from '@/lib/queue/priority-governor'
 
 // Model is env-overridable; default upgraded off the dated gpt-3.5-turbo.
 // NOTE (architecture): the house default stack is Claude via Supabase Edge
@@ -110,72 +111,23 @@ Chat Meta-Context:
       console.warn('Could not fetch project details from database, using empty context:', err)
     }
 
+    // Tier 0 Interactive Slot - preempts background tasks
+    const releaseInteractiveSlot = priorityGovernor.startInteractive()
+
     // Fetch actual chat messages context to allow content-specific questions
     let messagesContext = ''
     let decryptedMsgs: any[] = []
     try {
-      // Fetch all messages for the project in batches to prevent PostgREST 1000-row cap
-      let allChatMsgs: any[] = []
-      let offset = 0
-      const batchSize = 1000
+      // Use in-memory session and pre-built BM25 index cache (avoids 11,441-row loop)
+      const { sessions, decryptedMsgs: cachedDecrypted, bm25Index } = await getOrLoadProjectSessions(projectId, passphrase)
+      decryptedMsgs = cachedDecrypted
 
-      while (true) {
-        const { data: chunk, error: chunkErr } = await supabase
-          .from('messages')
-          .select('sender, message, timestamp')
-          .eq('project_id', projectId)
-          .order('timestamp', { ascending: true })
-          .range(offset, offset + batchSize - 1)
-
-        if (chunkErr) {
-          console.warn('Error fetching message chunk:', chunkErr)
-          break
-        }
-        if (!chunk || chunk.length === 0) break
-        allChatMsgs.push(...chunk)
-        if (chunk.length < batchSize) break
-        offset += batchSize
-      }
-
-      if (allChatMsgs.length > 0) {
-        for (const m of allChatMsgs) {
-          let decryptedMessage = m.message
-          let decryptedSender = m.sender
-          let isEncrypted = false
-
-          if (passphrase) {
-            try {
-              const messageEnc = JSON.parse(m.message)
-              if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
-                decryptedMessage = await decryptText(messageEnc.ciphertext, passphrase, messageEnc.salt, messageEnc.iv)
-              }
-            } catch (e) {}
-            try {
-              const senderEnc = JSON.parse(m.sender)
-              if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
-                decryptedSender = await decryptText(senderEnc.ciphertext, passphrase, senderEnc.salt, senderEnc.iv)
-              }
-            } catch (e) {}
-          } else {
-            // Check if message is raw ciphertext JSON
-            try {
-              const parsed = JSON.parse(m.message)
-              if (parsed && typeof parsed === 'object' && parsed.ciphertext && parsed.salt && parsed.iv) {
-                isEncrypted = true
-              }
-            } catch (e) {}
-          }
-
-          // In zero-knowledge mode without a passphrase, omit ciphertext blobs to prevent leaking raw crypto payloads to the model
-          if (!isEncrypted) {
-            decryptedMsgs.push({ ...m, sender: decryptedSender, message: decryptedMessage })
-          }
-        }
-
+      if (sessions.length > 0) {
         // Step 1: Learning RAG - Instant Golden Cache Lookup
         try {
           const cached = await lookupGoldenCache(projectId, message)
           if (cached) {
+            releaseInteractiveSlot()
             return NextResponse.json({
               response: cached.verifiedResponse + '\n\n*(⚡ Instant Verified Recall from Golden Memory)*',
               model: 'golden-cache',
@@ -190,14 +142,7 @@ Chat Meta-Context:
         // Step 2: Learning RAG - Dynamic Query Expansion with Learned Operational Lexicon
         const expandedQuery = expandQueryWithLexicon(projectId, message)
 
-        // Step 3: Sessionize all decrypted messages into conversational windows
-        const sessions = sessionizeMessages(decryptedMsgs, {
-          gapThresholdMinutes: 45,
-          maxMessagesPerWindow: 35,
-          overlapMessages: 8
-        })
-
-        // Step 4: Retrieve the most relevant sessions via intent + bge-m3 dense retrieval
+        // Step 3: Fast-path Month Filtering if applicable
         const queryLower = expandedQuery.toLowerCase()
         const monthKeywords = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
         const matchedMonths = monthKeywords.filter(m => queryLower.includes(m))
@@ -206,9 +151,6 @@ Chat Meta-Context:
           july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
         }
 
-        let relevantSessions: any[] = []
-
-        // If specific months are queried, narrow candidate pool to those months
         let candidateSessions = sessions
         if (matchedMonths.length > 0) {
           const filtered = sessions.filter(s => {
@@ -219,13 +161,14 @@ Chat Meta-Context:
           if (filtered.length > 0) candidateSessions = filtered
         }
 
-        // Rank and retrieve top 3 sessions via dense vector similarity
+        // Rank and retrieve top 2-3 sessions via dense vector similarity + pre-built BM25 index
+        let relevantSessions: any[] = []
         try {
-          const ranked = await retrieveRelevantSessions(projectId, candidateSessions.slice(-100), expandedQuery, 3)
+          const ranked = await retrieveRelevantSessions(projectId, candidateSessions.slice(-80), expandedQuery, 2, bm25Index)
           relevantSessions = ranked.map(r => r.session)
         } catch (embedErr) {
           console.warn('[RAG] Fallback to recency session windowing:', embedErr)
-          relevantSessions = candidateSessions.slice(-3)
+          relevantSessions = candidateSessions.slice(-2)
         }
 
         // Sort relevant sessions chronologically
@@ -278,17 +221,21 @@ Provide a concise, direct operational summary strictly derived from the quotes a
       { role: 'user', content: message }
     ]
 
+    // Dynamic Intent-Based Token Budgeting
+    const lowerQ = message.toLowerCase()
+    const isDeepAudit = lowerQ.includes('audit') || lowerQ.includes('comprehensive') || lowerQ.includes('timeline') || lowerQ.includes('sentiment')
+    const tokenLimit = isDeepAudit ? 800 : 250
+    const ctxLimit = isDeepAudit ? 3072 : 1536
+
     // 100% LOCAL AIR-GAPPED INFERENCE ON HERMES-DEV
-    // Zero external API calls for strict legal compliance, GDPR, and data privacy.
     const localOllamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434/api/chat'
     const localModel = process.env.OLLAMA_MODEL || 'gemma3:4b'
     let success = false
     let responseText = ''
 
     try {
-      // Use 180s timeout so CPU inference is never prematurely severed by Node fetch
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 180_000)
+      const timeoutId = setTimeout(() => controller.abort(), 120_000)
 
       const ollamaRes = await fetch(localOllamaUrl, {
         method: 'POST',
@@ -303,8 +250,8 @@ Provide a concise, direct operational summary strictly derived from the quotes a
           ],
           stream: false,
           options: {
-            num_ctx: 4096, // Fast CPU prefill (~1,500 tokens in <12s)
-            num_predict: 1200,
+            num_ctx: ctxLimit,
+            num_predict: tokenLimit,
             temperature: 0.2
           }
         })
@@ -320,6 +267,8 @@ Provide a concise, direct operational summary strictly derived from the quotes a
       }
     } catch (ollamaErr) {
       console.error('Local Ollama execution error on Hermes:', ollamaErr)
+    } finally {
+      releaseInteractiveSlot()
     }
 
     if (!success) {
