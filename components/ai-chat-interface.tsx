@@ -338,61 +338,64 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
                   <Button
                     variant="outline"
                     size="sm"
+                    tabIndex={-1}
                     className="border-purple-300 text-purple-700 bg-white/80 hover:bg-purple-50 hover:text-purple-800"
                   >
                     <Radio className="h-4 w-4 mr-1.5 text-purple-600 animate-pulse" />
                     Sync with Wispr
                   </Button>
                 </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                      <Radio className="h-5 w-5 text-purple-600" />
-                      Wispr Flow Voice Sync
-                    </DialogTitle>
-                    <DialogDescription>
-                      Synchronize voice dictations and voice notes from Wispr Flow MCP into this project.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-2">
-                    <div className="p-4 bg-purple-50/70 border border-purple-200 rounded-xl space-y-2 text-sm text-purple-900">
-                      <div className="font-semibold flex items-center gap-1.5">
-                        <Sparkles className="h-4 w-4 text-purple-600" />
-                        Wispr Flow MCP Connection
+                {showWisprDialog && (
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <Radio className="h-5 w-5 text-purple-600" />
+                        Wispr Flow Voice Sync
+                      </DialogTitle>
+                      <DialogDescription>
+                        Synchronize voice dictations and voice notes from Wispr Flow MCP into this project.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                      <div className="p-4 bg-purple-50/70 border border-purple-200 rounded-xl space-y-2 text-sm text-purple-900">
+                        <div className="font-semibold flex items-center gap-1.5">
+                          <Sparkles className="h-4 w-4 text-purple-600" />
+                          Wispr Flow MCP Connection
+                        </div>
+                        <p className="text-xs text-purple-700">
+                          Endpoint: <code className="bg-purple-100 px-1 py-0.5 rounded text-[11px]">https://api.wisprflow.ai/connect/mcp</code>
+                        </p>
+                        <p className="text-xs text-purple-600">
+                          Pull in audio transcripts, voice dictations, and voice notes directly into your project&apos;s knowledge base.
+                        </p>
                       </div>
-                      <p className="text-xs text-purple-700">
-                        Endpoint: <code className="bg-purple-100 px-1 py-0.5 rounded text-[11px]">https://api.wisprflow.ai/connect/mcp</code>
-                      </p>
-                      <p className="text-xs text-purple-600">
-                        Pull in audio transcripts, voice dictations, and voice notes directly into your project&apos;s knowledge base.
-                      </p>
-                    </div>
 
-                    {wisprStatus && (
-                      <div className="p-3 bg-slate-100 text-slate-800 text-xs rounded-lg border border-slate-200">
-                        {wisprStatus}
-                      </div>
-                    )}
-
-                    <Button
-                      onClick={handleWisprSync}
-                      disabled={wisprSyncing}
-                      className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
-                    >
-                      {wisprSyncing ? (
-                        <>
-                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                          Syncing with Wispr Flow...
-                        </>
-                      ) : (
-                        <>
-                          <Radio className="h-4 w-4 mr-2" />
-                          Sync Voice Notes Now
-                        </>
+                      {wisprStatus && (
+                        <div className="p-3 bg-slate-100 text-slate-800 text-xs rounded-lg border border-slate-200">
+                          {wisprStatus}
+                        </div>
                       )}
-                    </Button>
-                  </div>
-                </DialogContent>
+
+                      <Button
+                        onClick={handleWisprSync}
+                        disabled={wisprSyncing}
+                        className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
+                      >
+                        {wisprSyncing ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            Syncing with Wispr Flow...
+                          </>
+                        ) : (
+                          <>
+                            <Radio className="h-4 w-4 mr-2" />
+                            Sync Voice Notes Now
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </DialogContent>
+                )}
               </Dialog>
 
               <Dialog open={showProcessDialog} onOpenChange={setShowProcessDialog}>
@@ -563,6 +566,7 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
                 type="button"
                 variant="outline"
                 size="lg"
+                tabIndex={-1}
                 onClick={toggleRecording}
                 className={`px-3 transition-colors ${
                   isRecording 
@@ -575,7 +579,7 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
               </Button>
               <Button
                 onClick={sendMessage}
-                disabled={isLoading || !input.trim()}
+                disabled={isLoading}
                 size="lg"
                 className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
                 aria-label="Send"

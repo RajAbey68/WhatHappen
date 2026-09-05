@@ -41,7 +41,13 @@ jest.mock('lucide-react', () => ({
   MessageSquare: (props: any) => <div data-testid="message-icon" {...props} />,
   Sparkles: (props: any) => <div data-testid="sparkles-icon" {...props} />,
   Brain: (props: any) => <div data-testid="brain-icon" {...props} />,
-  FileText: (props: any) => <div data-testid="file-icon" {...props} />
+  FileText: (props: any) => <div data-testid="file-icon" {...props} />,
+  Mic: (props: any) => <div data-testid="mic-icon" {...props} />,
+  MicOff: (props: any) => <div data-testid="micoff-icon" {...props} />,
+  Volume2: (props: any) => <div data-testid="volume2-icon" {...props} />,
+  VolumeX: (props: any) => <div data-testid="volumex-icon" {...props} />,
+  Radio: (props: any) => <div data-testid="radio-icon" {...props} />,
+  RefreshCw: (props: any) => <div data-testid="refresh-icon" {...props} />
 }))
 
 // Mock UI components
