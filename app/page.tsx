@@ -284,18 +284,27 @@ export default function Home() {
   }
 
   const handleProjectSelect = async (project: Project | null) => {
-    setDecryptedData(null)
-    setProcessedData(null)
-    setActiveTab('upload')
-
     if (!project) {
       setSelectedProject(null)
       setPassphrase('')
+      setDecryptedData(null)
+      setProcessedData(null)
+      setActiveTab('upload')
       if (typeof window !== 'undefined') {
         localStorage.removeItem('whathappen-last-project-id')
       }
       return
     }
+
+    // If this project is already selected and unlocked, avoid resetting state or re-prompting
+    const cachedExisting = readPassphrase(project.id) || passphrase
+    if (selectedProject?.id === project.id && cachedExisting) {
+      return
+    }
+
+    setDecryptedData(null)
+    setProcessedData(null)
+    setActiveTab('upload')
 
     if (typeof window !== 'undefined') {
       localStorage.setItem('whathappen-last-project-id', project.id)
@@ -406,6 +415,10 @@ export default function Home() {
 
   const handlePassphraseCancel = () => {
     setShowPassphrasePrompt(false)
+    // If the project was already unlocked and active, do not discard it on cancel
+    if (selectedProject && passphrase) {
+      return
+    }
     if (selectedProject) dropPassphrase(selectedProject.id)
     setSelectedProject(null)
     setPassphrase('')

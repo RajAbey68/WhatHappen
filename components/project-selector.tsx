@@ -233,7 +233,10 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
                   ? 'border-blue-500 ring-2 ring-blue-500/20' 
                   : 'border-slate-800/80 hover:border-blue-800/50'
               }`}
-              onClick={() => onProjectSelect(project)}
+              onClick={() => {
+                if (selectedProject?.id === project.id) return
+                onProjectSelect(project)
+              }}
             >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">

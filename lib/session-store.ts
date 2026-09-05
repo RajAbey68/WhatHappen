@@ -15,17 +15,40 @@ import CryptoJS from 'crypto-js'
 const passphrases = new Map<string, string>()
 const tokens = new Map<string, { token: string; expiresAt: number }>()
 
+const SESSION_STORAGE_PREFIX = 'whathappen_pw_'
+
 export function setPassphrase(projectId: string, passphrase: string): void {
   passphrases.set(projectId, passphrase)
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.setItem(`${SESSION_STORAGE_PREFIX}${projectId}`, passphrase)
+    }
+  } catch {}
 }
 
 export function getPassphrase(projectId: string): string | undefined {
-  return passphrases.get(projectId)
+  const mem = passphrases.get(projectId)
+  if (mem) return mem
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      const stored = window.sessionStorage.getItem(`${SESSION_STORAGE_PREFIX}${projectId}`)
+      if (stored) {
+        passphrases.set(projectId, stored)
+        return stored
+      }
+    }
+  } catch {}
+  return undefined
 }
 
 export function clearPassphrase(projectId: string): void {
   passphrases.delete(projectId)
   tokens.delete(projectId)
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.removeItem(`${SESSION_STORAGE_PREFIX}${projectId}`)
+    }
+  } catch {}
 }
 
 export const clearProjectSession = clearPassphrase
@@ -33,6 +56,16 @@ export const clearProjectSession = clearPassphrase
 export function clearAll(): void {
   passphrases.clear()
   tokens.clear()
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      const keys = Object.keys(window.sessionStorage)
+      for (const k of keys) {
+        if (k.startsWith(SESSION_STORAGE_PREFIX)) {
+          window.sessionStorage.removeItem(k)
+        }
+      }
+    }
+  } catch {}
 }
 
 export const clearAllSessions = clearAll
