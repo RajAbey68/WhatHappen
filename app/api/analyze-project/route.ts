@@ -44,6 +44,51 @@ export async function POST(request: NextRequest) {
 
     const supabase = getServiceClient()
 
+    // Fast-path 1: If project already has pre-computed analysis and caller wants timeline or comprehensive, return immediately
+    const { data: projectRow } = await supabase
+      .from('projects')
+      .select('analysis, message_count')
+      .eq('id', projectId)
+      .maybeSingle()
+
+    if (projectRow?.analysis) {
+      if (analysisType === 'timeline' && projectRow.analysis.timeGroups) {
+        return NextResponse.json({
+          success: true,
+          analysis: projectRow.analysis,
+          messageCount: projectRow.message_count || 0,
+          analysisType: 'timeline',
+          cached: true
+        })
+      }
+      if (analysisType === 'comprehensive' && projectRow.analysis.type) {
+        return NextResponse.json({
+          success: true,
+          analysis: projectRow.analysis,
+          messageCount: projectRow.message_count || 0,
+          analysisType: 'comprehensive',
+          cached: true
+        })
+      }
+    }
+
+    // Fast-path 2: If analysisType is purely 'timeline', we only need timestamps and raw sender tokens (no message text decryption needed)
+    if (analysisType === 'timeline') {
+      const { data: timelineRows, error: timeErr } = await supabase
+        .from('messages')
+        .select('sender, timestamp')
+        .eq('project_id', projectId)
+
+      if (timeErr) throw timeErr
+      const timelineResult = performTimelineAnalysis(timelineRows || [])
+      return NextResponse.json({
+        success: true,
+        analysis: timelineResult,
+        messageCount: (timelineRows || []).length,
+        analysisType: 'timeline'
+      })
+    }
+
     // Get all messages for this project
     const { data: dbMessages, error: msgError } = await supabase
       .from('messages')
