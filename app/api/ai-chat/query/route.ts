@@ -183,49 +183,46 @@ Chat Meta-Context:
 
     const fewShotExemplars = getFewShotExemplars(projectId, 1)
 
-    const systemPrompt = `You are a forensic analyst and operational truth evaluator for Ko Lake Villa WhatsApp communications.
+    // Dynamic Intent-Based Token & Context Budgeting
+    const lowerQ = message.toLowerCase()
+    const isDeepAudit = lowerQ.includes('audit') || lowerQ.includes('comprehensive') || lowerQ.includes('sentiment')
+    const tokenLimit = isDeepAudit ? 600 : 180
+    const ctxLimit = isDeepAudit ? 2500 : 1200
+
+    // For short search queries, focus on direct answers with citations (avoids 4-section CPU generation stall)
+    const systemPrompt = isDeepAudit
+      ? `You are a forensic analyst and operational truth evaluator for Ko Lake Villa WhatsApp communications.
 You have access to the following verified conversational sessions:
 ${projectContext}
 ${messagesContext}
 ${fewShotExemplars}
 
 STRICT CHAIN-OF-THOUGHT (CoT) OPERATIONAL HARNESS:
-You must strictly format your entire response using the following 4 structured sections:
-
+Format your entire response using the following 4 structured sections:
 ### 1. 🔍 Verbatim Evidence Citations
-Extract and quote the exact relevant messages from the transcript supporting this query.
-Format every single citation strictly as:
 - [Exact Timestamp] Sender: "Exact verbatim message text"
-Rules:
-- NEVER paraphrase quotes.
-- NEVER invent dates or sender names.
-- If no direct message exists for an aspect, explicitly state: "No record found in retrieved context."
-
 ### 2. ⏳ Chronological Event Sequence
-Reconstruct the precise timeline of events step-by-step in ascending order:
-- Step 1: [Timestamp] Initial request, dispute, or operational event.
-- Step 2: [Timestamp] Response, action taken, delay, or obstacle.
-- Step 3: [Timestamp] Outcome, resolution, payment confirmation, or pending status.
-
+Reconstruct the precise timeline of events step-by-step.
 ### 3. 📊 Sentiment & Tone Evaluation
-Evaluate the emotional and operational tone of the participants:
-- Identified Tone: (e.g. Cooperative, Frustrated, Defensive, Stressed, Neutral).
-- Supporting Evidence: Point directly to the specific words or phrases in Section 1 that prove this sentiment.
-
+Evaluate the operational tone of the participants.
 ### 4. 📋 Grounded Operational Synthesis
-Provide a concise, direct operational summary strictly derived from the quotes above. If no direct message quotes are retrieved (for instance if content is encrypted), synthesize your response strictly from the verified facts provided in Chat Meta-Context (e.g., recorded participants, message counts, date ranges, and topics) and clearly state that chat message bodies are encrypted.`
+Concise operational summary strictly derived from the quotes above.`
+      : `You are a forensic operational assistant for Ko Lake Villa WhatsApp communications.
+You have access to the following verified conversational sessions:
+${projectContext}
+${messagesContext}
+
+INSTRUCTIONS:
+Provide a direct, concise operational answer to the user's question.
+Always quote the exact evidence using this format:
+- [Timestamp] Sender: "Exact message text"
+Do not generate unnecessary filler, lengthy backstories, or unrequested analysis. Be factual, direct, and concise.`
 
     const openaiMessages = [
       { role: 'system', content: systemPrompt },
       ...conversationHistory,
       { role: 'user', content: message }
     ]
-
-    // Dynamic Intent-Based Token Budgeting
-    const lowerQ = message.toLowerCase()
-    const isDeepAudit = lowerQ.includes('audit') || lowerQ.includes('comprehensive') || lowerQ.includes('timeline') || lowerQ.includes('sentiment')
-    const tokenLimit = isDeepAudit ? 800 : 250
-    const ctxLimit = isDeepAudit ? 3072 : 1536
 
     // 100% LOCAL AIR-GAPPED INFERENCE ON HERMES-DEV
     const localOllamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434/api/chat'
@@ -234,8 +231,9 @@ Provide a concise, direct operational summary strictly derived from the quotes a
     let responseText = ''
 
     try {
+      // 35s timeout ensures requests never hang the client/MCP tool
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 120_000)
+      const timeoutId = setTimeout(() => controller.abort(), 35_000)
 
       const ollamaRes = await fetch(localOllamaUrl, {
         method: 'POST',
@@ -252,7 +250,7 @@ Provide a concise, direct operational summary strictly derived from the quotes a
           options: {
             num_ctx: ctxLimit,
             num_predict: tokenLimit,
-            temperature: 0.2
+            temperature: 0.1
           }
         })
       })
