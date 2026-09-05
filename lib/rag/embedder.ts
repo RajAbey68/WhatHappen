@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { SessionWindow } from './sessionizer'
+import { BM25Index } from './bm25'
 
 export interface EmbeddedSession {
   session: SessionWindow
@@ -203,15 +204,58 @@ export async function retrieveRelevantSessions(
     console.log(`[RAG] Incremental index now holds ${embedded.length} persisted sessions.`)
   }
 
-  // Embed query
-  const queryEmbedding = await getEmbedding(query)
+  // 3. Compute lexical BM25 scores
+  const bm25 = new BM25Index()
+  bm25.buildIndex(sessions)
+  const bm25Matches = bm25.search(query, Math.max(topK * 4, 20))
+  const bm25RankMap = new Map<string, number>()
+  bm25Matches.forEach((m, idx) => bm25RankMap.set(m.sessionId, idx + 1))
 
-  // Rank sessions
-  const scored = embedded.map(item => ({
-    session: item.session,
-    score: cosineSimilarity(queryEmbedding, item.embedding)
-  }))
+  // 4. Compute dense vector similarity scores if embeddings exist
+  let vectorRankMap = new Map<string, number>()
+  if (embedded.length > 0) {
+    try {
+      const queryEmbedding = await getEmbedding(query)
+      const vectorScores = embedded.map(item => ({
+        sessionId: item.session.sessionId,
+        score: cosineSimilarity(queryEmbedding, item.embedding)
+      }))
+      vectorScores.sort((a, b) => b.score - a.score)
+      vectorScores.slice(0, Math.max(topK * 4, 20)).forEach((v, idx) => {
+        vectorRankMap.set(v.sessionId, idx + 1)
+      })
+    } catch (embErr) {
+      console.warn('[RAG] Vector query embedding failed, falling back purely to BM25 lexical ranking:', embErr)
+    }
+  }
 
-  scored.sort((a, b) => b.score - a.score)
-  return scored.slice(0, topK)
+  // 5. Reciprocal Rank Fusion (RRF) with k=60
+  const RRF_K = 60
+  const sessionMap = new Map<string, SessionWindow>()
+  for (const s of sessions) sessionMap.set(s.sessionId, s)
+
+  const candidateSessionIds = new Set([
+    ...bm25RankMap.keys(),
+    ...vectorRankMap.keys()
+  ])
+
+  const fusedScores: { session: SessionWindow; score: number }[] = []
+
+  for (const sId of candidateSessionIds) {
+    const session = sessionMap.get(sId)
+    if (!session) continue
+
+    let rrfScore = 0
+    if (bm25RankMap.has(sId)) {
+      rrfScore += 1 / (RRF_K + bm25RankMap.get(sId)!)
+    }
+    if (vectorRankMap.has(sId)) {
+      rrfScore += 1 / (RRF_K + vectorRankMap.get(sId)!)
+    }
+
+    fusedScores.push({ session, score: rrfScore })
+  }
+
+  fusedScores.sort((a, b) => b.score - a.score)
+  return fusedScores.slice(0, topK)
 }
