@@ -269,7 +269,7 @@ Evaluate the emotional and operational tone of the participants:
 - Supporting Evidence: Point directly to the specific words or phrases in Section 1 that prove this sentiment.
 
 ### 4. 📋 Grounded Operational Synthesis
-Provide a concise, direct operational summary strictly derived from the quotes above. Do not include unsubstantiated opinions or outside assumptions.`
+Provide a concise, direct operational summary strictly derived from the quotes above. If no direct message quotes are retrieved (for instance if content is encrypted), synthesize your response strictly from the verified facts provided in Chat Meta-Context (e.g., recorded participants, message counts, date ranges, and topics) and clearly state that chat message bodies are encrypted.`
 
     const openaiMessages = [
       { role: 'system', content: systemPrompt },
