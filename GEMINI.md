@@ -19,8 +19,8 @@
 
 ## 2. 🗄️ Database & Project Context
 
-* **Active Migrated Project Name:** `"KoLake Conversations"`
-* **Project ID:** `eea59134-c195-4d07-8a0d-5834540c1d4d`
+* **Active Migrated Project Name:** `"Ko Lake Analysis"`
+* **Project ID:** `7ba94f4c-fb4e-4ee4-bc90-19984c5a8b59`
 * **Description:** `"KoLake Ops, KoLake Resurrection, and some one-to-ones like Channa Sudath."`
 * **Server Working Directory:** `/root/WhatHappen`
 * **PM2 Processes on Hermes:**

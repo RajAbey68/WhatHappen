@@ -136,27 +136,40 @@ Chat Meta-Context:
       }
 
       if (allChatMsgs.length > 0) {
-        const decryptedMsgs = await Promise.all(
-          allChatMsgs.map(async m => {
-            let decryptedMessage = m.message
-            let decryptedSender = m.sender
-            if (passphrase) {
-              try {
-                const messageEnc = JSON.parse(m.message)
-                if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
-                  decryptedMessage = await decryptText(messageEnc.ciphertext, passphrase, messageEnc.salt, messageEnc.iv)
-                }
-              } catch (e) {}
-              try {
-                const senderEnc = JSON.parse(m.sender)
-                if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
-                  decryptedSender = await decryptText(senderEnc.ciphertext, passphrase, senderEnc.salt, senderEnc.iv)
-                }
-              } catch (e) {}
-            }
-            return { ...m, sender: decryptedSender, message: decryptedMessage }
-          })
-        )
+        const decryptedMsgs: any[] = []
+        for (const m of allChatMsgs) {
+          let decryptedMessage = m.message
+          let decryptedSender = m.sender
+          let isEncrypted = false
+
+          if (passphrase) {
+            try {
+              const messageEnc = JSON.parse(m.message)
+              if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
+                decryptedMessage = await decryptText(messageEnc.ciphertext, passphrase, messageEnc.salt, messageEnc.iv)
+              }
+            } catch (e) {}
+            try {
+              const senderEnc = JSON.parse(m.sender)
+              if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
+                decryptedSender = await decryptText(senderEnc.ciphertext, passphrase, senderEnc.salt, senderEnc.iv)
+              }
+            } catch (e) {}
+          } else {
+            // Check if message is raw ciphertext JSON
+            try {
+              const parsed = JSON.parse(m.message)
+              if (parsed && typeof parsed === 'object' && parsed.ciphertext && parsed.salt && parsed.iv) {
+                isEncrypted = true
+              }
+            } catch (e) {}
+          }
+
+          // In zero-knowledge mode without a passphrase, omit ciphertext blobs to prevent leaking raw crypto payloads to the model
+          if (!isEncrypted) {
+            decryptedMsgs.push({ ...m, sender: decryptedSender, message: decryptedMessage })
+          }
+        }
 
         // Step 1: Learning RAG - Instant Golden Cache Lookup
         try {
