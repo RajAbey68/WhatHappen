@@ -52,6 +52,8 @@ export default function Home() {
 
   // Client-side decrypted messages data
   const [decryptedData, setDecryptedData] = useState<any>(null)
+  const [isDecrypting, setIsDecrypting] = useState(false)
+  const [decryptProgress, setDecryptProgress] = useState({ current: 0, total: 0 })
   const [decryptedResponseTimes, setDecryptedResponseTimes] = useState<Record<string, number> | null>(null)
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -140,8 +142,9 @@ export default function Home() {
     }
   }
 
-  // Load and decrypt messages from database locally on the client
+  // Load and decrypt messages from database locally on the client without freezing the main thread
   const loadAndDecryptMessages = async (projectId: string, currentPassphrase: string) => {
+    setIsDecrypting(true)
     try {
       const response = await fetch(`/api/ai-chat/${projectId}`, {
         headers: {
@@ -152,48 +155,57 @@ export default function Home() {
       if (response.ok) {
         const result = await response.json()
         const recentMessages = result.recentMessages || []
-        
-        // Decrypt messages locally in the client browser
-        const decrypted = await Promise.all(
-          recentMessages.map(async (msg: any) => {
-            let decryptedMessage = msg.message
-            let decryptedSender = msg.sender
-            
-            try {
-              const messageEnc = JSON.parse(msg.message)
-              if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
-                decryptedMessage = await decryptText(
-                  messageEnc.ciphertext,
-                  currentPassphrase,
-                  messageEnc.salt,
-                  messageEnc.iv
-                )
-              }
-            } catch (e) {
-              // Plaintext fallback
-            }
+        const total = recentMessages.length
+        setDecryptProgress({ current: 0, total })
 
-            try {
-              const senderEnc = JSON.parse(msg.sender)
-              if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
-                decryptedSender = await decryptText(
-                  senderEnc.ciphertext,
-                  currentPassphrase,
-                  senderEnc.salt,
-                  senderEnc.iv
-                )
-              }
-            } catch (e) {
-              // Plaintext fallback
-            }
+        // Process in non-blocking batches of 100 to yield to the browser's render loop
+        const CHUNK_SIZE = 100
+        const decrypted: any[] = []
 
-            return {
-              ...msg,
-              sender: decryptedSender,
-              message: decryptedMessage
-            }
-          })
-        )
+        for (let i = 0; i < recentMessages.length; i += CHUNK_SIZE) {
+          const chunk = recentMessages.slice(i, i + CHUNK_SIZE)
+          const decryptedChunk = await Promise.all(
+            chunk.map(async (msg: any) => {
+              let decryptedMessage = msg.message
+              let decryptedSender = msg.sender
+
+              try {
+                const messageEnc = JSON.parse(msg.message)
+                if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
+                  decryptedMessage = await decryptText(
+                    messageEnc.ciphertext,
+                    currentPassphrase,
+                    messageEnc.salt,
+                    messageEnc.iv
+                  )
+                }
+              } catch (e) {}
+
+              try {
+                const senderEnc = JSON.parse(msg.sender)
+                if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
+                  decryptedSender = await decryptText(
+                    senderEnc.ciphertext,
+                    currentPassphrase,
+                    senderEnc.salt,
+                    senderEnc.iv
+                  )
+                }
+              } catch (e) {}
+
+              return {
+                ...msg,
+                sender: decryptedSender,
+                message: decryptedMessage
+              }
+            })
+          )
+          decrypted.push(...decryptedChunk)
+          setDecryptProgress({ current: decrypted.length, total })
+
+          // Yield to browser UI thread
+          await new Promise(resolve => setTimeout(resolve, 0))
+        }
 
         const constructedData = {
           fileName: result.project?.name || 'Project Chats',
@@ -209,6 +221,8 @@ export default function Home() {
       }
     } catch (error) {
       console.error('Error loading or decrypting messages:', error)
+    } finally {
+      setIsDecrypting(false)
     }
   }
 
@@ -520,6 +534,11 @@ export default function Home() {
                       {passphrase && (
                         <Badge variant="outline" className="flex items-center gap-1 text-xs text-green-300 bg-green-950/40 border-green-800/50">
                           <Shield className="h-3 w-3" /> Zero-Knowledge Key Loaded
+                        </Badge>
+                      )}
+                      {isDecrypting && (
+                        <Badge variant="outline" className="flex items-center gap-1 text-xs text-blue-300 bg-blue-950/40 border-blue-800/50 animate-pulse">
+                          <RefreshCw className="h-3 w-3 animate-spin" /> Decrypting {decryptProgress.current.toLocaleString()} / {decryptProgress.total.toLocaleString()}...
                         </Badge>
                       )}
                     </div>

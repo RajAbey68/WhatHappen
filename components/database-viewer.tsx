@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Download, Search, RefreshCw, Database, Trash2, Eye, ArrowUpDown, ArrowDown, ArrowUp } from 'lucide-react'
+import { Download, Search, RefreshCw, Database, Trash2, Eye, ArrowUpDown, ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
 interface DatabaseViewerProps {
@@ -21,6 +21,10 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
   const [filteredData, setFilteredData] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({})
+
+  // Pagination state to keep the DOM lightweight and prevent UI freeze
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
 
   useEffect(() => {
     if (data?.messages) {
@@ -36,8 +40,13 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
       })
 
       setFilteredData(filtered)
+      setCurrentPage(1) // reset to first page on search or sort change
     }
   }, [data, searchTerm, sortOrder])
+
+  // Slice paginated items
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize))
+  const paginatedData = filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const handleExportData = async (format: 'json' | 'csv') => {
     if (!data) {
@@ -296,7 +305,7 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredData.map((message, index) => (
+                    {paginatedData.map((message, index) => (
                       <TableRow key={index}>
                         <TableCell className="font-mono text-xs">
                           {formatTimestamp(message.timestamp)}
@@ -325,6 +334,62 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
                   </TableBody>
                 </Table>
               </ScrollArea>
+
+              {/* Pagination Controls */}
+              {filteredData.length > 0 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100 mt-2">
+                  <div className="text-xs text-muted-foreground">
+                    Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, filteredData.length)} of {filteredData.length.toLocaleString()} messages
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setCurrentPage(1)}
+                        disabled={currentPage === 1}
+                        title="First Page"
+                      >
+                        <ChevronsLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                        disabled={currentPage === 1}
+                        title="Previous Page"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="text-xs px-2 font-medium">
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={currentPage === totalPages}
+                        title="Next Page"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={currentPage === totalPages}
+                        title="Last Page"
+                      >
+                        <ChevronsRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
