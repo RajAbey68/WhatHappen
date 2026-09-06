@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.unmock('next/server')
 import { POST } from '../../app/api/ai-chat/query/route'
 const mockRelease = jest.fn()
 const mockFetch = jest.fn()
