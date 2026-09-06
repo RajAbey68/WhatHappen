@@ -43,8 +43,13 @@ export async function GET(
 
     const project = mapDbProject(dbProj) as any
 
-    // Get messages for context
-    const passphrase = process.env.PROJECT_PASSPHRASE || 'SHANNON'
+    // Passphrase resolution: header, query parameter, or server environment.
+    // Zero-Knowledge Invariant: Never fallback to a hardcoded string ('SHANNON').
+    const clientPassphrase = request.headers.get('x-project-passphrase') ||
+      request.nextUrl.searchParams.get('passphrase') ||
+      process.env.PROJECT_PASSPHRASE ||
+      ''
+
     const allDbMessages: any[] = []
     let offset = 0
     const batchSize = 1000
@@ -66,35 +71,56 @@ export async function GET(
 
     const { decryptText } = await import('@/lib/crypto')
 
+    let decryptionFailureCount = 0
+
     const recentMessages = await Promise.all(
       allDbMessages.map(async msg => {
         let decryptedMessage = msg.message
         let decryptedSender = msg.sender
+        let wasEncrypted = false
+        let decryptSucceeded = false
 
-        if (passphrase) {
-          try {
+        // Check message encryption
+        try {
+          if (typeof msg.message === 'string' && msg.message.startsWith('{')) {
             const messageEnc = JSON.parse(msg.message)
             if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
-              decryptedMessage = await decryptText(
-                messageEnc.ciphertext,
-                passphrase,
-                messageEnc.salt,
-                messageEnc.iv
-              )
+              wasEncrypted = true
+              if (clientPassphrase) {
+                decryptedMessage = await decryptText(
+                  messageEnc.ciphertext,
+                  clientPassphrase,
+                  messageEnc.salt,
+                  messageEnc.iv
+                )
+                decryptSucceeded = true
+              }
             }
-          } catch {}
+          }
+        } catch (err) {
+          decryptSucceeded = false
+        }
 
-          try {
+        // Check sender encryption
+        try {
+          if (typeof msg.sender === 'string' && msg.sender.startsWith('{')) {
             const senderEnc = JSON.parse(msg.sender)
             if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
-              decryptedSender = await decryptText(
-                senderEnc.ciphertext,
-                passphrase,
-                senderEnc.salt,
-                senderEnc.iv
-              )
+              if (clientPassphrase) {
+                decryptedSender = await decryptText(
+                  senderEnc.ciphertext,
+                  clientPassphrase,
+                  senderEnc.salt,
+                  senderEnc.iv
+                )
+              }
             }
-          } catch {}
+          }
+        } catch (err) {}
+
+        if (wasEncrypted && !decryptSucceeded) {
+          decryptionFailureCount++
+          decryptedMessage = '[Encrypted message - valid passphrase required]'
         }
 
         return {
@@ -106,6 +132,17 @@ export async function GET(
         }
       })
     )
+
+    if (decryptionFailureCount > 0 && !clientPassphrase) {
+      // If messages are encrypted and no passphrase was supplied at all, return explicit 422
+      return NextResponse.json(
+        {
+          error: 'Unprocessable Entity: Project messages are encrypted and valid passphrase was not provided.',
+          encryptedMessageCount: decryptionFailureCount
+        },
+        { status: 422 }
+      )
+    }
 
     // Get AI conversation history
     const { data: dbConversations, error: convError } = await supabase
