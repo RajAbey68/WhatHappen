@@ -71,3 +71,13 @@ test('explicit historical month is filtered in UTC without guessing current year
  await POST(req({message:'payment in February'}))
  expect(mockGte).not.toHaveBeenCalled()
 })
+
+test('configured interactive model stays warm and reports stage timing',async()=>{
+ process.env.OLLAMA_MODEL='gemma3:1b'
+ mockFetch.mockResolvedValue({ok:true,json:async()=>({message:{content:'The sample says payment pending.'}})})
+ const response=await POST(req())
+ expect(response.status).toBe(200)
+ expect(response.headers.get('Server-Timing')).toMatch(/evidence;dur=/)
+ expect(response.headers.get('Server-Timing')).toMatch(/inference;dur=/)
+ expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toMatchObject({model:'gemma3:1b',keep_alive:'30m'})
+})
