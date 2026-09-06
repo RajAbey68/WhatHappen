@@ -153,26 +153,28 @@ export async function encryptText(
     }
   }
 
-  // Fallback: Pure JS CryptoJS encryption for HTTP non-secure browser contexts
+  // Fallback: Pure JS AES-GCM via @noble/ciphers for HTTP non-secure browser contexts (P0-2 remediation)
+  const { gcm } = require('@noble/ciphers/aes.js')
+  const { pbkdf2 } = require('@noble/hashes/pbkdf2.js')
+  const { sha256 } = require('@noble/hashes/sha2.js')
+
   const salt = providedSalt || getRandomValues(new Uint8Array(16))
-  const iv = getRandomValues(new Uint8Array(16)) // CBC 16-byte IV
+  const iv = getRandomValues(new Uint8Array(12)) // AES-GCM standard 12-byte IV
   const saltHex = bufferToHex(salt.buffer)
   const ivHex = bufferToHex(iv.buffer)
 
-  const key = CryptoJS.PBKDF2(passphrase, CryptoJS.enc.Hex.parse(saltHex), {
-    keySize: 256 / 32,
-    iterations: 10000,
-    hasher: CryptoJS.algo.SHA256
-  })
+  const cacheKey = `${passphrase}:${saltHex}`
+  let keyBytes = nobleKeyCache.get(cacheKey)
+  if (!keyBytes) {
+    keyBytes = pbkdf2(sha256, passphrase, salt, { c: 100000, dkLen: 32 })
+    nobleKeyCache.set(cacheKey, keyBytes)
+  }
 
-  const encrypted = CryptoJS.AES.encrypt(text, key, {
-    iv: CryptoJS.enc.Hex.parse(ivHex),
-    mode: CryptoJS.mode.CBC,
-    padding: CryptoJS.pad.Pkcs7
-  })
+  const cipher = gcm(keyBytes, iv)
+  const encryptedBytes = cipher.encrypt(new TextEncoder().encode(text))
 
   return {
-    ciphertext: 'cbc:' + encrypted.ciphertext.toString(CryptoJS.enc.Hex),
+    ciphertext: bufferToHex(encryptedBytes.buffer),
     iv: ivHex,
     salt: saltHex
   }
@@ -183,7 +185,7 @@ export async function encryptText(
  */
 export async function encryptTextWithKey(
   text: string,
-  key: CryptoKey | any
+  key: CryptoKey | Uint8Array | any
 ): Promise<{ ciphertext: string; iv: string }> {
   const subtle = getSubtle()
 
@@ -203,17 +205,16 @@ export async function encryptTextWithKey(
     }
   }
 
-  // Fallback: CryptoJS with pre-derived key
-  const iv = getRandomValues(new Uint8Array(16))
+  // Fallback: Pure JS AES-GCM via @noble/ciphers with pre-derived key
+  const { gcm } = require('@noble/ciphers/aes.js')
+  const iv = getRandomValues(new Uint8Array(12))
   const ivHex = bufferToHex(iv.buffer)
-  const encrypted = CryptoJS.AES.encrypt(text, key, {
-    iv: CryptoJS.enc.Hex.parse(ivHex),
-    mode: CryptoJS.mode.CBC,
-    padding: CryptoJS.pad.Pkcs7
-  })
+  const keyBytes = key instanceof Uint8Array ? key : new Uint8Array(key)
+  const cipher = gcm(keyBytes, iv)
+  const encryptedBytes = cipher.encrypt(new TextEncoder().encode(text))
 
   return {
-    ciphertext: 'cbc:' + encrypted.ciphertext.toString(CryptoJS.enc.Hex),
+    ciphertext: bufferToHex(encryptedBytes.buffer),
     iv: ivHex
   }
 }
@@ -242,18 +243,16 @@ export async function encryptTextBatch(
     return results
   }
 
-  // Fallback: CryptoJS Batch
+  // Fallback: Pure JS AES-GCM batch with single 100k PBKDF2 derivation
+  const { pbkdf2 } = require('@noble/hashes/pbkdf2.js')
+  const { sha256 } = require('@noble/hashes/sha2.js')
   const salt = getRandomValues(new Uint8Array(16))
   const saltHex = bufferToHex(salt.buffer)
-  const key = CryptoJS.PBKDF2(passphrase, CryptoJS.enc.Hex.parse(saltHex), {
-    keySize: 256 / 32,
-    iterations: 10000,
-    hasher: CryptoJS.algo.SHA256
-  })
+  const keyBytes = pbkdf2(sha256, passphrase, salt, { c: 100000, dkLen: 32 })
 
   const results: Array<{ ciphertext: string; iv: string; salt: string }> = []
   for (const text of texts) {
-    const { ciphertext, iv } = await encryptTextWithKey(text, key)
+    const { ciphertext, iv } = await encryptTextWithKey(text, keyBytes)
     results.push({ ciphertext, iv, salt: saltHex })
   }
   return results

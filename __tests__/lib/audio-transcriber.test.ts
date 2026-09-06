@@ -42,6 +42,37 @@ describe('Audio Transcriber (Gemini & Fallback Engine)', () => {
       expect(getAudioMimeType('recording.wav')).toBe('audio/wav')
       expect(getAudioMimeType('unknown.xyz')).toBe('audio/ogg')
     })
+
+    it('sniffs audio MIME types from magic bytes', () => {
+      const oggHeader = Buffer.from([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02])
+      expect(getAudioMimeType('misnamed.bin', oggHeader)).toBe('audio/ogg')
+
+      const wavHeader = Buffer.from([
+        0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00,
+        0x57, 0x41, 0x56, 0x45
+      ])
+      expect(getAudioMimeType('unknown.bin', wavHeader)).toBe('audio/wav')
+
+      const mp4Header = Buffer.from([
+        0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+        0x4d, 0x34, 0x41, 0x20
+      ])
+      expect(getAudioMimeType('audio.bin', mp4Header)).toBe('audio/mp4')
+
+      const mp3Id3 = Buffer.from([0x49, 0x44, 0x33, 0x03, 0x00, 0x00])
+      expect(getAudioMimeType('audio.bin', mp3Id3)).toBe('audio/mpeg')
+    })
+
+    it('rejects audio files exceeding the 15MB limit before network requests', async () => {
+      process.env.GEMINI_API_KEY = 'test-gemini-key'
+      const largeBuf = Buffer.alloc(16 * 1024 * 1024) // 16MB
+      const result = await transcribeAudio(largeBuf, 'giant_recording.opus')
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('exceeds maximum allowable 15MB limit')
+      expect(result.text).toContain('exceeds 15MB limit')
+      expect(global.fetch).not.toHaveBeenCalled()
+    })
   })
 
   describe('transcribeAudio: Gemini Primary Provider', () => {
@@ -88,8 +119,8 @@ describe('Audio Transcriber (Gemini & Fallback Engine)', () => {
       // Verify fetch payload sent to Gemini API
       expect(global.fetch).toHaveBeenCalledTimes(1)
       const [url, options] = (global.fetch as jest.Mock).mock.calls[0]
-      expect(url).toContain('https://generativelanguage.googleapis.com/v1beta/models/')
-      expect(url).toContain('key=test-gemini-key')
+      expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent')
+      expect(options.headers['x-goog-api-key']).toBe('test-gemini-key')
       expect(options.method).toBe('POST')
 
       const body = JSON.parse(options.body)

@@ -23,10 +23,50 @@ export function isAudioFile(filename: string): boolean {
   return SUPPORTED_AUDIO_EXTENSIONS.some(ext => lower.endsWith(ext))
 }
 
+export const MAX_AUDIO_FILE_BYTES = 15 * 1024 * 1024 // 15MB cap
+
 /**
- * Map audio file extension to appropriate MIME type.
+ * Sniff audio magic bytes to determine or verify MIME type.
  */
-export function getAudioMimeType(filename: string): string {
+export function sniffAudioMime(buffer: Buffer): string | null {
+  if (!buffer || buffer.length < 4) return null
+  // Ogg container (Opus or Vorbis) -> "OggS"
+  if (buffer[0] === 0x4f && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53) {
+    return 'audio/ogg'
+  }
+  // WAV -> "RIFF....WAVE"
+  if (
+    buffer.length >= 12 &&
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+    buffer[8] === 0x57 && buffer[9] === 0x41 && buffer[10] === 0x56 && buffer[11] === 0x45
+  ) {
+    return 'audio/wav'
+  }
+  // MP4 / M4A -> contains "ftyp" at offset 4
+  if (
+    buffer.length >= 8 &&
+    buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70
+  ) {
+    return 'audio/mp4'
+  }
+  // MP3 -> frame sync 0xFF 0xFB, 0xFF 0xF3, 0xFF 0xF2 or "ID3"
+  if (
+    (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) ||
+    (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0)
+  ) {
+    return 'audio/mpeg'
+  }
+  return null
+}
+
+/**
+ * Map audio file extension or magic bytes to appropriate MIME type.
+ */
+export function getAudioMimeType(filename: string, buffer?: Buffer): string {
+  if (buffer) {
+    const sniffed = sniffAudioMime(buffer)
+    if (sniffed) return sniffed
+  }
   const lower = filename.toLowerCase()
   if (lower.endsWith('.opus')) return 'audio/ogg'
   if (lower.endsWith('.ogg')) return 'audio/ogg'
@@ -43,6 +83,15 @@ export async function transcribeAudio(
   buffer: Buffer,
   filename: string
 ): Promise<AudioTranscriptionResult> {
+  if (buffer.length > MAX_AUDIO_FILE_BYTES) {
+    return {
+      filename,
+      text: `[Voice Note: ${filename} (File exceeds 15MB limit)]`,
+      success: false,
+      error: `Audio file size (${(buffer.length / (1024 * 1024)).toFixed(1)}MB) exceeds maximum allowable 15MB limit.`
+    }
+  }
+
   const apiKey = process.env.GEMINI_API_KEY
   const openaiKey = process.env.OPENAI_API_KEY
 
@@ -58,7 +107,7 @@ export async function transcribeAudio(
   // 1. Try Gemini Audio Transcription
   if (apiKey) {
     try {
-      const mimeType = getAudioMimeType(filename)
+      const mimeType = getAudioMimeType(filename, buffer)
       const base64Data = buffer.toString('base64')
       const GEMINI_MODEL =
         process.env.GEMINI_AUDIO_MODEL ||
@@ -66,7 +115,8 @@ export async function transcribeAudio(
         'gemini-2.5-flash'
       const GEMINI_API_BASE =
         process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta'
-      const url = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`
+      // Pass key in x-goog-api-key header to avoid leaking in URL logs, but support query param fallback
+      const url = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`
 
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 45000)
@@ -104,7 +154,10 @@ Rules:
 
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify(body),
         signal: controller.signal,
       })
@@ -113,12 +166,23 @@ Rules:
 
       if (response.ok) {
         const data = await response.json()
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+        const candidate = data?.candidates?.[0]
+        if (candidate?.finishReason === 'SAFETY') {
+          return {
+            filename,
+            text: '[Voice note flagged by content safety filter]',
+            success: true,
+          }
+        }
+        const text = candidate?.content?.parts?.[0]?.text?.trim() || ''
         return {
           filename,
           text: text || '[Inaudible audio]',
           success: true,
         }
+      } else {
+        const errText = await response.text().catch(() => '')
+        console.warn(`[audio-transcriber] Gemini HTTP ${response.status} for ${filename}:`, errText)
       }
     } catch (err: any) {
       console.warn(`[audio-transcriber] Gemini audio transcription failed for ${filename}:`, err?.message)

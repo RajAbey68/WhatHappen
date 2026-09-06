@@ -17,28 +17,26 @@ const tokens = new Map<string, { token: string; expiresAt: number }>()
 
 const SESSION_STORAGE_PREFIX = 'whathappen_pw_'
 
-export function setPassphrase(projectId: string, passphrase: string): void {
-  passphrases.set(projectId, passphrase)
+// Auto-scrub any legacy plaintext passphrases from sessionStorage immediately on load (P0-1 remediation)
+if (typeof window !== 'undefined' && window.sessionStorage) {
   try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      window.sessionStorage.setItem(`${SESSION_STORAGE_PREFIX}${projectId}`, passphrase)
+    const keys = Object.keys(window.sessionStorage)
+    for (const k of keys) {
+      if (k.startsWith(SESSION_STORAGE_PREFIX)) {
+        window.sessionStorage.removeItem(k)
+      }
     }
   } catch {}
 }
 
+export function setPassphrase(projectId: string, passphrase: string): void {
+  passphrases.set(projectId, passphrase)
+  // Zero-Knowledge Invariant: Raw passphrase is kept ONLY in memory Map for active JS context.
+  // Never written to DOM storage.
+}
+
 export function getPassphrase(projectId: string): string | undefined {
-  const mem = passphrases.get(projectId)
-  if (mem) return mem
-  try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      const stored = window.sessionStorage.getItem(`${SESSION_STORAGE_PREFIX}${projectId}`)
-      if (stored) {
-        passphrases.set(projectId, stored)
-        return stored
-      }
-    }
-  } catch {}
-  return undefined
+  return passphrases.get(projectId)
 }
 
 export function clearPassphrase(projectId: string): void {

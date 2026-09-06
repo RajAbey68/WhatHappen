@@ -32,8 +32,8 @@
  */
 import crypto from 'crypto'
 
-/** Challenge token lifetime: deliberately short so a captured challenge is near-useless. */
-export const CHALLENGE_TTL_MS = 60_000
+/** Challenge token lifetime: deliberately short (15s) so a captured challenge is near-useless (P1 remediation). */
+export const CHALLENGE_TTL_MS = 15_000
 
 /** Hex sha256 of an arbitrary string (mirrors the client's Web Crypto digest). */
 export function sha256Hex(value: string): string {
