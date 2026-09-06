@@ -9,7 +9,7 @@ const MAX_MESSAGE_LENGTH = 4000
 const MAX_HISTORY_MESSAGES = 20
 const MAX_HISTORY_CONTENT_LENGTH = 4000
 const SAMPLE_LIMIT = 1000
-const EVIDENCE_CHAR_LIMIT = 8000
+const EVIDENCE_CHAR_LIMIT = 2500
 const DEADLINE_MS = 35000
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } })
 
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
   let historyChars = 0
   const boundedHistory = history.slice().reverse().filter(m => {
     historyChars += m.content.length
-    return historyChars <= 4000
+    return historyChars <= 1000
   }).reverse()
   // Local inference only. Operators can explicitly configure a trusted Ollama host;
   // no cloud SDK fallback and redirects cannot forward private evidence elsewhere.
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
       const result = await fetch(ollamaUrl.toString(), {
         method:'POST', headers:{'Content-Type':'application/json'}, redirect:'error', signal:controller.signal,
         body:JSON.stringify({model,messages:[{role:'system',content:prompt},...boundedHistory,{role:'user',content:message}],stream:false,
-          options:{num_ctx:4096,num_predict:400,temperature:0.1}})
+          options:{num_ctx:2048,num_predict:120,temperature:0.1}})
       })
       checkDeadline()
       if (!result.ok) throw new Error('Local inference failed')
