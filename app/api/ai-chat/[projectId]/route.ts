@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
+import { decryptArchiveField } from '@/lib/archive-decryption'
 import { requireProjectAccess } from '@/lib/api-auth'
 
 function mapDbProject(dbProj: any) {
@@ -43,13 +44,6 @@ export async function GET(
 
     const project = mapDbProject(dbProj) as any
 
-    // Passphrase resolution: header, query parameter, or server environment.
-    // Zero-Knowledge Invariant: Never fallback to a hardcoded string ('SHANNON').
-    const clientPassphrase = request.headers.get('x-project-passphrase') ||
-      request.nextUrl.searchParams.get('passphrase') ||
-      process.env.PROJECT_PASSPHRASE ||
-      ''
-
     const allDbMessages: any[] = []
     let offset = 0
     const batchSize = 1000
@@ -69,79 +63,19 @@ export async function GET(
       offset += batchSize
     }
 
-    const { decryptText } = await import('@/lib/crypto')
-
-    let decryptionFailureCount = 0
-
-    const recentMessages = await Promise.all(
-      allDbMessages.map(async msg => {
-        let decryptedMessage = msg.message
-        let decryptedSender = msg.sender
-        let wasEncrypted = false
-        let decryptSucceeded = false
-
-        // Check message encryption
-        try {
-          if (typeof msg.message === 'string' && msg.message.startsWith('{')) {
-            const messageEnc = JSON.parse(msg.message)
-            if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
-              wasEncrypted = true
-              if (clientPassphrase) {
-                decryptedMessage = await decryptText(
-                  messageEnc.ciphertext,
-                  clientPassphrase,
-                  messageEnc.salt,
-                  messageEnc.iv
-                )
-                decryptSucceeded = true
-              }
-            }
-          }
-        } catch (err) {
-          decryptSucceeded = false
-        }
-
-        // Check sender encryption
-        try {
-          if (typeof msg.sender === 'string' && msg.sender.startsWith('{')) {
-            const senderEnc = JSON.parse(msg.sender)
-            if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
-              if (clientPassphrase) {
-                decryptedSender = await decryptText(
-                  senderEnc.ciphertext,
-                  clientPassphrase,
-                  senderEnc.salt,
-                  senderEnc.iv
-                )
-              }
-            }
-          }
-        } catch (err) {}
-
-        if (wasEncrypted && !decryptSucceeded) {
-          decryptionFailureCount++
-          decryptedMessage = '[Encrypted message - valid passphrase required]'
-        }
-
-        return {
-          id: msg.id,
-          sender: decryptedSender,
-          message: decryptedMessage,
-          timestamp: msg.timestamp,
-          projectId: msg.project_id
-        }
-      })
-    )
-
-    if (decryptionFailureCount > 0 && !clientPassphrase) {
-      // If messages are encrypted and no passphrase was supplied at all, return explicit 422
-      return NextResponse.json(
-        {
-          error: 'Unprocessable Entity: Project messages are encrypted and valid passphrase was not provided.',
-          encryptedMessageCount: decryptionFailureCount
-        },
-        { status: 422 }
-      )
+    // This authorized endpoint intentionally exports plaintext using server keys.
+    // Any failed message OR sender decryption rejects the whole response.
+    let recentMessages
+    try {
+      recentMessages = await Promise.all(allDbMessages.map(async msg => ({
+        id: msg.id,
+        sender: await decryptArchiveField(msg.sender),
+        message: await decryptArchiveField(msg.message),
+        timestamp: msg.timestamp,
+        projectId: msg.project_id
+      })))
+    } catch {
+      return NextResponse.json({ error: 'Archive decryption unavailable or failed' }, { status: 422 })
     }
 
     // Get AI conversation history

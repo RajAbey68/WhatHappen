@@ -10,8 +10,8 @@
  * NOW: challenge/response.
  *   1. Client calls GET /api/auth/challenge?projectId=<uuid> → { nonce }.
  *   2. Client computes response = HMAC-SHA256(sha256(passphrase), nonce)
- *      with Web Crypto — the raw passphrase never leaves the browser, so the
- *      zero-knowledge property is preserved.
+ *      with Web Crypto — the raw passphrase is not sent by this proof exchange.
+ *      Authorized archive reads use trusted backend decryption.
  *   3. This route recomputes the same HMAC using the server-provisioned
  *      WHATSAPP_PASSPHRASE_HASH env var and compares timing-safely.
  *
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
 
     // Fail closed: enforce challenge-response unless explicitly bypassed
     if (!isAuthBypassed()) {
-      const configuredHash = getConfiguredPassphraseHash()
+      const configuredHash = getConfiguredPassphraseHash(projectId)
       if (!configuredHash) {
         return NextResponse.json(
           { error: 'Passphrase verification is not configured on the server' },
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const candidateHashes = getConfiguredPassphraseHashes()
+      const candidateHashes = getConfiguredPassphraseHashes(projectId)
       const isMatch = candidateHashes.some((hash) => {
         const expectedProof = computeProof(hash, challenge)
         return timingSafeEqualStr(proof, expectedProof)

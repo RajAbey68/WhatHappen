@@ -159,7 +159,7 @@ describe('WhatsAppAnalyzer Main Page Component', () => {
     test('should render headers and description text', () => {
       render(<Home />)
       expect(screen.getByText('WhatHappen')).toBeInTheDocument()
-      expect(screen.getByText(/Zero-Knowledge WhatsApp Analyzer/i)).toBeInTheDocument()
+      expect(screen.getByText(/Private WhatsApp archive analytics/i)).toBeInTheDocument()
     })
 
     test('should render project selector interface in default state', () => {

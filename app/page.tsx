@@ -41,7 +41,7 @@ export default function Home() {
   const [isGeneratingDoc, setIsGeneratingDoc] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>('upload')
 
-  // Zero-Knowledge Passphrase states
+  // Archive passphrase states
   const [passphrase, setPassphrase] = useState<string>('')
   const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false)
   const [tempPassphrase, setTempPassphrase] = useState('')
@@ -552,7 +552,7 @@ export default function Home() {
             WhatHappen
           </h1>
           <p className="text-lg sm:text-xl text-slate-400 max-w-3xl mx-auto leading-relaxed">
-            Cloud-Hosted, Mobile-First, Zero-Knowledge WhatsApp Analyzer. Private-by-design chat analytics on GCP.
+            Private WhatsApp archive analytics. Authorized backend services decrypt messages; AI clients receive the evidence you request.
           </p>
         </div>
         
@@ -576,7 +576,7 @@ export default function Home() {
                       <CardTitle className="text-2xl">{selectedProject.name}</CardTitle>
                       {passphrase && (
                         <Badge variant="outline" className="flex items-center gap-1 text-xs text-green-300 bg-green-950/40 border-green-800/50">
-                          <Shield className="h-3 w-3" /> Zero-Knowledge Key Loaded
+                          <Shield className="h-3 w-3" /> Archive Key Loaded
                         </Badge>
                       )}
                       {isDecrypting && (
@@ -1117,13 +1117,13 @@ export default function Home() {
         )}
       </div>
 
-      {/* Zero-Knowledge Project Passphrase Dialog Modal */}
+      {/* Archive Passphrase Dialog Modal */}
       <Dialog open={showPassphrasePrompt} onOpenChange={(open) => { if (!open) handlePassphraseCancel() }}>
         <DialogContent className="sm:max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold">
               <Key className="h-5 w-5 text-blue-500" />
-              {isNewProjectPassphrase ? 'Configure Zero-Knowledge Key' : 'Enter Passphrase'}
+              {isNewProjectPassphrase ? 'Configure Archive Key' : 'Enter Passphrase'}
             </DialogTitle>
             <DialogDescription className="text-sm text-slate-600">
               {isNewProjectPassphrase 

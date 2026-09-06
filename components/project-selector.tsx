@@ -157,7 +157,7 @@ export function ProjectSelector({ onProjectSelect, selectedProject }: ProjectSel
             <DialogHeader>
               <DialogTitle>Create New Project</DialogTitle>
               <DialogDescription>
-                Set up a new WhatsApp analysis project. Zero-knowledge local encryption will be used to protect your message privacy.
+                Set up a new WhatsApp analysis project. Messages are encrypted for storage; authorized backend services can decrypt them for analysis.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">

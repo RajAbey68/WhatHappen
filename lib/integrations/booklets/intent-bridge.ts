@@ -1,4 +1,4 @@
-import { ReconciledTransaction } from '../forensics/reconciler'
+import { ReconciledTransaction } from '../../forensics/reconciler'
 
 export interface ActionIntentPayload {
   action: 'EXPENSE_RECORD_INTENT'

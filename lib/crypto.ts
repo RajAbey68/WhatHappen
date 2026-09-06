@@ -166,7 +166,7 @@ export async function encryptText(
   const cacheKey = `${passphrase}:${saltHex}`
   let keyBytes = nobleKeyCache.get(cacheKey)
   if (!keyBytes) {
-    keyBytes = pbkdf2(sha256, passphrase, salt, { c: 100000, dkLen: 32 })
+    keyBytes = pbkdf2(sha256, passphrase, salt, { c: 100000, dkLen: 32 }) as Uint8Array
     nobleKeyCache.set(cacheKey, keyBytes)
   }
 
@@ -248,7 +248,7 @@ export async function encryptTextBatch(
   const { sha256 } = require('@noble/hashes/sha2.js')
   const salt = getRandomValues(new Uint8Array(16))
   const saltHex = bufferToHex(salt.buffer)
-  const keyBytes = pbkdf2(sha256, passphrase, salt, { c: 100000, dkLen: 32 })
+  const keyBytes = pbkdf2(sha256, passphrase, salt, { c: 100000, dkLen: 32 }) as Uint8Array
 
   const results: Array<{ ciphertext: string; iv: string; salt: string }> = []
   for (const text of texts) {
@@ -359,7 +359,7 @@ async function decryptTextSingle(
     let key = nobleKeyCache.get(cacheKey)
     if (!key) {
       const saltBuf = typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(saltHex, 'hex') : new Uint8Array(hexToBuffer(saltHex))
-      key = pbkdf2(sha256, passphrase, saltBuf, { c: 100000, dkLen: 32 })
+      key = pbkdf2(sha256, passphrase, saltBuf, { c: 100000, dkLen: 32 }) as Uint8Array
       nobleKeyCache.set(cacheKey, key)
     }
 

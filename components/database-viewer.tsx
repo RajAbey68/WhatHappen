@@ -161,7 +161,7 @@ export function DatabaseViewer({ data, isDecrypting, decryptProgress }: Database
               Database Viewer
             </CardTitle>
             <CardDescription>
-              Decrypting your private chat archive client-side using your zero-knowledge key...
+              Decrypting your private chat archive client-side using your archive key...
             </CardDescription>
           </CardHeader>
           <CardContent>
