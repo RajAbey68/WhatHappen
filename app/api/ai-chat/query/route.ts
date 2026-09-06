@@ -230,43 +230,119 @@ Do not generate unnecessary filler, lengthy backstories, or unrequested analysis
     let success = false
     let responseText = ''
 
-    try {
-      // 35s timeout ensures requests never hang the client/MCP tool
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 35_000)
+    // Primary: Gemini 2.5 Flash (Fast production cloud inference)
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const geminiKey = process.env.GEMINI_API_KEY
+        const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+        const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
 
-      const ollamaRes = await fetch(localOllamaUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: localModel,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...conversationHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
-            { role: 'user', content: message }
-          ],
-          stream: false,
-          options: {
-            num_ctx: ctxLimit,
-            num_predict: tokenLimit,
-            temperature: 0.1
-          }
+        const geminiController = new AbortController()
+        const geminiTimeout = setTimeout(() => geminiController.abort(), 20_000)
+
+        const geminiRes = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${geminiKey}`,
+          },
+          signal: geminiController.signal,
+          body: JSON.stringify({
+            model: geminiModel,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...conversationHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
+              { role: 'user', content: message }
+            ],
+            temperature: 0.1,
+            max_tokens: tokenLimit,
+          }),
         })
-      })
-      clearTimeout(timeoutId)
+        clearTimeout(geminiTimeout)
 
-      if (ollamaRes.ok) {
-        const ollamaData = await ollamaRes.json()
-        if (ollamaData.message?.content) {
-          responseText = ollamaData.message.content
-          success = true
+        if (geminiRes.ok) {
+          const geminiData = await geminiRes.json()
+          const content = geminiData.choices?.[0]?.message?.content
+          if (content) {
+            responseText = content
+            success = true
+          }
+        } else {
+          const errBody = await geminiRes.text()
+          console.error(`Gemini provider failed (${geminiRes.status}):`, errBody)
+        }
+      } catch (geminiErr) {
+        console.error('Gemini execution error:', geminiErr)
+      } finally {
+        releaseInteractiveSlot()
+      }
+    }
+
+    // Secondary: Local Ollama on Hermes-Dev (Air-gapped local inference)
+    if (!success) {
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 20_000)
+
+        const ollamaRes = await fetch(localOllamaUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: localModel,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...conversationHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
+              { role: 'user', content: message }
+            ],
+            stream: false,
+            options: {
+              num_ctx: ctxLimit,
+              num_predict: tokenLimit,
+              temperature: 0.1
+            }
+          })
+        })
+        clearTimeout(timeoutId)
+
+        if (ollamaRes.ok) {
+          const ollamaData = await ollamaRes.json()
+          if (ollamaData.message?.content) {
+            responseText = ollamaData.message.content
+            success = true
+          }
+        }
+      } catch (ollamaErr) {
+        console.error('Local Ollama execution error on Hermes:', ollamaErr)
+      } finally {
+        releaseInteractiveSlot()
+      }
+    }
+
+    // Tertiary: OpenAI (if configured)
+    if (!success) {
+      const openai = getOpenAI()
+      if (openai) {
+        try {
+          const completion = await openai.chat.completions.create({
+            model: CHAT_MODEL,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...conversationHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
+              { role: 'user', content: message }
+            ],
+            temperature: 0.1,
+            max_tokens: tokenLimit,
+          })
+          const content = completion.choices?.[0]?.message?.content
+          if (content) {
+            responseText = content
+            success = true
+          }
+        } catch (openaiErr) {
+          console.error('OpenAI execution error:', openaiErr)
         }
       }
-    } catch (ollamaErr) {
-      console.error('Local Ollama execution error on Hermes:', ollamaErr)
-    } finally {
-      releaseInteractiveSlot()
     }
 
     if (!success) {

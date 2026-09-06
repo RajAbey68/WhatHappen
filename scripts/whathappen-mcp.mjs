@@ -770,8 +770,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         targetIdx = sorted.findIndex(m => m.id === args.messageId || String(m.id).includes(args.messageId))
       }
       if (targetIdx === -1 && args?.timestamp) {
-        const targetTime = new Date(args.timestamp).getTime()
-        targetIdx = sorted.findIndex(m => Math.abs(new Date(m.timestamp).getTime() - targetTime) < 5000)
+        const tsQuery = String(args.timestamp).trim()
+        // 1. Direct string prefix or inclusion match
+        targetIdx = sorted.findIndex(m => String(m.timestamp).includes(tsQuery))
+        // 2. Epoch distance match within 60 seconds
+        if (targetIdx === -1 && !isNaN(new Date(tsQuery).getTime())) {
+          const targetTime = new Date(tsQuery).getTime()
+          let minDiff = Infinity
+          let bestIdx = -1
+          for (let i = 0; i < sorted.length; i++) {
+            const diff = Math.abs(new Date(sorted[i].timestamp).getTime() - targetTime)
+            if (diff < minDiff) {
+              minDiff = diff
+              bestIdx = i
+            }
+          }
+          if (bestIdx !== -1 && minDiff <= 60_000) {
+            targetIdx = bestIdx
+          }
+        }
       }
 
       if (targetIdx === -1) {
