@@ -20,7 +20,7 @@ export const PROJECT_TOKEN_HEADER = 'x-project-token'
 export const WEBHOOK_SECRET_HEADER = 'x-webhook-secret'
 
 const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * True when running in a local/dev/test context where auth is intentionally
@@ -56,6 +56,13 @@ export function isValidProjectId(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value)
 }
 
+/** Changing APP_SESSION_VERSION revokes all existing project tokens.
+ * Unset version retains legacy signatures for backwards compatibility. */
+function tokenPayload(projectId: string, expiresAt: number): string {
+  const legacy = `${projectId}.${expiresAt}`
+  return process.env.APP_SESSION_VERSION ? `${legacy}.version:${process.env.APP_SESSION_VERSION}` : legacy
+}
+
 export function issueProjectToken(
   projectId: string,
   ttlMs: number = PROJECT_TOKEN_TTL_MS
@@ -63,7 +70,7 @@ export function issueProjectToken(
   const expiresAt = Date.now() + ttlMs
   const mac = crypto
     .createHmac('sha256', getSecret())
-    .update(`${projectId}.${expiresAt}`)
+    .update(tokenPayload(projectId, expiresAt))
     .digest('hex')
   return { token: `${expiresAt}.${mac}`, expiresAt }
 }
@@ -84,7 +91,7 @@ export function verifyProjectToken(
   try {
     expected = crypto
       .createHmac('sha256', getSecret())
-      .update(`${projectId}.${expiresAt}`)
+      .update(tokenPayload(projectId, expiresAt))
       .digest('hex')
   } catch {
     return false

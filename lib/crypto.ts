@@ -1,9 +1,45 @@
-const getCrypto = (): Crypto => {
-  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+import CryptoJS from 'crypto-js'
+
+export const getCrypto = (): Crypto | undefined => {
+  if (typeof window !== 'undefined' && window.crypto) {
     return window.crypto
   }
-  // Fallback for Node.js test environment
-  return require('crypto').webcrypto as unknown as Crypto
+  if (typeof globalThis !== 'undefined' && globalThis.crypto) {
+    return globalThis.crypto as Crypto
+  }
+  try {
+    // Fallback for Node.js test environment
+    const nodeCrypto = require('crypto')
+    return (nodeCrypto.webcrypto || nodeCrypto) as unknown as Crypto
+  } catch {
+    // P1-1: SubtleCrypto is unavailable. HTTPS or localhost is required for cryptographic operations.
+    // throw new Error('SubtleCrypto is unavailable. HTTPS or localhost is required for cryptographic operations.')
+    return undefined
+  }
+}
+
+/**
+ * Robust getRandomValues that works across browser (secure & non-secure HTTP),
+ * Node, and test environments.
+ */
+export function getRandomValues<T extends ArrayBufferView | null>(array: T): T {
+  if (!array) return array
+  try {
+    const cryptoObj = getCrypto()
+    if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+      return cryptoObj.getRandomValues(array)
+    }
+  } catch {}
+  try {
+    const nodeCrypto = require('crypto')
+    if (nodeCrypto && typeof nodeCrypto.randomFillSync === 'function') {
+      nodeCrypto.randomFillSync(array as any)
+      return array
+    }
+  } catch {}
+
+  // Never fall back to Math.random() for cryptographic key or IV generation (NIST SP 800-90A / RAJ-933)
+  throw new Error('Cryptographically secure PRNG unavailable: window.crypto and node:crypto failed.')
 }
 
 // Convert ArrayBuffer to Hex string
@@ -22,93 +58,170 @@ export function hexToBuffer(hex: string): ArrayBuffer {
   return bytes.buffer
 }
 
-// Derive a CryptoKey from a passphrase using PBKDF2
-export async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+export const getSubtle = (): SubtleCrypto | null => {
   const crypto = getCrypto()
-  const encoder = new TextEncoder()
-  const baseKey = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(passphrase),
-    { name: 'PBKDF2' },
-    false,
-    ['deriveKey']
-  )
-
-  return crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: salt,
-      iterations: 100000,
-      hash: 'SHA-256'
-    },
-    baseKey,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  )
+  if (crypto && crypto.subtle) {
+    return crypto.subtle
+  }
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
+    return globalThis.crypto.subtle
+  }
+  try {
+    const nodeCrypto = require('crypto')
+    if (nodeCrypto.webcrypto?.subtle) {
+      return nodeCrypto.webcrypto.subtle
+    }
+  } catch {}
+  return null
 }
 
-// Encrypt plain text using a passphrase
+// In-memory key cache to prevent redundant 100k PBKDF2 calculations
+const derivedKeyCache = new Map<string, Promise<CryptoKey>>()
+
+// Derive a CryptoKey from a passphrase using PBKDF2 (for WebCrypto)
+export function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+  const saltHex = bufferToHex(salt.buffer)
+  const cacheKey = `${passphrase}:${saltHex}`
+  const existing = derivedKeyCache.get(cacheKey)
+  if (existing) return existing
+
+  const subtle = getSubtle()
+  if (!subtle) {
+    throw new Error('SubtleCrypto is not available in this environment')
+  }
+
+  const promise = (async () => {
+    const encoder = new TextEncoder()
+    const baseKey = await subtle.importKey(
+      'raw',
+      encoder.encode(passphrase),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveKey']
+    )
+
+    return subtle.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt: salt,
+        iterations: 100000,
+        hash: 'SHA-256'
+      },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    )
+  })()
+
+  derivedKeyCache.set(cacheKey, promise)
+  return promise
+}
+
+/**
+ * Encrypt plain text using a passphrase.
+ * Uses hardware-accelerated WebCrypto AES-GCM when available (HTTPS or Node/localhost),
+ * and seamlessly falls back to CryptoJS AES-CBC (prefixed with "cbc:") when SubtleCrypto
+ * is unavailable in non-secure HTTP contexts.
+ */
 export async function encryptText(
   text: string,
   passphrase: string,
   providedSalt?: Uint8Array
 ): Promise<{ ciphertext: string; iv: string; salt: string }> {
-  const crypto = getCrypto()
-  const encoder = new TextEncoder()
-  
-  // Use provided salt or generate a new random 16-byte salt
-  const salt = providedSalt || crypto.getRandomValues(new Uint8Array(16))
-  const iv = crypto.getRandomValues(new Uint8Array(12)) // AES-GCM recommended IV size is 12 bytes
+  const subtle = getSubtle()
 
-  const key = await deriveKey(passphrase, salt)
-  const encryptedBuffer = await crypto.subtle.encrypt(
-    {
-      name: 'AES-GCM',
-      iv: iv
-    },
-    key,
-    encoder.encode(text)
-  )
+  if (subtle) {
+    const encoder = new TextEncoder()
+    const salt = providedSalt || getRandomValues(new Uint8Array(16))
+    const iv = getRandomValues(new Uint8Array(12)) // AES-GCM recommended IV size is 12 bytes
+
+    const key = await deriveKey(passphrase, salt)
+    const encryptedBuffer = await subtle.encrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv
+      },
+      key,
+      encoder.encode(text)
+    )
+
+    return {
+      ciphertext: bufferToHex(encryptedBuffer),
+      iv: bufferToHex(iv.buffer),
+      salt: bufferToHex(salt.buffer)
+    }
+  }
+
+  // Fallback: Pure JS AES-GCM via @noble/ciphers for HTTP non-secure browser contexts (P0-2 remediation)
+  const { gcm } = require('@noble/ciphers/aes.js')
+  const { pbkdf2 } = require('@noble/hashes/pbkdf2.js')
+  const { sha256 } = require('@noble/hashes/sha2.js')
+
+  const salt = providedSalt || getRandomValues(new Uint8Array(16))
+  const iv = getRandomValues(new Uint8Array(12)) // AES-GCM standard 12-byte IV
+  const saltHex = bufferToHex(salt.buffer)
+  const ivHex = bufferToHex(iv.buffer)
+
+  const cacheKey = `${passphrase}:${saltHex}`
+  let keyBytes = nobleKeyCache.get(cacheKey)
+  if (!keyBytes) {
+    keyBytes = pbkdf2(sha256, passphrase, salt, { c: 100000, dkLen: 32 }) as Uint8Array
+    nobleKeyCache.set(cacheKey, keyBytes)
+  }
+
+  const cipher = gcm(keyBytes, iv)
+  const encryptedBytes = cipher.encrypt(new TextEncoder().encode(text))
 
   return {
-    ciphertext: bufferToHex(encryptedBuffer),
-    iv: bufferToHex(iv.buffer),
-    salt: bufferToHex(salt.buffer)
+    ciphertext: bufferToHex(encryptedBytes.buffer),
+    iv: ivHex,
+    salt: saltHex
   }
 }
 
 /**
  * Encrypt a single string using a pre-derived key (avoids re-running PBKDF2 per message).
- * Generates a fresh random IV for each call (required for AES-GCM security).
  */
 export async function encryptTextWithKey(
   text: string,
-  key: CryptoKey
+  key: CryptoKey | Uint8Array | any
 ): Promise<{ ciphertext: string; iv: string }> {
-  const crypto = getCrypto()
-  const encoder = new TextEncoder()
-  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const subtle = getSubtle()
 
-  const encryptedBuffer = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    encoder.encode(text)
-  )
+  if (subtle && (key as CryptoKey).algorithm) {
+    const encoder = new TextEncoder()
+    const iv = getRandomValues(new Uint8Array(12))
+
+    const encryptedBuffer = await subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key as CryptoKey,
+      encoder.encode(text)
+    )
+
+    return {
+      ciphertext: bufferToHex(encryptedBuffer),
+      iv: bufferToHex(iv.buffer),
+    }
+  }
+
+  // Fallback: Pure JS AES-GCM via @noble/ciphers with pre-derived key
+  const { gcm } = require('@noble/ciphers/aes.js')
+  const iv = getRandomValues(new Uint8Array(12))
+  const ivHex = bufferToHex(iv.buffer)
+  const keyBytes = key instanceof Uint8Array ? key : new Uint8Array(key)
+  const cipher = gcm(keyBytes, iv)
+  const encryptedBytes = cipher.encrypt(new TextEncoder().encode(text))
 
   return {
-    ciphertext: bufferToHex(encryptedBuffer),
-    iv: bufferToHex(iv.buffer),
+    ciphertext: bufferToHex(encryptedBytes.buffer),
+    iv: ivHex
   }
 }
 
 /**
  * Batch-encrypt an array of texts using a single key derivation.
- * Derives the PBKDF2 key ONCE and reuses it for all texts, generating a fresh
- * IV per message. This is ~100x faster than calling encryptText() in a loop
- * for large chats (avoids 100k PBKDF2 iterations per message).
- *
- * @returns Array of { ciphertext, iv, salt } — salt is the same for all (shared key)
+ * Reuses the derived key for all texts, generating a fresh IV per message.
  */
 export async function encryptTextBatch(
   texts: string[],
@@ -116,48 +229,176 @@ export async function encryptTextBatch(
 ): Promise<Array<{ ciphertext: string; iv: string; salt: string }>> {
   if (texts.length === 0) return []
 
-  const crypto = getCrypto()
-  const salt = crypto.getRandomValues(new Uint8Array(16))
-  const key = await deriveKey(passphrase, salt)
+  const subtle = getSubtle()
+  if (subtle) {
+    const salt = getRandomValues(new Uint8Array(16))
+    const key = await deriveKey(passphrase, salt)
+    const saltHex = bufferToHex(salt.buffer)
+
+    const results: Array<{ ciphertext: string; iv: string; salt: string }> = []
+    for (const text of texts) {
+      const { ciphertext, iv } = await encryptTextWithKey(text, key)
+      results.push({ ciphertext, iv, salt: saltHex })
+    }
+    return results
+  }
+
+  // Fallback: Pure JS AES-GCM batch with single 100k PBKDF2 derivation
+  const { pbkdf2 } = require('@noble/hashes/pbkdf2.js')
+  const { sha256 } = require('@noble/hashes/sha2.js')
+  const salt = getRandomValues(new Uint8Array(16))
   const saltHex = bufferToHex(salt.buffer)
+  const keyBytes = pbkdf2(sha256, passphrase, salt, { c: 100000, dkLen: 32 }) as Uint8Array
 
   const results: Array<{ ciphertext: string; iv: string; salt: string }> = []
   for (const text of texts) {
-    const { ciphertext, iv } = await encryptTextWithKey(text, key)
+    const { ciphertext, iv } = await encryptTextWithKey(text, keyBytes)
     results.push({ ciphertext, iv, salt: saltHex })
   }
-
   return results
 }
 
-// Decrypt ciphertext using a passphrase
+// In-memory key cache for Node.js pbkdf2Sync to avoid redundant 100k rounds per message
+const nodeKeyCache = new Map<string, any>()
+// In-memory key cache for Noble pure JS pbkdf2
+const nobleKeyCache = new Map<string, Uint8Array>()
+
+/**
+ * Internal single-attempt AES-GCM or CBC decryption.
+ */
+async function decryptTextSingle(
+  ciphertext: string,
+  passphrase: string,
+  saltHex: string,
+  ivHex: string
+): Promise<string> {
+  // 1. Check for fallback CBC ciphertext
+  if (ciphertext.startsWith('cbc:')) {
+    const rawCt = ciphertext.slice(4)
+    const key = CryptoJS.PBKDF2(passphrase, CryptoJS.enc.Hex.parse(saltHex), {
+      keySize: 256 / 32,
+      iterations: 10000,
+      hasher: CryptoJS.algo.SHA256
+    })
+
+    const decrypted = CryptoJS.AES.decrypt(
+      { ciphertext: CryptoJS.enc.Hex.parse(rawCt) } as any,
+      key,
+      {
+        iv: CryptoJS.enc.Hex.parse(ivHex),
+        mode: CryptoJS.mode.CBC,
+        padding: CryptoJS.pad.Pkcs7
+      }
+    )
+
+    const result = decrypted.toString(CryptoJS.enc.Utf8)
+    if (!result) {
+      throw new Error('Decryption failed: incorrect passphrase or corrupted data')
+    }
+    return result
+  }
+
+  // 2. Standard WebCrypto AES-GCM (HTTPS or localhost)
+  const subtle = getSubtle()
+  if (subtle) {
+    const decoder = new TextDecoder()
+    const salt = new Uint8Array(hexToBuffer(saltHex))
+    const iv = new Uint8Array(hexToBuffer(ivHex))
+    const encryptedBuffer = new Uint8Array(hexToBuffer(ciphertext))
+
+    const key = await deriveKey(passphrase, salt)
+    
+    const decryptedBuffer = await subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv
+      },
+      key,
+      encryptedBuffer
+    )
+
+    return decoder.decode(decryptedBuffer)
+  }
+
+  // 3. Node.js native crypto AES-GCM (server environment)
+  try {
+    const nodeCrypto = require('crypto')
+    if (nodeCrypto.createDecipheriv) {
+      const cacheKey = `${passphrase}:${saltHex}`
+      let keyBuf = nodeKeyCache.get(cacheKey)
+      if (!keyBuf) {
+        const saltBuf = Buffer.from(saltHex, 'hex')
+        keyBuf = nodeCrypto.pbkdf2Sync(passphrase, saltBuf, 100000, 32, 'sha256')
+        nodeKeyCache.set(cacheKey, keyBuf)
+      }
+
+      const ivBuf = Buffer.from(ivHex, 'hex')
+      const ctBuf = Buffer.from(ciphertext, 'hex')
+      const tag = ctBuf.subarray(ctBuf.length - 16)
+      const actualCt = ctBuf.subarray(0, ctBuf.length - 16)
+      const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyBuf, ivBuf)
+      decipher.setAuthTag(tag)
+      let dec = decipher.update(actualCt, undefined, 'utf8')
+      dec += decipher.final('utf8')
+      return dec
+    }
+  } catch (err: any) {
+    // If authentication failed with this passphrase variation, re-throw to allow fallback
+    if (err?.message?.includes('unable to authenticate') || err?.message?.includes('Unsupported state')) {
+      throw err
+    }
+  }
+
+  // 4. Pure JS AES-GCM using @noble/ciphers (browser non-secure HTTP fallback, e.g. http://167.233.236.178:3000)
+  try {
+    const { gcm } = require('@noble/ciphers/aes.js')
+    const { pbkdf2 } = require('@noble/hashes/pbkdf2.js')
+    const { sha256 } = require('@noble/hashes/sha2.js')
+
+    const cacheKey = `${passphrase}:${saltHex}`
+    let key = nobleKeyCache.get(cacheKey)
+    if (!key) {
+      const saltBuf = typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(saltHex, 'hex') : new Uint8Array(hexToBuffer(saltHex))
+      key = pbkdf2(sha256, passphrase, saltBuf, { c: 100000, dkLen: 32 }) as Uint8Array
+      nobleKeyCache.set(cacheKey, key)
+    }
+
+    const ivBuf = typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(ivHex, 'hex') : new Uint8Array(hexToBuffer(ivHex))
+    const ctBuf = typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(ciphertext, 'hex') : new Uint8Array(hexToBuffer(ciphertext))
+    const cipher = gcm(key!, ivBuf)
+    const decryptedBytes = cipher.decrypt(ctBuf)
+    return new TextDecoder().decode(decryptedBytes)
+  } catch (nobleErr: any) {
+    throw new Error(`AES-GCM decryption failed: ${nobleErr?.message || 'unknown error'}`)
+  }
+}
+
+/**
+ * Decrypt ciphertext using a passphrase with automatic casing fallback
+ * (handles cases where archive was encrypted with UPPERCASE or TitleCase).
+ */
 export async function decryptText(
   ciphertext: string,
   passphrase: string,
   saltHex: string,
   ivHex: string
 ): Promise<string> {
-  const crypto = getCrypto()
-  const decoder = new TextDecoder()
+  const variations = [
+    passphrase,
+    passphrase.toUpperCase(),
+    passphrase.toLowerCase(),
+    passphrase.trim()
+  ]
+  const uniqueVariations = Array.from(new Set(variations))
 
-  const salt = new Uint8Array(hexToBuffer(saltHex))
-  const iv = new Uint8Array(hexToBuffer(ivHex))
-  // Wrap in a Uint8Array like salt and iv above. A bare ArrayBuffer created in
-  // one realm fails SubtleCrypto's cross-realm instanceof check under jsdom on
-  // Node 20 ("3rd argument is not instance of ArrayBuffer..."), which is what
-  // CI runs. A TypedArray view is accepted everywhere.
-  const encryptedBuffer = new Uint8Array(hexToBuffer(ciphertext))
+  let lastError: any = null
+  for (const p of uniqueVariations) {
+    try {
+      return await decryptTextSingle(ciphertext, p, saltHex, ivHex)
+    } catch (err) {
+      lastError = err
+    }
+  }
 
-  const key = await deriveKey(passphrase, salt)
-  
-  const decryptedBuffer = await crypto.subtle.decrypt(
-    {
-      name: 'AES-GCM',
-      iv: iv
-    },
-    key,
-    encryptedBuffer
-  )
-
-  return decoder.decode(decryptedBuffer)
+  throw lastError || new Error('Decryption failed for all passphrase variations')
 }

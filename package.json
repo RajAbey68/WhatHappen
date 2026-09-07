@@ -7,17 +7,22 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit --incremental false",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "bench:remote": "node scripts/benchmark-hermes.mjs",
     "quality-gate": "bash scripts/quality-gate.sh",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:mcp": "node --test tests/mcp/*.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.0.2",
     "@asimov/ingest": "file:./vendor/asimov-ingest",
     "@google-cloud/storage": "^7.21.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@noble/ciphers": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.10",
@@ -74,7 +79,9 @@
     "tailwindcss": "^3.4.17",
     "typescript": "5.7.3",
     "uuid": "^11.1.0",
-    "zod": "^3.25.76"
+    "ws": "^8.21.3",
+    "zod": "^3.25.76",
+    "dotenv": "^16.6.1"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",
@@ -87,6 +94,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/sentiment": "^5.0.4",
+    "@types/ws": "^8.18.1",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.25",

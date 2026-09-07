@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "project": "WhatHappen",
+  "relay": "wss://theahg.communities.buzz.xyz",
+  "agent": "Antigravity-IDE",
+  "scope": "kolake-conversations-event-bus",
+  "project_id": "eea59134-c195-4d07-8a0d-5834540c1d4d",
+  "channels": [
+    {
+      "name": "#whathappen-chat",
+      "channel_id": "04a3d252-20d6-4ef1-9a3e-57cb7f73350b",
+      "role": "coordination-heartbeat"
+    },
+    {
+      "name": "#whathappen-ingest",
+      "channel_id": "253b4da8-6c1f-4eb1-938e-09287721f2ac",
+      "role": "cloudevents-ingest"
+    },
+    {
+      "name": "#whathappen-analytics",
+      "channel_id": "48346229-5842-49ca-986b-0de3a957a4ac",
+      "role": "moe-jobs"
+    }
+  ]
+}

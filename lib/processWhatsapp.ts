@@ -257,7 +257,29 @@ export async function processWhatsappCompletion(
       })
       .eq('id', projectId)
 
-    if (projectUpdateError) throw projectUpdateError
+    // Automatically invalidate stale vector cache and trigger background batch indexing
+    try {
+      const { invalidateVectorCache } = await import('@/lib/rag/embedder')
+      const { invalidateGoldenCache } = await import('@/lib/rag/learning')
+      invalidateVectorCache(projectId)
+      invalidateGoldenCache(projectId)
+      console.log(`[RAG] Invalidated cached vectors and Golden Q&A for project ${projectId} after new upload.`)
+
+      // Spawn non-blocking background batch-indexing worker to pre-warm vectors
+      if (typeof window === 'undefined') {
+        const { spawn } = await import('child_process')
+        const path = await import('path')
+        const scriptPath = path.join(process.cwd(), 'scripts', 'batch-index-rag.mjs')
+        const child = spawn(process.execPath, [scriptPath, `--projectId=${projectId}`], {
+          detached: true,
+          stdio: 'ignore'
+        })
+        child.unref()
+        console.log(`[RAG] Detached background batch indexer spawned (PID: ${child.pid}) for project ${projectId}`)
+      }
+    } catch (cacheErr) {
+      console.warn('[RAG] Background indexing trigger warning:', cacheErr)
+    }
 
     // RAJ-759: always respond as JSON, never a request-derived content type.
     return NextResponse.json(responsePayload, {
@@ -278,26 +300,73 @@ export function parseWhatsAppChat(text: string): WhatsAppMessage[] {
 
   // Enhanced WhatsApp chat parsing with multiple format support
   const patterns = [
-    // [MM/DD/YY, HH:MM:SS AM/PM] Sender: Message
-    /^\[(\d{1,2}\/\d{1,2}\/\d{2,4},?\s*\d{1,2}:\d{2}:?\d{0,2}(?:\s*[APap][Mm])?)\]\s*([^:]+):\s*(.+)$/,
-    // MM/DD/YY, HH:MM AM/PM - Sender: Message
-    /^(\d{1,2}\/\d{1,2}\/\d{2,4},?\s*\d{1,2}:\d{2}(?:\s*[APap][Mm])?)\s*-\s*([^:]+):\s*(.+)$/,
-    // DD/MM/YYYY, HH:MM - Sender: Message (European format)
-    /^(\d{1,2}\/\d{1,2}\/\d{4},?\s*\d{1,2}:\d{2})\s*-\s*([^:]+):\s*(.+)$/,
+    // [MM/DD/YY, HH:MM:SS AM/PM] Sender: Message or [DD.MM.YYYY, HH:MM:SS]
+    /^\[(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s*\d{1,2}:\d{2}:?\d{0,2}(?:\s*[APap][Mm])?)\]\s*([^:]+):\s*(.+)$/,
+    // MM/DD/YY, HH:MM AM/PM - Sender: Message or DD/MM/YYYY, HH:MM - Sender: Message
+    /^(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s*\d{1,2}:\d{2}(?::\d{2})?(?:\s*[APap][Mm])?)\s*-\s*([^:]+):\s*(.+)$/,
+    // [DD/MM/YYYY, HH:MM] Sender: Message
+    /^\[(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s*\d{1,2}:\d{2})\]\s*([^:]+):\s*(.+)$/,
+    // DD.MM.YYYY, HH:MM - Sender: Message
+    /^(\d{1,2}\.\d{1,2}\.\d{2,4},?\s*\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*([^:]+):\s*(.+)$/,
   ]
 
-  for (const line of lines) {
+  const sysPatterns = [
+    /^\[(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s*\d{1,2}:\d{2}:?\d{0,2}(?:\s*[APap][Mm])?)\]\s*([^:]+)$/,
+    /^(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s*\d{1,2}:\d{2}(?::\d{2})?(?:\s*[APap][Mm])?)\s*-\s*([^:]+)$/,
+  ]
+
+  let currentMsg: WhatsAppMessage | null = null
+
+  for (const rawLine of lines) {
+    const line = rawLine
+      .replace(/[\u200e\u200f\u202a-\u202e\u200b\u2060\u00ad\ufeff]/g, '')
+      .replace(/[\u202f\u00a0]/g, ' ')
+      .trim()
+    if (!line) continue
+
+    let matched = false
     for (const pattern of patterns) {
       const match = line.match(pattern)
       if (match) {
-        messages.push({
+        if (currentMsg) {
+          messages.push(currentMsg)
+        }
+        currentMsg = {
           timestamp: match[1],
           sender: match[2].trim(),
           message: match[3].trim(),
-        })
+        }
+        matched = true
         break
       }
     }
+
+    if (!matched) {
+      for (const sysPattern of sysPatterns) {
+        const sysMatch = line.match(sysPattern)
+        if (sysMatch) {
+          if (currentMsg) {
+            messages.push(currentMsg)
+          }
+          currentMsg = {
+            timestamp: sysMatch[1],
+            sender: 'System',
+            message: sysMatch[2].trim(),
+          }
+          matched = true
+          break
+        }
+      }
+    }
+
+    if (!matched && currentMsg) {
+      // Multi-line continuation
+      currentMsg.message += '\n' + line
+    }
+  }
+
+  if (currentMsg) {
+    messages.push(currentMsg)
   }
 
   return messages
@@ -306,7 +375,7 @@ export function parseWhatsAppChat(text: string): WhatsAppMessage[] {
 export function generateComprehensiveAnalysis(
   messages: WhatsAppMessage[]
 ): ProcessingResult {
-  const participants = Array.from(new Set(messages.map((m) => m.sender)))
+  const participants = Array.from(new Set(messages.map((m) => m.sender))).filter((s) => s !== 'System')
 
   // O(n) single-pass sender counting (was O(n²) with filter per participant)
   const senderCountMap = new Map<string, number>()

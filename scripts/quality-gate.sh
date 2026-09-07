@@ -5,6 +5,8 @@
 set -e
 
 echo "🚀 [1/5] Type Checking & Next.js Build Validation..."
+npm run type-check
+npm run test:mcp
 npm run build
 
 echo "🔍 [2/5] SQL Migration & Query Linting..."

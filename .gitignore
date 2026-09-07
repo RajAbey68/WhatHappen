@@ -48,3 +48,6 @@ logs
 # RAJ-782: vendored package build output is committed deliberately so Cloud Build
 # needs no external registry; its node_modules never should be.
 vendor/*/node_modules/
+
+# Local review and verification artifacts
+/work/

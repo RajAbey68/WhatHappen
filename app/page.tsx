@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Project } from '@/lib/supabase'
-import { Upload, MessageSquare, BarChart3, FileText, Bot, Database, Key, Shield, RefreshCw, Clock } from 'lucide-react'
+import { Upload, MessageSquare, BarChart3, FileText, Bot, Database, Key, Shield, RefreshCw, Clock, Eye, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,6 +23,7 @@ import {
   projectAuthHeaders,
 } from '@/lib/session-store'
 import { BottomSheet, BottomSheetContent, BottomSheetHeader, BottomSheetTitle } from '@/components/ui/bottom-sheet'
+import { ReportViewerModal } from '@/components/report-viewer-modal'
 
 // Strip path separators / control chars and bound length so a project name
 // can't produce a malformed or unsafe download filename.
@@ -40,7 +41,7 @@ export default function Home() {
   const [isGeneratingDoc, setIsGeneratingDoc] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>('upload')
 
-  // Zero-Knowledge Passphrase states
+  // Archive passphrase states
   const [passphrase, setPassphrase] = useState<string>('')
   const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false)
   const [tempPassphrase, setTempPassphrase] = useState('')
@@ -51,8 +52,87 @@ export default function Home() {
 
   // Client-side decrypted messages data
   const [decryptedData, setDecryptedData] = useState<any>(null)
+  const [isDecrypting, setIsDecrypting] = useState(false)
+  const [decryptProgress, setDecryptProgress] = useState({ current: 0, total: 0 })
+  const [decryptedResponseTimes, setDecryptedResponseTimes] = useState<Record<string, number> | null>(null)
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+
+  // On-screen Report Preview state
+  const [previewModal, setPreviewModal] = useState<{
+    isOpen: boolean
+    title: string
+    subtitle: string
+    documentType: string
+  }>({
+    isOpen: false,
+    title: '',
+    subtitle: '',
+    documentType: 'summary'
+  })
+
+  // Auto-restore active project (last project, single migrated project, or Ko Lake project)
+  useEffect(() => {
+    const restoreProject = async () => {
+      if (typeof window === 'undefined') return
+      const lastProjectId = localStorage.getItem('whathappen-last-project-id')
+
+      try {
+        const res = await fetch('/api/projects')
+        if (res.ok) {
+          const projects: Project[] = await res.json()
+          if (!projects || projects.length === 0) return
+
+          // 1. Check last active project from localStorage
+          let target = lastProjectId ? projects.find((p) => p.id === lastProjectId) : null
+
+          // 2. If no last project stored, check for Ko Lake project or single migrated project
+          if (!target) {
+            target = projects.find((p) => /ko\s*lake/i.test(p.name)) || (projects.length === 1 ? projects[0] : null)
+          }
+
+          if (target) {
+            handleProjectSelect(target)
+          }
+        }
+      } catch (e) {
+        console.error('Failed to auto-restore project:', e)
+      }
+    }
+
+    restoreProject()
+  }, [])
+
+  // Automatically decrypt response times participant keys when project or passphrase changes
+  useEffect(() => {
+    const decryptTimes = async () => {
+      const times = selectedProject?.analysis?.averageResponseTimes
+      if (!times || typeof times !== 'object') {
+        setDecryptedResponseTimes(null)
+        return
+      }
+
+      const effectivePassphrase = passphrase || 'SHANNON'
+      const decrypted: Record<string, number> = {}
+      for (const [key, seconds] of Object.entries(times)) {
+        let displayName = key
+        try {
+          if (key.startsWith('{')) {
+            const enc = JSON.parse(key)
+            if (enc.ciphertext && enc.salt && enc.iv) {
+              displayName = await decryptText(enc.ciphertext, effectivePassphrase, enc.salt, enc.iv)
+            }
+          }
+        } catch (e) {
+          // Keep plaintext or formatted name
+        }
+        decrypted[displayName] = seconds as number
+      }
+      setDecryptedResponseTimes(decrypted)
+    }
+
+    decryptTimes()
+  }, [selectedProject?.analysis?.averageResponseTimes, passphrase])
 
   // Handle tab changes with mobile bottom sheet redirection
   const handleTabChange = (value: string) => {
@@ -63,8 +143,9 @@ export default function Home() {
     }
   }
 
-  // Load and decrypt messages from database locally on the client
+  // Load and decrypt messages from database locally on the client without freezing the main thread
   const loadAndDecryptMessages = async (projectId: string, currentPassphrase: string) => {
+    setIsDecrypting(true)
     try {
       const response = await fetch(`/api/ai-chat/${projectId}`, {
         headers: {
@@ -75,48 +156,78 @@ export default function Home() {
       if (response.ok) {
         const result = await response.json()
         const recentMessages = result.recentMessages || []
-        
-        // Decrypt messages locally in the client browser
-        const decrypted = await Promise.all(
-          recentMessages.map(async (msg: any) => {
-            let decryptedMessage = msg.message
-            let decryptedSender = msg.sender
-            
-            try {
-              const messageEnc = JSON.parse(msg.message)
-              if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
-                decryptedMessage = await decryptText(
-                  messageEnc.ciphertext,
-                  currentPassphrase,
-                  messageEnc.salt,
-                  messageEnc.iv
-                )
-              }
-            } catch (e) {
-              // Plaintext fallback
-            }
+        const total = recentMessages.length
+        setDecryptProgress({ current: 0, total })
 
-            try {
-              const senderEnc = JSON.parse(msg.sender)
-              if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
-                decryptedSender = await decryptText(
-                  senderEnc.ciphertext,
-                  currentPassphrase,
-                  senderEnc.salt,
-                  senderEnc.iv
-                )
-              }
-            } catch (e) {
-              // Plaintext fallback
+        // Check if messages were already decrypted by the server
+        const needsDecryption = recentMessages.slice(0, 10).some((msg: any) => {
+          try {
+            if (typeof msg.message === 'string' && msg.message.startsWith('{')) {
+              const parsed = JSON.parse(msg.message)
+              return !!(parsed && parsed.ciphertext && parsed.salt)
             }
+          } catch {}
+          return false
+        })
 
-            return {
-              ...msg,
-              sender: decryptedSender,
-              message: decryptedMessage
-            }
-          })
-        )
+        let decrypted: any[] = []
+
+        if (!needsDecryption) {
+          // Fast path: Server already decrypted all messages using OpenSSL hardware acceleration
+          decrypted = recentMessages
+          setDecryptProgress({ current: total, total })
+        } else {
+          // Client-side batch decryption with UI thread yielding
+          const CHUNK_SIZE = 200
+          for (let i = 0; i < recentMessages.length; i += CHUNK_SIZE) {
+            const chunk = recentMessages.slice(i, i + CHUNK_SIZE)
+            const decryptedChunk = await Promise.all(
+              chunk.map(async (msg: any) => {
+                let decryptedMessage = msg.message
+                let decryptedSender = msg.sender
+
+                try {
+                  if (typeof msg.message === 'string' && msg.message.startsWith('{')) {
+                    const messageEnc = JSON.parse(msg.message)
+                    if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
+                      decryptedMessage = await decryptText(
+                        messageEnc.ciphertext,
+                        currentPassphrase || 'SHANNON',
+                        messageEnc.salt,
+                        messageEnc.iv
+                      )
+                    }
+                  }
+                } catch (e) {}
+
+                try {
+                  if (typeof msg.sender === 'string' && msg.sender.startsWith('{')) {
+                    const senderEnc = JSON.parse(msg.sender)
+                    if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
+                      decryptedSender = await decryptText(
+                        senderEnc.ciphertext,
+                        currentPassphrase || 'SHANNON',
+                        senderEnc.salt,
+                        senderEnc.iv
+                      )
+                    }
+                  }
+                } catch (e) {}
+
+                return {
+                  ...msg,
+                  sender: decryptedSender,
+                  message: decryptedMessage
+                }
+              })
+            )
+            decrypted.push(...decryptedChunk)
+            setDecryptProgress({ current: decrypted.length, total })
+
+            // Yield to browser UI thread
+            await new Promise(resolve => setTimeout(resolve, 0))
+          }
+        }
 
         const constructedData = {
           fileName: result.project?.name || 'Project Chats',
@@ -124,14 +235,24 @@ export default function Home() {
           processedAt: result.project?.updatedAt,
           totalMessages: result.project?.messageCount || decrypted.length,
           messages: decrypted,
-          analysis: result.project?.analysis
+          analysis: {
+            ...result.project?.analysis,
+            participants: (result.project?.participants && result.project.participants.length > 0)
+              ? result.project.participants
+              : Array.from(new Set(decrypted.map((m: any) => m.sender).filter(Boolean)))
+          }
         }
 
         setDecryptedData(constructedData)
         setProcessedData(constructedData)
+
+        // Automatically switch to chat reader once messages are ready
+        setActiveTab((prev) => (prev === 'upload' ? 'chat-reader' : prev))
       }
     } catch (error) {
       console.error('Error loading or decrypting messages:', error)
+    } finally {
+      setIsDecrypting(false)
     }
   }
 
@@ -163,14 +284,30 @@ export default function Home() {
   }
 
   const handleProjectSelect = async (project: Project | null) => {
+    if (!project) {
+      setSelectedProject(null)
+      setPassphrase('')
+      setDecryptedData(null)
+      setProcessedData(null)
+      setActiveTab('upload')
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('whathappen-last-project-id')
+      }
+      return
+    }
+
+    // If this project is already selected and unlocked, avoid resetting state or re-prompting
+    const cachedExisting = readPassphrase(project.id) || passphrase
+    if (selectedProject?.id === project.id && cachedExisting) {
+      return
+    }
+
     setDecryptedData(null)
     setProcessedData(null)
     setActiveTab('upload')
 
-    if (!project) {
-      setSelectedProject(null)
-      setPassphrase('')
-      return
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('whathappen-last-project-id', project.id)
     }
 
     // RAJ-746: read from the in-memory store, never sessionStorage.
@@ -278,6 +415,10 @@ export default function Home() {
 
   const handlePassphraseCancel = () => {
     setShowPassphrasePrompt(false)
+    // If the project was already unlocked and active, do not discard it on cancel
+    if (selectedProject && passphrase) {
+      return
+    }
     if (selectedProject) dropPassphrase(selectedProject.id)
     setSelectedProject(null)
     setPassphrase('')
@@ -411,7 +552,7 @@ export default function Home() {
             WhatHappen
           </h1>
           <p className="text-lg sm:text-xl text-slate-400 max-w-3xl mx-auto leading-relaxed">
-            Cloud-Hosted, Mobile-First, Zero-Knowledge WhatsApp Analyzer. Private-by-design chat analytics on GCP.
+            Private WhatsApp archive analytics. Authorized backend services decrypt messages; AI clients receive the evidence you request.
           </p>
         </div>
         
@@ -435,7 +576,12 @@ export default function Home() {
                       <CardTitle className="text-2xl">{selectedProject.name}</CardTitle>
                       {passphrase && (
                         <Badge variant="outline" className="flex items-center gap-1 text-xs text-green-300 bg-green-950/40 border-green-800/50">
-                          <Shield className="h-3 w-3" /> Zero-Knowledge Key Loaded
+                          <Shield className="h-3 w-3" /> Archive Key Loaded
+                        </Badge>
+                      )}
+                      {isDecrypting && (
+                        <Badge variant="outline" className="flex items-center gap-1 text-xs text-blue-300 bg-blue-950/40 border-blue-800/50 animate-pulse">
+                          <RefreshCw className="h-3 w-3 animate-spin" /> Decrypting {decryptProgress.current.toLocaleString()} / {decryptProgress.total.toLocaleString()}...
                         </Badge>
                       )}
                     </div>
@@ -597,7 +743,11 @@ export default function Home() {
               {/* Chat Reader Tab */}
               <TabsContent value="chat-reader" className="space-y-6">
                 {selectedProject.messageCount > 0 ? (
-                  <DatabaseViewer data={decryptedData} />
+                  <DatabaseViewer 
+                    data={decryptedData} 
+                    isDecrypting={isDecrypting}
+                    decryptProgress={decryptProgress}
+                  />
                 ) : (
                   <Card className="rounded-2xl shadow-sm">
                     <CardContent className="text-center py-12">
@@ -718,16 +868,16 @@ export default function Home() {
                           <CardDescription>Average reply speed per participant</CardDescription>
                         </CardHeader>
                         <CardContent>
-                          {selectedProject.analysis?.averageResponseTimes ? (
+                          {decryptedResponseTimes || selectedProject.analysis?.averageResponseTimes ? (
                             <div className="space-y-2 text-sm text-slate-600">
-                              {Object.entries(selectedProject.analysis.averageResponseTimes).map(([participant, seconds]: [string, any]) => {
+                              {Object.entries(decryptedResponseTimes || selectedProject.analysis?.averageResponseTimes || {}).map(([participant, seconds]: [string, any]) => {
                                 const m = Math.floor(seconds / 60);
                                 const s = seconds % 60;
                                 const timeStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
                                 return (
-                                  <div key={participant} className="flex justify-between">
-                                    <span className="font-medium">{participant}</span>
-                                    <span className="font-bold text-blue-600">{timeStr}</span>
+                                  <div key={participant} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
+                                    <span className="font-medium text-slate-700">{participant}</span>
+                                    <span className="font-bold text-blue-600 font-mono">{timeStr}</span>
                                   </div>
                                 );
                               })}
@@ -792,73 +942,112 @@ export default function Home() {
                             <li>Timeline analysis</li>
                             <li>Legal formatting</li>
                           </ul>
-                          <button 
-                            onClick={() => handleDownloadDocument('detailed_analysis', 'pdf')}
-                            disabled={isGeneratingDoc !== null}
-                            aria-busy={isGeneratingDoc === 'detailed_analysis_pdf'}
-                            className="w-full px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                          >
-                            {isGeneratingDoc === 'detailed_analysis_pdf' ? 'Generating...' : 'Generate Legal PDF'}
-                          </button>
+                          <div className="space-y-2">
+                            <button 
+                              onClick={() => setPreviewModal({
+                                isOpen: true,
+                                title: 'Legal & Evidentiary Report',
+                                subtitle: 'Chronological transcript and participant verification',
+                                documentType: 'detailed_analysis'
+                              })}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded-xl transition-colors text-sm font-semibold"
+                            >
+                              <Eye className="h-4 w-4" />
+                              View Report on Screen
+                            </button>
+                            <button 
+                              onClick={() => handleDownloadDocument('detailed_analysis', 'pdf')}
+                              disabled={isGeneratingDoc !== null}
+                              aria-busy={isGeneratingDoc === 'detailed_analysis_pdf'}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              {isGeneratingDoc === 'detailed_analysis_pdf' ? 'Generating...' : 'Convert to PDF'}
+                            </button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
 
-                    <Card className="rounded-2xl shadow-sm">
+                    <Card className="rounded-2xl shadow-sm bg-slate-900/60 border-slate-800">
                       <CardHeader>
-                        <CardTitle>Analysis Summary</CardTitle>
-                        <CardDescription>Executive summary with key insights</CardDescription>
+                        <CardTitle className="text-white">Analysis Summary</CardTitle>
+                        <CardDescription className="text-slate-400">Executive summary with key insights</CardDescription>
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-4">
-                          <ul className="text-sm text-slate-600 list-disc list-inside space-y-1">
-                            <li>Key statistics</li>
-                            <li>Sentiment overview</li>
-                            <li>Activity patterns</li>
-                            <li>Important highlights</li>
-                          </ul>
-                          <button 
-                            onClick={() => handleDownloadDocument('summary', 'pdf')}
-                            disabled={isGeneratingDoc !== null}
-                            aria-busy={isGeneratingDoc === 'summary_pdf'}
-                            className="w-full px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                          >
-                            {isGeneratingDoc === 'summary_pdf' ? 'Generating...' : 'Generate Summary PDF'}
-                          </button>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="rounded-2xl shadow-sm">
-                      <CardHeader>
-                        <CardTitle>Raw Data Export</CardTitle>
-                        <CardDescription>Complete data in multiple formats</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          <ul className="text-sm text-slate-600 list-disc list-inside space-y-1">
-                            <li>JSON format</li>
-                            <li>CSV spreadsheet</li>
-                            <li>Full message data</li>
-                            <li>Metadata included</li>
+                          <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
+                            <li>Key statistics & metrics</li>
+                            <li>Sentiment & stress overview</li>
+                            <li>Activity & temporal patterns</li>
+                            <li>Top discussion highlights</li>
                           </ul>
                           <div className="space-y-2">
                             <button 
-                              onClick={() => handleDownloadDocument('summary', 'json')}
-                              disabled={isGeneratingDoc !== null}
-                              aria-busy={isGeneratingDoc === 'summary_json'}
-                              className="w-full px-4 py-2 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                              onClick={() => setPreviewModal({
+                                isOpen: true,
+                                title: 'Executive Analysis Summary',
+                                subtitle: 'Operational metrics, sentiment, and activity trends',
+                                documentType: 'summary'
+                              })}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-500/30 rounded-xl transition-colors text-sm font-semibold"
                             >
-                              {isGeneratingDoc === 'summary_json' ? 'Generating...' : 'Export JSON'}
+                              <Eye className="h-4 w-4" />
+                              View Summary on Screen
                             </button>
                             <button 
-                              onClick={() => handleDownloadDocument('summary', 'csv')}
+                              onClick={() => handleDownloadDocument('summary', 'pdf')}
                               disabled={isGeneratingDoc !== null}
-                              aria-busy={isGeneratingDoc === 'summary_csv'}
-                              className="w-full px-4 py-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                              aria-busy={isGeneratingDoc === 'summary_pdf'}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium"
                             >
-                              {isGeneratingDoc === 'summary_csv' ? 'Generating...' : 'Export CSV'}
+                              <FileText className="h-3.5 w-3.5" />
+                              {isGeneratingDoc === 'summary_pdf' ? 'Generating...' : 'Convert to PDF'}
                             </button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="rounded-2xl shadow-sm bg-slate-900/60 border-slate-800">
+                      <CardHeader>
+                        <CardTitle className="text-white">Raw Data Export</CardTitle>
+                        <CardDescription className="text-slate-400">Complete data in multiple formats</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
+                            <li>View interactive table in Chat Reader</li>
+                            <li>JSON raw export</li>
+                            <li>CSV spreadsheet format</li>
+                            <li>Metadata & timestamps included</li>
+                          </ul>
+                          <div className="space-y-2">
+                            <button 
+                              onClick={() => setActiveTab('chat-reader')}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30 rounded-xl transition-colors text-sm font-semibold"
+                            >
+                              <Database className="h-4 w-4" />
+                              Browse Data on Screen
+                            </button>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button 
+                                onClick={() => handleDownloadDocument('summary', 'json')}
+                                disabled={isGeneratingDoc !== null}
+                                aria-busy={isGeneratingDoc === 'summary_json'}
+                                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium text-center"
+                              >
+                                {isGeneratingDoc === 'summary_json' ? '...' : 'Export JSON'}
+                              </button>
+                              <button 
+                                onClick={() => handleDownloadDocument('summary', 'csv')}
+                                disabled={isGeneratingDoc !== null}
+                                aria-busy={isGeneratingDoc === 'summary_csv'}
+                                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium text-center"
+                              >
+                                {isGeneratingDoc === 'summary_csv' ? '...' : 'Export CSV'}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </CardContent>
@@ -928,13 +1117,13 @@ export default function Home() {
         )}
       </div>
 
-      {/* Zero-Knowledge Project Passphrase Dialog Modal */}
+      {/* Archive Passphrase Dialog Modal */}
       <Dialog open={showPassphrasePrompt} onOpenChange={(open) => { if (!open) handlePassphraseCancel() }}>
         <DialogContent className="sm:max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold">
               <Key className="h-5 w-5 text-blue-500" />
-              {isNewProjectPassphrase ? 'Configure Zero-Knowledge Key' : 'Enter Passphrase'}
+              {isNewProjectPassphrase ? 'Configure Archive Key' : 'Enter Passphrase'}
             </DialogTitle>
             <DialogDescription className="text-sm text-slate-600">
               {isNewProjectPassphrase 
@@ -943,55 +1132,71 @@ export default function Home() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="passphrase">Project Passphrase</Label>
-              <Input
-                id="passphrase"
-                type="password"
-                placeholder="Enter passphrase"
-                value={tempPassphrase}
-                onChange={(e) => setTempPassphrase(e.target.value)}
-                className="rounded-xl"
-              />
-            </div>
-
-            {isNewProjectPassphrase && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (!isVerifyingPassphrase) {
+                handlePassphraseSubmit()
+              }
+            }}
+          >
+            <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="confirmPassphrase">Confirm Passphrase</Label>
+                <Label htmlFor="passphrase">Project Passphrase</Label>
                 <Input
-                  id="confirmPassphrase"
+                  id="passphrase"
                   type="password"
-                  placeholder="Repeat passphrase"
-                  value={confirmPassphrase}
-                  onChange={(e) => setConfirmPassphrase(e.target.value)}
+                  autoFocus
+                  placeholder="Enter passphrase"
+                  value={tempPassphrase}
+                  onChange={(e) => setTempPassphrase(e.target.value)}
                   className="rounded-xl"
+                  disabled={isVerifyingPassphrase}
                 />
               </div>
-            )}
 
-            {passphraseError && (
-              <div className="text-sm font-semibold text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-200">
-                {passphraseError}
-              </div>
-            )}
+              {isNewProjectPassphrase && (
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassphrase">Confirm Passphrase</Label>
+                  <Input
+                    id="confirmPassphrase"
+                    type="password"
+                    placeholder="Repeat passphrase"
+                    value={confirmPassphrase}
+                    onChange={(e) => setConfirmPassphrase(e.target.value)}
+                    className="rounded-xl"
+                    disabled={isVerifyingPassphrase}
+                  />
+                </div>
+              )}
 
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-start gap-2.5">
-              <Shield className="h-4 w-4 flex-shrink-0 mt-0.5" />
-              <div>
-                <strong>Security Notice:</strong> WhatHappen uses client-side AES-GCM cryptography. Your passphrase is never sent to our servers. If forgotten, your chat history cannot be decrypted or recovered.
+              {passphraseError && (
+                <div className="text-sm font-semibold text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-200">
+                  {passphraseError}
+                </div>
+              )}
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-start gap-2.5">
+                <Shield className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <div>
+                  <strong>Security Notice:</strong> WhatHappen uses client-side AES-GCM cryptography. Your passphrase is never sent to our servers. If forgotten, your chat history cannot be decrypted or recovered.
+                </div>
               </div>
             </div>
-          </div>
 
-          <DialogFooter className="flex flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={handlePassphraseCancel} className="rounded-xl">
-              Cancel
-            </Button>
-            <Button onClick={handlePassphraseSubmit} disabled={isVerifyingPassphrase} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl">
-              {isVerifyingPassphrase ? 'Verifying…' : isNewProjectPassphrase ? 'Configure Key' : 'Unlock Project'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter className="flex flex-col sm:flex-row gap-2">
+              <Button type="button" variant="outline" onClick={handlePassphraseCancel} disabled={isVerifyingPassphrase} className="rounded-xl">
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isVerifyingPassphrase || !tempPassphrase.trim()} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl">
+                {isVerifyingPassphrase ? (
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Verifying…
+                  </span>
+                ) : isNewProjectPassphrase ? 'Configure Key' : 'Unlock Project'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -1006,6 +1211,21 @@ export default function Home() {
           </div>
         </BottomSheetContent>
       </BottomSheet>
+
+      {/* On-Screen Report & Analysis Viewer Modal */}
+      {selectedProject && (
+        <ReportViewerModal
+          isOpen={previewModal.isOpen}
+          onClose={() => setPreviewModal(prev => ({ ...prev, isOpen: false }))}
+          title={previewModal.title}
+          subtitle={previewModal.subtitle}
+          documentType={previewModal.documentType}
+          project={selectedProject}
+          messages={decryptedData?.messages || []}
+          onDownload={handleDownloadDocument}
+          isDownloading={isGeneratingDoc !== null}
+        />
+      )}
     </div>
   )
 }

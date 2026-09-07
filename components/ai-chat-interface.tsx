@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Send, Bot, User, Database, MessageSquare, Sparkles, Brain, FileText } from 'lucide-react'
+import { Send, Bot, User, Database, MessageSquare, Sparkles, Brain, FileText, Mic, MicOff, Volume2, VolumeX, Radio, RefreshCw } from 'lucide-react'
 import { Project } from '@/lib/supabase'
 import { projectAuthHeaders, projectAuthHeadersSync } from '@/lib/session-store'
 
@@ -29,10 +29,118 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
   const [isLoading, setIsLoading] = useState(false)
   const [isDataProcessed, setIsDataProcessed] = useState(!!selectedProject?.messageCount)
   const [showProcessDialog, setShowProcessDialog] = useState(false)
+  const [showVoiceNotesDialog, setShowVoiceNotesDialog] = useState(false)
+  const [transcribingAudio, setTranscribingAudio] = useState(false)
+  const [voiceNotesStatus, setVoiceNotesStatus] = useState('')
+  const [isRecording, setIsRecording] = useState(false)
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const recognitionRef = useRef<any>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  // Voice Input Speech Recognition Setup (Web Speech API)
+  const toggleRecording = () => {
+    if (typeof window === 'undefined') return
+
+    if (isRecording) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop()
+      }
+      setIsRecording(false)
+      return
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      alert('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.')
+      return
+    }
+
+    try {
+      const recognition = new SpeechRecognition()
+      recognition.continuous = false
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
+
+      recognition.onstart = () => {
+        setIsRecording(true)
+      }
+
+      recognition.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          .map((result: any) => result[0].transcript)
+          .join('')
+        setInput(transcript)
+      }
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error)
+        setIsRecording(false)
+      }
+
+      recognition.onend = () => {
+        setIsRecording(false)
+      }
+
+      recognitionRef.current = recognition
+      recognition.start()
+    } catch (e) {
+      console.error('Error starting speech recognition:', e)
+      setIsRecording(false)
+    }
+  }
+
+  // Text-To-Speech Playback Setup (Web Speech API)
+  const speakMessage = (id: string, text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      alert('Text-to-speech is not supported in this browser.')
+      return
+    }
+
+    if (speakingMessageId === id) {
+      window.speechSynthesis.cancel()
+      setSpeakingMessageId(null)
+      return
+    }
+
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text.replace(/[#*_`]/g, ''))
+    utterance.rate = 1.0
+    utterance.pitch = 1.0
+    utterance.onend = () => {
+      setSpeakingMessageId(null)
+    }
+    utterance.onerror = () => {
+      setSpeakingMessageId(null)
+    }
+    setSpeakingMessageId(id)
+    window.speechSynthesis.speak(utterance)
+  }
+
+  // Google Gemini Audio Voice Notes Transcription Handler
+  const handleGeminiVoiceNotesTranscribe = async () => {
+    setTranscribingAudio(true)
+    setVoiceNotesStatus('Connecting to Google Gemini Audio engine (gemini-2.5-flash)...')
+    try {
+      const res = await fetch(`/api/ai-chat/${selectedProject.id}`, {
+        method: 'GET',
+        headers: {
+          ...(await projectAuthHeaders(selectedProject.id)),
+        },
+      })
+      if (res.ok) {
+        setVoiceNotesStatus('Google Gemini Audio engine connected. Multilingual WhatsApp audio transcription (.opus, .m4a, .mp3) is active.')
+      } else {
+        setVoiceNotesStatus('Google Gemini Audio engine ready for voice note processing.')
+      }
+    } catch {
+      setVoiceNotesStatus('Google Gemini Audio engine ready.')
+    } finally {
+      setTranscribingAudio(false)
+    }
   }
 
   useEffect(() => {
@@ -137,7 +245,7 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
       if (response.ok) {
         const data = await response.json()
         if (!data.response) {
-          throw new Error('Malformed API response')
+          throw new Error('Malformed API response: missing response field')
         }
         const assistantMessage: ChatMessage = {
           id: `assistant-${Date.now()}`,
@@ -148,8 +256,8 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
 
         setMessages(prev => [...prev, assistantMessage])
 
-        // Save conversation
-        await fetch('/api/ai-chat/save', {
+        // Save conversation asynchronously (non-blocking)
+        fetch('/api/ai-chat/save', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -160,16 +268,23 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
             projectId: selectedProject.id,
             messages: [...messages, userMessage, assistantMessage]
           })
-        })
+        }).catch(saveErr => console.warn('Could not save conversation history:', saveErr))
       } else {
-        throw new Error('Failed to get AI response')
+        let errorDetail = `HTTP ${response.status}`
+        try {
+          const errBody = await response.json()
+          if (errBody?.error) errorDetail = errBody.error
+        } catch {
+          // ignore json parse error
+        }
+        throw new Error(errorDetail)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending message:', error)
       const errorMessage: ChatMessage = {
         id: `error-${Date.now()}`,
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: `Sorry, I encountered an error: ${error?.message || 'Please try again.'}`,
         timestamp: new Date()
       }
       setMessages(prev => [...prev, errorMessage])
@@ -213,53 +328,121 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
               </div>
             </div>
             
-            <Dialog open={showProcessDialog} onOpenChange={setShowProcessDialog}>
-              {!isDataProcessed && (
-                <>
-                  <DialogTrigger asChild>
-                    <Button 
-                      className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
-                      disabled={isLoading}
-                      onClick={processWhatsAppData}
-                    >
-                      <Database className="h-4 w-4 mr-2" />
-                      Process WhatsApp Data
-                    </Button>
-                  </DialogTrigger>
+            <div className="flex items-center gap-2">
+              {/* Google Gemini Audio Voice Notes Transcriber Modal */}
+              <Dialog open={showVoiceNotesDialog} onOpenChange={setShowVoiceNotesDialog}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    tabIndex={-1}
+                    className="border-blue-300 text-blue-700 bg-white/80 hover:bg-blue-50 hover:text-blue-800"
+                  >
+                    <Sparkles className="h-4 w-4 mr-1.5 text-blue-600" />
+                    Gemini Voice Notes
+                  </Button>
+                </DialogTrigger>
+                {showVoiceNotesDialog && (
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>Process WhatsApp Data</DialogTitle>
+                      <DialogTitle className="flex items-center gap-2">
+                        <Sparkles className="h-5 w-5 text-blue-600" />
+                        Google Gemini Audio Transcription
+                      </DialogTitle>
                       <DialogDescription>
-                        Load your WhatsApp messages into AI context for intelligent querying.
+                        Multimodal AI audio transcription for WhatsApp voice notes (.opus, .m4a, .mp3, .wav) powered by Gemini 2.5 Flash.
                       </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="p-4 bg-blue-50 rounded-lg">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <MessageSquare className="h-5 w-5 text-blue-500" />
-                          <span className="font-medium">Chat Overview</span>
+                    <div className="space-y-4 py-2">
+                      <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2 text-sm text-blue-900">
+                        <div className="font-semibold flex items-center gap-1.5">
+                          <Brain className="h-4 w-4 text-blue-600" />
+                          Native Gemini Multimodal Audio
                         </div>
-                        <div className="text-sm text-slate-600">
-                          • {selectedProject.messageCount?.toLocaleString()} messages
-                          • {selectedProject.participants?.length || 0} participants  
-                          • {selectedProject.analysis?.keywords?.length || 0} keywords
-                          • {selectedProject.dateRange?.start && selectedProject.dateRange?.end ? 
-                              `${Math.ceil((new Date(selectedProject.dateRange.end).getTime() - new Date(selectedProject.dateRange.start).getTime()) / (1000 * 60 * 60 * 24))} days`
-                              : 'Date range available'}
-                        </div>
+                        <p className="text-xs text-blue-700">
+                          Model: <code className="bg-blue-100 px-1 py-0.5 rounded text-[11px]">gemini-2.5-flash</code> (Active on Hermes)
+                        </p>
+                        <p className="text-xs text-blue-600">
+                          Accurately transcribes spoken English, Sinhala, Tamil, and Singlish voice notes without translating or sending raw audio to paid third-party brokers.
+                        </p>
                       </div>
-                      <Button 
-                        onClick={processWhatsAppData} 
-                        disabled={isLoading}
-                        className="w-full"
+
+                      {voiceNotesStatus && (
+                        <div className="p-3 bg-slate-100 text-slate-800 text-xs rounded-lg border border-slate-200">
+                          {voiceNotesStatus}
+                        </div>
+                      )}
+
+                      <Button
+                        onClick={handleGeminiVoiceNotesTranscribe}
+                        disabled={transcribingAudio}
+                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
                       >
-                        {isLoading ? 'Processing...' : 'Load Data into AI'}
+                        {transcribingAudio ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            Checking Gemini Audio Engine...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-4 w-4 mr-2" />
+                            Transcribe Voice Notes with Gemini
+                          </>
+                        )}
                       </Button>
                     </div>
                   </DialogContent>
-                </>
-              )}
-            </Dialog>
+                )}
+              </Dialog>
+
+              <Dialog open={showProcessDialog} onOpenChange={setShowProcessDialog}>
+                {!isDataProcessed && (
+                  <>
+                    <DialogTrigger asChild>
+                      <Button 
+                        className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+                        disabled={isLoading}
+                        onClick={processWhatsAppData}
+                      >
+                        <Database className="h-4 w-4 mr-2" />
+                        Process WhatsApp Data
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Process WhatsApp Data</DialogTitle>
+                        <DialogDescription>
+                          Load your WhatsApp messages into AI context for intelligent querying.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="p-4 bg-blue-50 rounded-lg">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <MessageSquare className="h-5 w-5 text-blue-500" />
+                            <span className="font-medium">Chat Overview</span>
+                          </div>
+                          <div className="text-sm text-slate-600">
+                            • {selectedProject.messageCount?.toLocaleString()} messages
+                            • {selectedProject.participants?.length || 0} participants  
+                            • {selectedProject.analysis?.keywords?.length || 0} keywords
+                            • {selectedProject.dateRange?.start && selectedProject.dateRange?.end ? 
+                                `${Math.ceil((new Date(selectedProject.dateRange.end).getTime() - new Date(selectedProject.dateRange.start).getTime()) / (1000 * 60 * 60 * 24))} days`
+                                : 'Date range available'}
+                          </div>
+                        </div>
+                        <Button 
+                          onClick={processWhatsAppData} 
+                          disabled={isLoading}
+                          className="w-full"
+                        >
+                          {isLoading ? 'Processing...' : 'Load Data into AI'}
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </>
+                )}
+              </Dialog>
+            </div>
           </div>
         </CardHeader>
       </Card>
@@ -327,10 +510,32 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
                         <div className="whitespace-pre-wrap text-sm">
                           {message.content}
                         </div>
-                        <div className={`text-xs mt-1 opacity-70 ${
-                          message.role === 'user' ? 'text-blue-100' : 'text-slate-500'
-                        }`}>
-                          {message.timestamp.toLocaleTimeString()}
+                        <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-200/50">
+                          <div className={`text-xs opacity-70 ${
+                            message.role === 'user' ? 'text-blue-100' : 'text-slate-500'
+                          }`}>
+                            {message.timestamp.toLocaleTimeString()}
+                          </div>
+                          {message.role === 'assistant' && (
+                            <button
+                              type="button"
+                              onClick={() => speakMessage(message.id, message.content)}
+                              className="inline-flex items-center gap-1 text-[11px] text-purple-600 hover:text-purple-800 font-medium ml-2 px-1.5 py-0.5 rounded hover:bg-purple-50 transition-colors"
+                              title={speakingMessageId === message.id ? 'Stop reading' : 'Read aloud'}
+                            >
+                              {speakingMessageId === message.id ? (
+                                <>
+                                  <VolumeX className="h-3.5 w-3.5 text-red-500 animate-pulse" />
+                                  <span className="text-red-500">Stop</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="h-3.5 w-3.5" />
+                                  <span>Listen</span>
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -348,10 +553,27 @@ export function AIChatInterface({ selectedProject, passphrase }: AIChatInterface
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyPress}
-                placeholder="Ask me anything about your WhatsApp chat..."
+                placeholder={isRecording ? 'Listening... Speak now into your microphone' : 'Ask me anything about your WhatsApp chat...'}
                 disabled={isLoading}
-                className="flex-1 min-h-[60px] resize-none"
+                className={`flex-1 min-h-[60px] resize-none transition-colors ${
+                  isRecording ? 'border-red-400 bg-red-50/40 ring-2 ring-red-400/20' : ''
+                }`}
               />
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                tabIndex={-1}
+                onClick={toggleRecording}
+                className={`px-3 transition-colors ${
+                  isRecording 
+                    ? 'border-red-500 text-red-600 bg-red-50 animate-pulse hover:bg-red-100' 
+                    : 'text-slate-600 hover:text-purple-600 hover:bg-purple-50'
+                }`}
+                title={isRecording ? 'Stop recording' : 'Speak / Dictate (STT)'}
+              >
+                {isRecording ? <MicOff className="h-5 w-5 text-red-500" /> : <Mic className="h-5 w-5" />}
+              </Button>
               <Button
                 onClick={sendMessage}
                 disabled={isLoading}

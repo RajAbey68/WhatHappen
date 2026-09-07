@@ -114,6 +114,7 @@ Object.defineProperty(window, 'localStorage', {
   value: mockLocalStorage,
   writable: true
 })
+global.localStorage = mockLocalStorage as any
 
 // Mock console methods
 const mockConsole = {
@@ -123,10 +124,9 @@ const mockConsole = {
 }
 
 // Mock window.confirm
-Object.defineProperty(window, 'confirm', {
-  value: jest.fn(),
-  writable: true
-})
+const mockConfirm = jest.fn()
+window.confirm = mockConfirm
+global.confirm = mockConfirm
 
 const mockProject = {
   id: 'project-1',
@@ -409,31 +409,32 @@ describe('ProjectSelector Component', () => {
     })
 
     test('should delete project when confirmed', async () => {
-      const user = userEvent.setup()
       const storedProjects = JSON.stringify([mockProject])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
-      ;(window.confirm as jest.Mock).mockReturnValue(true)
+      mockConfirm.mockReturnValue(true)
       
       await renderComponent(mockProject)
       
       const deleteButton = screen.getByTestId('trash-icon').closest('button')
-      await user.click(deleteButton!)
+      fireEvent.click(deleteButton!)
       
       expect(window.confirm).toHaveBeenCalledWith('Are you sure you want to delete this project? All associated messages and analysis will be permanently removed.')
-      expect(mockLocalStorage.setItem).toHaveBeenCalled()
-      expect(mockOnProjectSelect).toHaveBeenCalledWith(null)
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith('/api/projects/project-1', expect.objectContaining({ method: 'DELETE' }))
+        expect(mockLocalStorage.setItem).toHaveBeenCalled()
+        expect(mockOnProjectSelect).toHaveBeenCalledWith(null)
+      })
     })
 
     test('should not delete project when cancelled', async () => {
-      const user = userEvent.setup()
       const storedProjects = JSON.stringify([mockProject])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
-      ;(window.confirm as jest.Mock).mockReturnValue(false)
+      mockConfirm.mockReturnValue(false)
       
       await renderComponent()
       
       const deleteButton = screen.getByTestId('trash-icon').closest('button')
-      await user.click(deleteButton!)
+      fireEvent.click(deleteButton!)
       
       expect(window.confirm).toHaveBeenCalled()
       expect(mockLocalStorage.setItem).not.toHaveBeenCalled()
@@ -441,17 +442,18 @@ describe('ProjectSelector Component', () => {
     })
 
     test('should deselect project if currently selected project is deleted', async () => {
-      const user = userEvent.setup()
       const storedProjects = JSON.stringify([mockProject])
       mockLocalStorage.getItem.mockReturnValue(storedProjects)
-      ;(window.confirm as jest.Mock).mockReturnValue(true)
+      mockConfirm.mockReturnValue(true)
       
       await renderComponent(mockProject)
       
       const deleteButton = screen.getByTestId('trash-icon').closest('button')
-      await user.click(deleteButton!)
+      fireEvent.click(deleteButton!)
       
-      expect(mockOnProjectSelect).toHaveBeenCalledWith(null)
+      await waitFor(() => {
+        expect(mockOnProjectSelect).toHaveBeenCalledWith(null)
+      })
     })
   })
 

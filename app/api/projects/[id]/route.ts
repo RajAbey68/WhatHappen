@@ -41,6 +41,15 @@ export async function GET(
   if (authError) return authError
 
   try {
+    let isSummary = false
+    try {
+      if (request.nextUrl?.searchParams) {
+        isSummary = request.nextUrl.searchParams.get('summary') === 'true'
+      } else if (request.url) {
+        const url = new URL(request.url, 'http://localhost')
+        isSummary = url.searchParams.get('summary') === 'true'
+      }
+    } catch {}
     const supabase = getServiceClient()
     const { data, error } = await supabase
       .from('projects')
@@ -52,7 +61,20 @@ export async function GET(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ project: mapDbProject(data) })
+    const mapped = mapDbProject(data)
+
+    // Lean mode: strip massive daily/hourly histogram objects while preserving executive insights
+    if (isSummary && mapped && mapped.analysis) {
+      const a = mapped.analysis
+      mapped.analysis = {
+        type: a.type || 'timeline',
+        insights: a.insights || {},
+        summary: a.summary || undefined,
+        generatedAt: a.generatedAt || data.updated_at
+      }
+    }
+
+    return NextResponse.json({ project: mapped })
   } catch (error) {
     console.error('Error fetching project:', error)
     return NextResponse.json({ error: 'Failed to fetch project' }, { status: 500 })
