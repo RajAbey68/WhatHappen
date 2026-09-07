@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
-import { FileText, Download, Copy, Check, Eye, Table as TableIcon, BarChart2 } from 'lucide-react'
+import { FileText, Download, Copy, Check, Eye, Table as TableIcon, BarChart2, GitCommit, ArrowRight, Shield, Cpu, HardDrive, Lock } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
 interface ReportViewerModalProps {
@@ -137,6 +137,66 @@ export function ReportViewerModal({
                   {p}
                 </Badge>
               ))}
+            </div>
+          </div>
+
+          {/* Verified Forensic Pipeline Workflow Diagram */}
+          <div className="bg-slate-950/60 p-5 rounded-xl border border-slate-800/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <GitCommit className="h-4 w-4 text-blue-400" />
+                Forensic Pipeline & Zero-Knowledge Workflow
+              </h4>
+              <Badge variant="outline" className="text-[10px] bg-blue-950/40 text-blue-300 border-blue-800">
+                Verified In-Memory Flow
+              </Badge>
+            </div>
+
+            {/* Visual Workflow Steps */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-1">
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold text-slate-500">STEP 1</span>
+                  <HardDrive className="h-3.5 w-3.5 text-amber-400" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-slate-200">Encrypted DB Store</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">AES-256-GCM ciphertexts stored on Supabase</div>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold text-slate-500">STEP 2</span>
+                  <Lock className="h-3.5 w-3.5 text-purple-400" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-slate-200">Zero-Knowledge Key</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">PBKDF2 derivation; decrypted in client RAM only</div>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold text-slate-500">STEP 3</span>
+                  <Cpu className="h-3.5 w-3.5 text-emerald-400" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-slate-200">MCP Analytics Core</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">Deterministic regex, 60s TTL cache, 100KB safe cap</div>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-blue-900/50 bg-blue-950/20 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold text-blue-400">STEP 4</span>
+                  <FileText className="h-3.5 w-3.5 text-blue-400" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-blue-200">Evidentiary Export</div>
+                  <div className="text-[11px] text-blue-300/80 mt-0.5">Live screen preview, court-ready PDF, CSV & JSON</div>
+                </div>
+              </div>
             </div>
           </div>
 

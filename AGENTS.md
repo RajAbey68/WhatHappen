@@ -39,3 +39,11 @@
   - `#whathappen-analytics` (`48346229-5842-49ca-986b-0de3a957a4ac`) — MoE Swarm analysis triggers.
 * **Startup Handshake:** On startup, read `.agent-bus.json`, announce status as `Antigravity-IDE` on `#whathappen-chat`, and stay off the decryption path.
 * **CLI Invocation:** `export $(cat ~/.buzz/.cli-env | xargs) && buzz messages ...`
+
+## 🛠️ Aider
+
+- **Installed:** `/opt/homebrew/bin/aider` (`0.86.2`)
+- **Config:** `~/.aider.conf.yml`
+- **Per-repo config:** not required; global config applies to all clones
+- **Usage:** run from repo root; non-interactive mode uses `--yes --no-auto-commits`
+- **Docs:** https://aider.chat/docs/usage/watch.html for IDE/editor workflow

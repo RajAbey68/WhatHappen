@@ -43,19 +43,42 @@ try {
   process.exit(1)
 }
 
-if (parsedUrl.hostname !== '127.0.0.1' && parsedUrl.hostname !== 'localhost') {
+const ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '167.233.236.178']
+if (!ALLOWED_HOSTS.includes(parsedUrl.hostname)) {
   console.error(
-    `[WhatHappen MCP] Security Violation: WHATHAPPEN_API_URL must bind strictly to loopback (127.0.0.1). Attempted: ${RAW_URL}. Use SSH local port forward: ssh -f -N -L 3000:127.0.0.1:3000 root@167.233.236.178`
+    `[WhatHappen MCP] Security Violation: WHATHAPPEN_API_URL must bind to loopback (127.0.0.1) or Hermes host (167.233.236.178). Attempted: ${RAW_URL}.`
   )
   process.exit(1)
 }
 
-const LOOPBACK_URL = `http://127.0.0.1:${parsedUrl.port || 3000}`
+const LOOPBACK_URL = `${parsedUrl.protocol}//${parsedUrl.hostname}:${parsedUrl.port || 3000}`
 const DEFAULT_PROJECT_ID = process.env.WHATHAPPEN_PROJECT_ID || '7ba94f4c-fb4e-4ee4-bc90-19984c5a8b59'
 
 // In-memory token cache keyed by projectId -> { token: string, expiresAt: number }
 const tokensByProject = new Map()
 let messagesCache = new Map() // projectId -> { timestamp: number, messages: Array }
+
+// Analytics Result Cache: args hash -> { expiresAt: number, result: any }
+const analyticsCache = new Map()
+const ANALYTICS_CACHE_TTL_MS = 60_000 // 60s cache for complex aggregations
+
+function getCachedAnalytics(cacheKey) {
+  const entry = analyticsCache.get(cacheKey)
+  if (entry && Date.now() < entry.expiresAt) {
+    return entry.result
+  }
+  if (entry) {
+    analyticsCache.delete(cacheKey)
+  }
+  return null
+}
+
+function setCachedAnalytics(cacheKey, result, ttlMs = ANALYTICS_CACHE_TTL_MS) {
+  analyticsCache.set(cacheKey, {
+    expiresAt: Date.now() + ttlMs,
+    result
+  })
+}
 
 const MAX_PAYLOAD_BYTES = 100_000 // 100KB UTF-8 safety cap
 
@@ -308,26 +331,53 @@ function computeLocalFinancialSummary(messages) {
     requests_and_quotes: { keywords: ['request', 'need', 'can you send', 'estimate', 'quote', 'budget', 'please transfer', 'how much'], count: 0, samples: [] },
     promises_and_commitments: { keywords: ['will transfer', 'will pay', 'will give', 'will arrange', 'sending tomorrow'], count: 0, samples: [] },
     invoices_and_bills: { keywords: ['invoice', 'bill', 'receipt', 'slip', 'bill attached'], count: 0, samples: [] },
-    settled_and_confirmed: { keywords: ['transferred', 'paid', 'sent float', 'settled', 'deposited', 'slip sent'], count: 0, samples: [] },
+    settled_and_confirmed: { keywords: ['transferred', 'paid', 'sent float', 'deposited', 'slip sent', 'payment confirmed', 'paid up', 'cleared'], count: 0, samples: [] },
     operational_floats: { keywords: ['petty cash', 'float', 'advance'], count: 0, samples: [] }
   }
 
   const monthlyTotals = {}
   const senderCounts = {}
 
+  // Track seen message IDs per category to avoid duplicate samples
+  const seenInCategory = new Set()
+
   for (const m of matches) {
     const text = (m.message || '').toLowerCase()
     const sender = m.sender || 'Unknown'
     const month = (m.timestamp || '').slice(0, 7) || 'Unknown'
+    const msgId = m.id || `msg-${m.timestamp}`
 
     senderCounts[sender] = (senderCounts[sender] || 0) + 1
     monthlyTotals[month] = (monthlyTotals[month] || 0) + 1
 
     for (const [catName, catData] of Object.entries(intentCategories)) {
-      if (catData.keywords.some(k => text.includes(k))) {
+      // Find which keyword(s) matched
+      const matchedKeywords = catData.keywords.filter(k => text.includes(k))
+      if (matchedKeywords.length > 0) {
         catData.count++
-        if (catData.samples.length < 3) {
-          catData.samples.push(`[${m.timestamp}] ${m.sender}: ${m.message.slice(0, 140)}`)
+        // Dedupe by message ID within this category
+        if (catData.samples.length < 3 && !seenInCategory.has(msgId + '|' + catName)) {
+          seenInCategory.add(msgId + '|' + catName)
+          // Find the position of the first matched keyword and show context around it
+          let firstMatchPos = -1
+          for (const kw of matchedKeywords) {
+            const pos = text.indexOf(kw)
+            if (pos !== -1 && (firstMatchPos === -1 || pos < firstMatchPos)) {
+              firstMatchPos = pos
+            }
+          }
+          let excerpt
+          if (firstMatchPos !== -1) {
+            // Show 80 chars before and 60 after the match
+            const start = Math.max(0, firstMatchPos - 80)
+            const end = Math.min(text.length, firstMatchPos + matchedKeywords[0].length + 60)
+            excerpt = text.slice(start, end)
+            if (start > 0) excerpt = '...' + excerpt
+            if (end < text.length) excerpt = excerpt + '...'
+          } else {
+            excerpt = text.slice(0, 140)
+          }
+          catData.samples.push(`[${m.timestamp}] ${sender}: ...${excerpt}...`)
         }
       }
     }
@@ -473,6 +523,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'Search verbatim WhatsApp messages by keyword or regex. Returns raw, authentic quotes with dates, senders, message IDs, and timestamps (deterministic, zero LLM hallucination).',
         annotations: {
           readOnlyHint: true,
+          ttlMs: 30_000,
+          cacheScope: 'project',
         },
         inputSchema: {
           type: 'object',
@@ -511,6 +563,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'Retrieve surrounding messages before and after a specific message ID or timestamp to inspect conversational context.',
         annotations: {
           readOnlyHint: true,
+          ttlMs: 60_000,
+          cacheScope: 'project',
         },
         inputSchema: {
           type: 'object',
@@ -544,6 +598,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'Deterministically extract financial mentions, quotes, and payment discussions from decrypted WhatsApp history.',
         annotations: {
           readOnlyHint: true,
+          ttlMs: 60_000,
+          cacheScope: 'project',
         },
         inputSchema: {
           type: 'object',
@@ -582,6 +638,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'Roll up all financial mentions into categorized discussion intents (requests, promises, invoices, confirmations, floats) with monetary anchors.',
         annotations: {
           readOnlyHint: true,
+          ttlMs: 60_000,
+          cacheScope: 'project',
         },
         inputSchema: {
           type: 'object',
@@ -599,6 +657,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'Compute structured timeline analytics (hourly distributions, daily volume, active day count, top senders) or retrieve chronological message slices.',
         annotations: {
           readOnlyHint: true,
+          ttlMs: 60_000,
+          cacheScope: 'project',
         },
         inputSchema: {
           type: 'object',
@@ -632,6 +692,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'Generate a rolling operational health brief over the last N days (default: 7) with message velocity, category breakdown, and evidence-linked candidate issues.',
         annotations: {
           readOnlyHint: true,
+          ttlMs: 60_000,
+          cacheScope: 'project',
         },
         inputSchema: {
           type: 'object',
@@ -653,6 +715,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'Calculate per-participant response time distributions based on active conversational session replies (idle gap <= 45m).',
         annotations: {
           readOnlyHint: true,
+          ttlMs: 60_000,
+          cacheScope: 'project',
         },
         inputSchema: {
           type: 'object',
@@ -670,6 +734,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'Get verified project overview: total message counts, date ranges, participant directory, and key topic overview (context-safe summary under 2KB).',
         annotations: {
           readOnlyHint: true,
+          ttlMs: 120_000,
+          cacheScope: 'project',
         },
         inputSchema: {
           type: 'object',
@@ -789,6 +855,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             targetIdx = bestIdx
           }
         }
+        // 3. Date-prefix fallback: if exact timestamp not found, match first message on that date
+        if (targetIdx === -1 && tsQuery.length >= 10) {
+          const datePrefix = tsQuery.slice(0, 10) // YYYY-MM-DD
+          targetIdx = sorted.findIndex(m => String(m.timestamp).startsWith(datePrefix))
+        }
       }
 
       if (targetIdx === -1) {
@@ -855,17 +926,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     // 3. Tool: whathappen_financial_summary (Categorized Macroeconomic Rollup)
     if (name === 'whathappen_financial_summary') {
+      const cacheKey = `financial_summary:${projectId}`
+      const cached = getCachedAnalytics(cacheKey)
+      if (cached) {
+        return cached
+      }
+
       const allMessages = await getDecryptedMessages(projectId)
       const summary = computeLocalFinancialSummary(allMessages)
-      return {
+      const result = {
         content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }],
       }
+      setCachedAnalytics(cacheKey, result, 60_000)
+      return result
     }
 
     // 4. Tool: whathappen_get_timeline (Activity Heatmaps or Raw Slice)
     if (name === 'whathappen_get_timeline') {
-      const allMessages = await getDecryptedMessages(projectId)
       const isRaw = args?.raw === true
+      const cacheKey = `timeline:${projectId}:${isRaw}:${args?.month || ''}:${args?.limit || 50}:${args?.offset || 0}:${args?.sender || ''}`
+      const cached = getCachedAnalytics(cacheKey)
+      if (cached) {
+        return cached
+      }
+
+      const allMessages = await getDecryptedMessages(projectId)
 
       if (isRaw) {
         const month = (args?.month || '').toLowerCase()
@@ -888,35 +973,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         matches.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
         const text = buildCappedEnvelope(matches, matches.length, limit, offset)
-        return {
+        const result = {
           content: [{ type: 'text', text }],
         }
+        setCachedAnalytics(cacheKey, result, 60_000)
+        return result
       }
 
       // Default: Return structured local timeline analytics
       const analysis = computeLocalTimelineAnalysis(allMessages, args?.month || null)
-      return {
+      const result = {
         content: [{ type: 'text', text: JSON.stringify(analysis, null, 2) }],
       }
+      setCachedAnalytics(cacheKey, result, 60_000)
+      return result
     }
 
     // 5. Tool: whathappen_operational_snapshot (Rolling 7-to-30 Day Health Brief)
     if (name === 'whathappen_operational_snapshot') {
       const days = Math.min(Math.max(Number(args?.days) || 7, 1), 30)
+      const cacheKey = `operational_snapshot:${projectId}:${days}`
+      const cached = getCachedAnalytics(cacheKey)
+      if (cached) {
+        return cached
+      }
+
       const allMessages = await getDecryptedMessages(projectId)
       const snapshot = computeLocalOperationalSnapshot(allMessages, days)
-      return {
+      const result = {
         content: [{ type: 'text', text: JSON.stringify(snapshot, null, 2) }],
       }
+      setCachedAnalytics(cacheKey, result, 60_000)
+      return result
     }
 
     // 6. Tool: whathappen_response_times (SLA Distributions)
     if (name === 'whathappen_response_times') {
+      const cacheKey = `response_times:${projectId}`
+      const cached = getCachedAnalytics(cacheKey)
+      if (cached) {
+        return cached
+      }
+
       const allMessages = await getDecryptedMessages(projectId)
       const responseAnalysis = computeLocalResponseTimes(allMessages)
-      return {
+      const result = {
         content: [{ type: 'text', text: JSON.stringify(responseAnalysis, null, 2) }],
       }
+      setCachedAnalytics(cacheKey, result, 60_000)
+      return result
     }
 
     // 7. Tool: whathappen_get_metadata (Context-Safe Project Summary)

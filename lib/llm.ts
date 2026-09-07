@@ -67,7 +67,7 @@ function getModels() {
     }
   }
 
-  const defaultModel = process.env.OLLAMA_MODEL || 'gemma3:4b'
+  const defaultModel = process.env.OLLAMA_MODEL || 'gemma3:1b'
   return {
     primary: defaultModel,
     fallback: defaultModel,

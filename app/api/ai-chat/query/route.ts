@@ -183,11 +183,17 @@ Chat Meta-Context:
 
     const fewShotExemplars = getFewShotExemplars(projectId, 1)
 
-    // Dynamic Intent-Based Token & Context Budgeting
+    // Dynamic Intent-Based Token & Context Budgeting (Ollama Tuned for Hermes-Dev)
     const lowerQ = message.toLowerCase()
     const isDeepAudit = lowerQ.includes('audit') || lowerQ.includes('comprehensive') || lowerQ.includes('sentiment')
-    const tokenLimit = isDeepAudit ? 600 : 180
-    const ctxLimit = isDeepAudit ? 2500 : 1200
+    // num_predict: 150 for factoid/direct search, 600 for deep CoT audits
+    const tokenLimit = isDeepAudit ? 600 : 150
+    // num_ctx: 2048 matches Hermes Ollama configuration limit
+    const ctxLimit = 2048
+
+    // Intent-based local model selection: gemma3:1b for fast queries, gemma3:4b for deep audits
+    const defaultLocalModel = process.env.OLLAMA_MODEL || 'gemma3:1b'
+    const localModel = isDeepAudit ? (process.env.OLLAMA_DEEP_MODEL || 'gemma3:4b') : defaultLocalModel
 
     // For short search queries, focus on direct answers with citations (avoids 4-section CPU generation stall)
     const systemPrompt = isDeepAudit
@@ -226,7 +232,6 @@ Do not generate unnecessary filler, lengthy backstories, or unrequested analysis
 
     // 100% LOCAL AIR-GAPPED INFERENCE ON HERMES-DEV
     const localOllamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434/api/chat'
-    const localModel = process.env.OLLAMA_MODEL || 'gemma3:4b'
     let success = false
     let responseText = ''
 
@@ -273,16 +278,16 @@ Do not generate unnecessary filler, lengthy backstories, or unrequested analysis
         }
       } catch (geminiErr) {
         console.error('Gemini execution error:', geminiErr)
-      } finally {
-        releaseInteractiveSlot()
       }
     }
 
     // Secondary: Local Ollama on Hermes-Dev (Air-gapped local inference)
     if (!success) {
       try {
+        // Hard socket timeout: 15s for factoid/1b queries, 40s for deep audits
+        const ollamaTimeoutMs = isDeepAudit ? 40_000 : 15_000
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 20_000)
+        const timeoutId = setTimeout(() => controller.abort(), ollamaTimeoutMs)
 
         const ollamaRes = await fetch(localOllamaUrl, {
           method: 'POST',
@@ -314,10 +319,11 @@ Do not generate unnecessary filler, lengthy backstories, or unrequested analysis
         }
       } catch (ollamaErr) {
         console.error('Local Ollama execution error on Hermes:', ollamaErr)
-      } finally {
-        releaseInteractiveSlot()
       }
     }
+
+    // Ensure interactive slot is released regardless of provider used
+    releaseInteractiveSlot()
 
     // Tertiary: OpenAI (if configured)
     if (!success) {
