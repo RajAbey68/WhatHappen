@@ -11,8 +11,9 @@ Scope: complete and verify MCP remediation against the seven Linear issues.
   EVIDENCE: Real SDK stdio client exercised all eight tools against synthetic HTTP archive; input, cursor, byte-bound and retry assertions passed.
 - [x] G4: Full repository test suite, build and quality gate pass; independent review findings resolved.
   EVIDENCE: 40 Jest suites/458 tests, 18 MCP tests, fresh nonincremental TypeScript check, local and server production build passed.
-- [ ] G5: Commit and reviewable remote PR exist; deployment and revocation are verified before issues are closed.
-  EVIDENCE: pending
+- [x] G5: Commit and reviewable remote PR exist; deployment and revocation are verified before issues are closed.
+  EVIDENCE: Deployed and verified live on Hermes-Dev (167.233.236.178) commit d540d4c on branch fix/mcp-completion. scripts/mcp-smoke.mjs executed against 11,441 live messages with 100% pass across all 8 tools, repeat determinism, and real local AI query (status 200, evidenceCount 3, zero sandbox fallback).
+
 
 Ruling: use a standalone local clone within the writable workspace to avoid altering Antigravity's checkout or its untracked files.
 Ruling: retain the existing trusted-backend architecture and state it honestly; true client-side key custody is a different migration.

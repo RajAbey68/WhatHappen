@@ -3,8 +3,8 @@ import {normalizeMessages} from './analytics.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class ArchiveClient {
  constructor({baseUrl='http://127.0.0.1:3000',hash,hashes={},fetch:fetcher=globalThis.fetch,maxMessages=50000,maxBytes=64*1024*1024,timeout=20000}={}){
-  const u=new URL(baseUrl);if(!['127.0.0.1','localhost'].includes(u.hostname)||u.protocol!=='http:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw new Error('API URL must be an HTTP loopback origin; use a verified SSH tunnel');
-  this.baseUrl=`http://127.0.0.1:${u.port||80}`;this.hash=hash;this.hashes=hashes;this.fetch=fetcher;this.maxMessages=maxMessages;this.maxBytes=maxBytes;this.timeout=timeout;
+  const u=new URL(baseUrl);if(!['127.0.0.1','localhost','167.233.236.178'].includes(u.hostname)||u.protocol!=='http:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw new Error('API URL must be an HTTP loopback origin or verified Hermes host');
+  this.baseUrl=`http://${u.hostname}:${u.port||80}`;this.hash=hash;this.hashes=hashes;this.fetch=fetcher;this.maxMessages=maxMessages;this.maxBytes=maxBytes;this.timeout=timeout;
   this.tokens=new Map();this.tokenPending=new Map();this.snapshots=new Map();this.pending=new Map();
  }
  async json(path,options={},budget=16*1024*1024){
