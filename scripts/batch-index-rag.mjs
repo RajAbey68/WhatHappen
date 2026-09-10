@@ -39,8 +39,8 @@ for (const p of envPaths) {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
-const OLLAMA_EMBED_URL = process.env.OLLAMA_EMBED_URL || 'http://127.0.0.1:11434/api/embeddings'
-const OLLAMA_MODEL = process.env.OLLAMA_EMBED_MODEL || 'bge-m3'
+const LLAMA_EMBED_URL = process.env.LLAMA_EMBED_URL || 'http://127.0.0.1:9999/v1/embeddings'
+const LLAMA_EMBED_MODEL = process.env.LLAMA_EMBED_MODEL || '/root/llama-models/bge-m3-q4_k_m.gguf'
 const DATA_DIR = process.env.RAG_DATA_DIR || path.join(process.cwd(), 'data', 'rag')
 const PASSPHRASE = process.env.PROJECT_PASSPHRASE || 'autumn'
 
@@ -187,7 +187,10 @@ async function getEmbedding(text) {
   }
 
   const data = await res.json()
-  return data.embedding
+  if (!data.data || !Array.isArray(data.data) || !data.data[0] || !Array.isArray(data.data[0].embedding)) {
+    throw new Error('Invalid embedding response from llama.cpp')
+  }
+  return data.data[0].embedding
 }
 
 // Main project indexing routine

@@ -107,35 +107,35 @@ export function invalidateVectorCache(projectId: string): void {
 }
 
 /**
- * Compute embeddings using bge-m3 on local Ollama daemon on Hermes-Dev.
+ * Compute embeddings using bge-m3 on local llama.cpp server on Hermes-Dev.
  */
 export async function getEmbedding(text: string): Promise<number[]> {
-  const ollamaUrl = process.env.OLLAMA_EMBED_URL || 'http://127.0.0.1:11434/api/embeddings'
-  const model = process.env.OLLAMA_EMBED_MODEL || 'bge-m3'
+  const llamaEmbedUrl = process.env.LLAMA_EMBED_URL || 'http://127.0.0.1:9999/v1/embeddings'
+  const llamaEmbedModel = process.env.LLAMA_EMBED_MODEL || '/root/llama-models/bge-m3-q4_k_m.gguf'
 
-  // Cap text to 2,000 characters to strictly respect Ollama bge-m3 context limits
+  // Cap text to 2,000 characters to respect llama.cpp bge-m3 context limits
   const safeText = text.slice(0, 2000)
 
-  const res = await fetch(ollamaUrl, {
+  const res = await fetch(llamaEmbedUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model,
-      prompt: safeText
+      model: llamaEmbedModel,
+      input: safeText,
     })
   })
 
   if (!res.ok) {
     const err = await res.text()
-    throw new Error(`Local Ollama embedding failed (${res.status}): ${err}`)
+    throw new Error(`Local llama.cpp embedding failed (${res.status}): ${err}`)
   }
 
   const data = await res.json()
-  if (!data.embedding || !Array.isArray(data.embedding)) {
-    throw new Error('Invalid embedding response from Ollama')
+  if (!data.data || !Array.isArray(data.data) || !data.data[0] || !Array.isArray(data.data[0].embedding)) {
+    throw new Error('Invalid embedding response from llama.cpp')
   }
 
-  return data.embedding
+  return data.data[0].embedding
 }
 
 /**

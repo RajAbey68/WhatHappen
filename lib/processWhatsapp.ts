@@ -35,7 +35,7 @@ const MAX_MESSAGE_LENGTH = 20000
  */
 function sanitizeIncomingMessage(
   raw: any
-): { sender: string; message: string; timestamp: string } | null {
+): { sender: string; message: string; timestamp: string; remote_jid?: string; receiving_session_id?: string; is_group?: boolean; group_name?: string } | null {
   if (!raw || typeof raw !== 'object') return null
   if (typeof raw.sender !== 'string' || raw.sender.length === 0) return null
   if (typeof raw.message !== 'string') return null
@@ -47,6 +47,10 @@ function sanitizeIncomingMessage(
     // Keep the original WhatsApp-format string when it isn't ISO-parseable,
     // but bound its length so it can't be used as an injection vector.
     timestamp: safeParseTimestamp(raw.timestamp) ?? String(raw.timestamp).slice(0, 64),
+    remote_jid: typeof raw.remote_jid === 'string' ? raw.remote_jid.slice(0, MAX_SENDER_LENGTH) : undefined,
+    receiving_session_id: typeof raw.receiving_session_id === 'string' ? raw.receiving_session_id.slice(0, MAX_SENDER_LENGTH) : undefined,
+    is_group: typeof raw.is_group === 'boolean' ? raw.is_group : undefined,
+    group_name: typeof raw.group_name === 'string' ? raw.group_name.slice(0, MAX_SENDER_LENGTH) : undefined,
   }
 }
 
@@ -54,6 +58,10 @@ export interface WhatsAppMessage {
   timestamp: string
   sender: string
   message: string
+  remote_jid?: string
+  receiving_session_id?: string
+  is_group?: boolean
+  group_name?: string
 }
 
 export interface ProcessingResult {
@@ -198,18 +206,53 @@ export async function processWhatsappCompletion(
     // Store messages in Supabase if present (batched insert to avoid PostgREST row limits)
     if (messages.length > 0) {
       const messagesToInsert = []
+      const sourcesToUpsert = new Map<string, any>()
+
       for (const message of messages) {
         const clean = sanitizeIncomingMessage(message)
         if (!clean) {
           return NextResponse.json({ error: 'Invalid message payload' }, { status: 400 })
         }
+        
+        if (clean.remote_jid) {
+          sourcesToUpsert.set(clean.remote_jid, {
+            project_id: projectId,
+            remote_jid: clean.remote_jid,
+            name: clean.group_name || null,
+            type: clean.is_group ? 'group' : 'dm'
+          })
+        }
+
         messagesToInsert.push({
           project_id: projectId,
           sender: clean.sender,
           message: clean.message,
           timestamp: clean.timestamp,
           processed: true,
+          remote_jid: clean.remote_jid,
+          receiving_session_id: clean.receiving_session_id,
         })
+      }
+
+      const sourceIdMap = new Map<string, string>()
+      if (sourcesToUpsert.size > 0) {
+        const { data: sourcesData, error: sourcesError } = await supabase
+          .from('sources')
+          .upsert(Array.from(sourcesToUpsert.values()), { onConflict: 'project_id, remote_jid' })
+          .select('id, remote_jid')
+        
+        if (sourcesError) throw sourcesError
+        if (sourcesData) {
+          for (const src of sourcesData) {
+            sourceIdMap.set(src.remote_jid, src.id)
+          }
+        }
+      }
+
+      for (const msg of messagesToInsert) {
+        if (msg.remote_jid && sourceIdMap.has(msg.remote_jid)) {
+          (msg as any).source_id = sourceIdMap.get(msg.remote_jid)
+        }
       }
 
       // Insert in batches of INSERT_BATCH_SIZE

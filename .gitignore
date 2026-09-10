@@ -51,3 +51,6 @@ vendor/*/node_modules/
 
 # Local review and verification artifacts
 /work/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

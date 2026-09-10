@@ -41,11 +41,12 @@ function getLLM(): OpenAI {
     return _llm
   }
 
-  // 100% Local Inference on Hermes-Dev (Zero External Cloud Egress for Legal Compliance)
-  const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434/v1'
+  // 100% Local llama.cpp Inference on Hermes-Dev (Zero External Cloud Egress for Legal Compliance)
+  const llamaUrl = process.env.LLAMA_BASE_URL || 'http://127.0.0.1:8090/v1'
+  const llamaLocalApiKey = process.env.LLAMA_API_KEY || 'llama-local'
   _llm = new OpenAI({
-    baseURL: ollamaUrl,
-    apiKey: 'ollama-local-key',
+    baseURL: llamaUrl,
+    apiKey: llamaLocalApiKey,
   })
   return _llm
 }
@@ -67,7 +68,7 @@ function getModels() {
     }
   }
 
-  const defaultModel = process.env.OLLAMA_MODEL || 'gemma3:4b'
+  const defaultModel = process.env.LLAMA_MODEL || '/root/llama-models/hermes-3-8b-q4_k_m.gguf'
   return {
     primary: defaultModel,
     fallback: defaultModel,
