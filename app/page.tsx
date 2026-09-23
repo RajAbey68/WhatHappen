@@ -167,9 +167,15 @@ export default function Home() {
     setProcessedData(null)
     setActiveTab('upload')
 
+    // RAJ-747 security fix: clear stale passphrase from any previous project
+    // before setting a new selectedProject. This prevents the structural gate
+    // (selectedProject && passphrase) from rendering FileUpload with the wrong
+    // project's passphrase during the async token verification window.
+    setPassphrase('')
+
     if (!project) {
       setSelectedProject(null)
-      setPassphrase('')
+      // passphrase already cleared above
       return
     }
 

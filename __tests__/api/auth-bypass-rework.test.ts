@@ -91,6 +91,7 @@ afterEach(() => {
 
 // -----------------------------------------------------------------------------
 describe('RAJ-747 — challenge / proof primitives', () => {
+
   it('sha256Hex matches node crypto', () => {
     expect(sha256Hex(PASSPHRASE)).toBe(PASSPHRASE_HASH)
   })
