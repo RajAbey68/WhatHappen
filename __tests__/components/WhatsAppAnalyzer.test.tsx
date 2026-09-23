@@ -3,6 +3,18 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Home from '../../app/page'
 
+// Mock session-store so the passphrase gate opens during tests.
+// handleProjectSelect reads cached passphrase + ensureProjectToken;
+// when both resolve, selectedProject + passphrase are set and the
+// dashboard renders.
+jest.mock('../../lib/session-store', () => ({
+  setPassphrase: jest.fn(),
+  getPassphrase: jest.fn(() => 'test-passphrase'),
+  clearPassphrase: jest.fn(),
+  ensureProjectToken: jest.fn(() => Promise.resolve('fake-token')),
+  projectAuthHeaders: jest.fn(() => Promise.resolve({ 'x-project-token': 'fake-token' })),
+}))
+
 // Mock Lucide React icons dynamically to return dummy components for all icons
 jest.mock('lucide-react', () => {
   return new Proxy({}, {
