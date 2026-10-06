@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/auth'
+import { decryptArchiveField } from '@/lib/archive-decryption'
 import { requireProjectAccess } from '@/lib/api-auth'
 
 function mapDbProject(dbProj: any) {
@@ -43,22 +44,39 @@ export async function GET(
 
     const project = mapDbProject(dbProj) as any
 
-    // Get recent messages for context
-    const { data: dbMessages, error: msgError } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('timestamp', { ascending: true })
+    const allDbMessages: any[] = []
+    let offset = 0
+    const batchSize = 1000
 
-    if (msgError) throw msgError
+    while (true) {
+      const { data: chunk, error: msgError } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('timestamp', { ascending: false })
+        .range(offset, offset + batchSize - 1)
 
-    const recentMessages = (dbMessages || []).map(msg => ({
-      id: msg.id,
-      sender: msg.sender,
-      message: msg.message,
-      timestamp: msg.timestamp,
-      projectId: msg.project_id
-    }))
+      if (msgError) throw msgError
+      if (!chunk || chunk.length === 0) break
+      allDbMessages.push(...chunk)
+      if (chunk.length < batchSize) break
+      offset += batchSize
+    }
+
+    // This authorized endpoint intentionally exports plaintext using server keys.
+    // Any failed message OR sender decryption rejects the whole response.
+    let recentMessages
+    try {
+      recentMessages = await Promise.all(allDbMessages.map(async msg => ({
+        id: msg.id,
+        sender: await decryptArchiveField(msg.sender),
+        message: await decryptArchiveField(msg.message),
+        timestamp: msg.timestamp,
+        projectId: msg.project_id
+      })))
+    } catch {
+      return NextResponse.json({ error: 'Archive decryption unavailable or failed' }, { status: 422 })
+    }
 
     // Get AI conversation history
     const { data: dbConversations, error: convError } = await supabase

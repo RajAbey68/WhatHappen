@@ -63,17 +63,38 @@ async function stripVideosFromZip(file: File): Promise<File> {
   return new globalThis.File([newZipBlob], file.name, { type: file.type })
 }
 
+function cleanWhatsAppLine(rawLine: string): string {
+  return rawLine
+    .replace(/[\u200e\u200f\u202a-\u202e\u200b\u2060\u00ad\ufeff]/g, '')
+    .replace(/[\u202f\u00a0]/g, ' ')
+    .trim()
+}
+
+function isHiddenOrSystemFile(pathStr: string): boolean {
+  const parts = pathStr.split(/[\/\\]/)
+  return parts.some(p => p.startsWith('__MACOSX') || p.startsWith('._') || p === '.DS_Store' || (p.startsWith('.') && p !== '.' && p !== '..'))
+}
+
 const WHATSAPP_PATTERNS = [
-  // [MM/DD/YY, HH:MM:SS AM/PM] Sender: Message
-  /^\[\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AP]M)?\]\s*[^:]+:\s*.+$/i,
-  // MM/DD/YY, HH:MM AM/PM - Sender: Message
-  /^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}(?:\s?[AP]M)?\s*-\s*[^:]+:\s*.+$/i,
+  // [MM/DD/YY, HH:MM:SS AM/PM] Sender: Message or [DD.MM.YYYY, HH:MM:SS]
+  /^\[\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[APap][Mm])?\]\s*[^:]+:\s*.+$/,
+  // MM/DD/YY, HH:MM AM/PM - Sender: Message or DD/MM/YYYY, HH:MM - Sender: Message
+  /^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[APap][Mm])?\s*-\s*[^:]+:\s*.+$/,
   // [DD/MM/YYYY, HH:MM] Sender: Message
-  /^\[\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}\]\s*[^:]+:\s*.+$/i,
+  /^\[\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}\]\s*[^:]+:\s*.+$/,
+  // DD.MM.YYYY, HH:MM - Sender: Message (German / European dot format)
+  /^\d{1,2}\.\d{1,2}\.\d{2,4},?\s+\d{1,2}:\d{2}(?::\d{2})?\s*-\s*[^:]+:\s*.+$/,
+  // System messages with timestamps
+  /^\[\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[APap][Mm])?\]\s*.+$/,
+  /^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[APap][Mm])?\s*-\s*.+$/,
 ]
 
 function isWhatsAppChatFormat(text: string): boolean {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 50)
+  const lines = text
+    .split('\n')
+    .map(cleanWhatsAppLine)
+    .filter(Boolean)
+    .slice(0, 100)
   if (lines.length === 0) return false
   return lines.some(line => WHATSAPP_PATTERNS.some(pattern => pattern.test(line)))
 }
@@ -97,29 +118,61 @@ async function validateFileContent(file: File): Promise<{ isValid: boolean; erro
     try {
       const zip = new JSZip()
       const loadedZip = await zip.loadAsync(file)
-      let bestChatFileKey = ''
-      
+
+      const candidateTxtFiles: string[] = []
+      let hasJsonOrCsv = false
+      let hasMediaFiles = false
+
+      const mediaExts = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.opus', '.m4a', '.mp3', '.wav', '.ogg', '.pdf']
+
       for (const relativePath of Object.keys(loadedZip.files)) {
         if (loadedZip.files[relativePath].dir) continue
+        if (isHiddenOrSystemFile(relativePath)) continue
+
         const lower = relativePath.toLowerCase()
         if (lower.endsWith('.txt')) {
-          bestChatFileKey = relativePath
+          candidateTxtFiles.push(relativePath)
+        } else if (lower.endsWith('.json') || lower.endsWith('.csv')) {
+          hasJsonOrCsv = true
+        } else if (mediaExts.some(ext => lower.endsWith(ext))) {
+          hasMediaFiles = true
+        }
+      }
+
+      if (candidateTxtFiles.length === 0) {
+        if (hasJsonOrCsv || hasMediaFiles) {
+          // Allow JSON/CSV or media-only ZIP archives (backend handles transcription / OCR fallback)
+          return { isValid: true }
+        }
+        return {
+          isValid: false,
+          error: 'The ZIP archive does not contain any readable chat (.txt, .json) or media files.'
+        }
+      }
+
+      // Prioritize _chat.txt or files named like WhatsApp chat exports
+      candidateTxtFiles.sort((a, b) => {
+        const aBase = a.split(/[\/\\]/).pop()?.toLowerCase() || ''
+        const bBase = b.split(/[\/\\]/).pop()?.toLowerCase() || ''
+        const aScore = aBase === '_chat.txt' ? 3 : aBase.includes('whatsapp') ? 2 : aBase.endsWith('.txt') ? 1 : 0
+        const bScore = bBase === '_chat.txt' ? 3 : bBase.includes('whatsapp') ? 2 : bBase.endsWith('.txt') ? 1 : 0
+        return bScore - aScore
+      })
+
+      // Test if any candidate text file matches WhatsApp chat format
+      let anyValidChat = false
+      for (const fileKey of candidateTxtFiles) {
+        const txtContent = await loadedZip.files[fileKey].async('string')
+        if (isWhatsAppChatFormat(txtContent)) {
+          anyValidChat = true
           break
         }
       }
-      
-      if (!bestChatFileKey) {
-        return { 
-          isValid: false, 
-          error: 'The ZIP archive does not contain any text (.txt) files. WhatsApp exports typically include a text chat log.' 
-        }
-      }
-      
-      const txtContent = await loadedZip.files[bestChatFileKey].async('string')
-      if (!isWhatsAppChatFormat(txtContent)) {
-        return { 
-          isValid: false, 
-          error: `The text file "${bestChatFileKey}" inside the ZIP does not match the standard WhatsApp export format.` 
+
+      if (!anyValidChat && !hasMediaFiles && !hasJsonOrCsv) {
+        return {
+          isValid: false,
+          error: `The text file(s) inside the ZIP do not match the standard WhatsApp export format.`
         }
       }
     } catch (err) {
@@ -248,6 +301,16 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
         const validation = await validateFileContent(currentFile)
         if (!validation.isValid) {
           throw new Error(validation.error || 'Invalid file format')
+        }
+
+        // Filter heavy videos out of ZIP archive on the client before upload/processing
+        if (currentFile.name.toLowerCase().endsWith('.zip')) {
+          try {
+            updateProgress(uploadedFile.file, 8)
+            currentFile = await stripVideosFromZip(currentFile)
+          } catch (stripErr: any) {
+            console.warn('Video stripper warning:', stripErr?.message)
+          }
         }
 
         const isTextOrJson = currentFile.name.endsWith('.txt') || currentFile.name.endsWith('.json')
@@ -531,26 +594,30 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
         // authenticates with the passphrase-proven project token. The
         // /api/process-whatsapp-complete route is the EXTERNAL webhook and
         // requires x-webhook-secret, which must never ship to a browser.
-        const completeResponse = await fetch('/api/process-whatsapp-inapp', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            ...authHeader,
-            // RAJ-747: carry the short-lived project token so the in-app
-            // completion endpoint accepts this call.
-            ...(await projectAuthHeaders(projectId))
-          },
-          body: JSON.stringify({
-            projectId: projectId,
-            chatData: resultData,
-            messages: finalMessages
-          }),
-          signal,
-        })
+        // If the file was processed entirely server-side via sessionId (>10MB path),
+        // the server has already persisted metadata to avoid wiping stats with empty messages.
+        if (finalMessages.length > 0 || isTextOrJson) {
+          const completeResponse = await fetch('/api/process-whatsapp-inapp', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...authHeader,
+              // RAJ-747: carry the short-lived project token so the in-app
+              // completion endpoint accepts this call.
+              ...(await projectAuthHeaders(projectId))
+            },
+            body: JSON.stringify({
+              projectId: projectId,
+              chatData: resultData,
+              messages: finalMessages
+            }),
+            signal,
+          })
 
-        if (!completeResponse.ok) {
-          const errRes = await completeResponse.json().catch(() => ({}))
-          throw new Error(errRes.error || 'Failed to save chat data to database')
+          if (!completeResponse.ok) {
+            const errRes = await completeResponse.json().catch(() => ({}))
+            throw new Error(errRes.error || 'Failed to save chat data to database')
+          }
         }
 
         setUploadedFiles(prev => 
@@ -625,112 +692,6 @@ export function FileUpload({ onFileProcessed, projectId, passphrase }: FileUploa
 
     setIsProcessing(false)
     abortControllerRef.current = null
-  }
-
-  /**
-   * Upload large files via GCS signed URL:
-   * 1. POST /api/upload-url to get a signed write URL + sessionId
-   * 2. PUT the file directly to GCS
-   * 3. Poll /api/process-file?sessionId=... for processing status (or trigger async)
-   */
-  const uploadViaGCS = async (file: File, signal: AbortSignal): Promise<any> => {
-    // Step 1: Request a signed upload URL
-    const urlResponse = await fetch('/api/upload-url', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // RAJ-782: previously this call sent NO credential of any kind, on any
-        // path, so it could never have succeeded against an authorized route.
-        ...(await projectAuthHeaders(projectId)),
-      },
-      body: JSON.stringify({
-        projectId,
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type || 'application/octet-stream',
-      }),
-      signal,
-    })
-
-    if (!urlResponse.ok) {
-      const err = await urlResponse.json().catch(() => ({}))
-      throw new Error(err.error || 'Failed to get upload URL')
-    }
-
-    const { sessionId, uploadUrl, gcsPath } = await urlResponse.json()
-    updateProgress(file, 15)
-
-    // Step 2: Upload directly to GCS (or local dev fallback)
-    if (gcsPath) {
-      // Real GCS upload with progress tracking via XMLHttpRequest
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhr.open('PUT', uploadUrl)
-        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
-
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const percent = 15 + Math.round((e.loaded / e.total) * 70) // 15% → 85%
-            updateProgress(file, percent)
-          }
-        }
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve()
-          else reject(new Error(`GCS upload failed: ${xhr.statusText}`))
-        }
-
-        xhr.onerror = () => reject(new Error('GCS upload network error'))
-        xhr.onabort = () => reject(new Error('Upload cancelled'))
-        signal.addEventListener('abort', () => xhr.abort())
-
-        xhr.send(file)
-      })
-    } else {
-      // Local dev fallback: POST to /api/process-file with sessionId
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('sessionId', sessionId)
-
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
-        body: formData,
-        signal,
-      })
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        throw new Error(err.error || 'Upload failed')
-      }
-
-      const result = await response.json()
-      if (!result.success) throw new Error(result.error || 'Processing failed')
-      return result.data
-    }
-
-    updateProgress(file, 90)
-
-    // Step 3: Trigger server-side processing of the uploaded GCS file
-    // The process-file route reads from GCS when sessionId is provided
-    const processResponse = await fetch('/api/process-file', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // RAJ-747: authorize this in-app call with the short-lived token.
-        ...(await projectAuthHeaders(projectId)),
-      },
-      body: JSON.stringify({ sessionId, gcsPath, fileName: file.name }),
-      signal,
-    })
-
-    if (!processResponse.ok) {
-      const err = await processResponse.json().catch(() => ({}))
-      throw new Error(err.error || 'Failed to process uploaded file')
-    }
-
-    const processResult = await processResponse.json()
-    if (!processResult.success) throw new Error(processResult.error || 'Processing failed')
-    return processResult.data
   }
 
   const cancelProcessing = () => {

@@ -35,7 +35,7 @@ const MAX_MESSAGE_LENGTH = 20000
  */
 function sanitizeIncomingMessage(
   raw: any
-): { sender: string; message: string; timestamp: string } | null {
+): { sender: string; message: string; timestamp: string; remote_jid?: string; receiving_session_id?: string; is_group?: boolean; group_name?: string; message_id?: string } | null {
   if (!raw || typeof raw !== 'object') return null
   if (typeof raw.sender !== 'string' || raw.sender.length === 0) return null
   if (typeof raw.message !== 'string') return null
@@ -47,13 +47,33 @@ function sanitizeIncomingMessage(
     // Keep the original WhatsApp-format string when it isn't ISO-parseable,
     // but bound its length so it can't be used as an injection vector.
     timestamp: safeParseTimestamp(raw.timestamp) ?? String(raw.timestamp).slice(0, 64),
+    remote_jid: typeof raw.remote_jid === 'string' ? raw.remote_jid.slice(0, MAX_SENDER_LENGTH) : undefined,
+    receiving_session_id: typeof raw.receiving_session_id === 'string' ? raw.receiving_session_id.slice(0, MAX_SENDER_LENGTH) : undefined,
+    is_group: typeof raw.is_group === 'boolean' ? raw.is_group : undefined,
+    group_name: typeof raw.group_name === 'string' ? raw.group_name.slice(0, MAX_SENDER_LENGTH) : undefined,
+    message_id: typeof raw.message_id === 'string' && raw.message_id.length > 0 ? raw.message_id.slice(0, 128) : undefined,
   }
+}
+
+function deterministicMessageId(m: { sender: string; message: string; timestamp: string; remote_jid?: string }): string {
+  // Legacy file-upload path has no stable provider ID — hash the natural key so
+  // re-uploads upsert instead of duplicating (idempotent live + file ingest).
+  const { createHash } = require('crypto') as typeof import('crypto')
+  return 'legacy_' + createHash('sha256')
+    .update([m.sender, m.timestamp, m.remote_jid ?? '', m.message].join('|'))
+    .digest('hex')
+    .slice(0, 32)
 }
 
 export interface WhatsAppMessage {
   timestamp: string
   sender: string
   message: string
+  remote_jid?: string
+  receiving_session_id?: string
+  is_group?: boolean
+  group_name?: string
+  message_id?: string
 }
 
 export interface ProcessingResult {
@@ -198,24 +218,66 @@ export async function processWhatsappCompletion(
     // Store messages in Supabase if present (batched insert to avoid PostgREST row limits)
     if (messages.length > 0) {
       const messagesToInsert = []
+      const sourcesToUpsert = new Map<string, any>()
+
       for (const message of messages) {
         const clean = sanitizeIncomingMessage(message)
         if (!clean) {
           return NextResponse.json({ error: 'Invalid message payload' }, { status: 400 })
         }
+        
+        if (clean.remote_jid) {
+          sourcesToUpsert.set(clean.remote_jid, {
+            project_id: projectId,
+            remote_jid: clean.remote_jid,
+            name: clean.group_name || null,
+            type: clean.is_group ? 'group' : 'dm'
+          })
+        }
+
+        const messageId = clean.message_id ?? deterministicMessageId(clean)
+        const occurredAt = safeParseTimestamp(clean.timestamp) ?? null
         messagesToInsert.push({
           project_id: projectId,
           sender: clean.sender,
           message: clean.message,
           timestamp: clean.timestamp,
+          occurred_at: occurredAt,
           processed: true,
+          remote_jid: clean.remote_jid,
+          receiving_session_id: clean.receiving_session_id,
+          message_id: messageId,
         })
       }
 
-      // Insert in batches of INSERT_BATCH_SIZE
+      const sourceIdMap = new Map<string, string>()
+      if (sourcesToUpsert.size > 0) {
+        const { data: sourcesData, error: sourcesError } = await supabase
+          .from('sources')
+          .upsert(Array.from(sourcesToUpsert.values()), { onConflict: 'project_id, remote_jid' })
+          .select('id, remote_jid')
+        
+        if (sourcesError) throw sourcesError
+        if (sourcesData) {
+          for (const src of sourcesData) {
+            sourceIdMap.set(src.remote_jid, src.id)
+          }
+        }
+      }
+
+      for (const msg of messagesToInsert) {
+        if (msg.remote_jid && sourceIdMap.has(msg.remote_jid)) {
+          (msg as any).source_id = sourceIdMap.get(msg.remote_jid)
+        }
+      }
+
+      // Idempotent upsert in batches of INSERT_BATCH_SIZE — live Baileys sync
+      // and re-uploads converge instead of duplicating (unique project_id+message_id).
       for (let i = 0; i < messagesToInsert.length; i += INSERT_BATCH_SIZE) {
         const batch = messagesToInsert.slice(i, i + INSERT_BATCH_SIZE)
-        const { error: batchError } = await supabase.from('messages').insert(batch)
+        const { error: batchError } = await supabase
+          .from('messages')
+          .upsert(batch, { onConflict: 'project_id,message_id', ignoreDuplicates: true })
 
         if (batchError) throw batchError
       }
@@ -257,7 +319,29 @@ export async function processWhatsappCompletion(
       })
       .eq('id', projectId)
 
-    if (projectUpdateError) throw projectUpdateError
+    // Automatically invalidate stale vector cache and trigger background batch indexing
+    try {
+      const { invalidateVectorCache } = await import('@/lib/rag/embedder')
+      const { invalidateGoldenCache } = await import('@/lib/rag/learning')
+      invalidateVectorCache(projectId)
+      invalidateGoldenCache(projectId)
+      console.log(`[RAG] Invalidated cached vectors and Golden Q&A for project ${projectId} after new upload.`)
+
+      // Spawn non-blocking background batch-indexing worker to pre-warm vectors
+      if (typeof window === 'undefined') {
+        const { spawn } = await import('child_process')
+        const path = await import('path')
+        const scriptPath = path.join(process.cwd(), 'scripts', 'batch-index-rag.mjs')
+        const child = spawn(process.execPath, [scriptPath, `--projectId=${projectId}`], {
+          detached: true,
+          stdio: 'ignore'
+        })
+        child.unref()
+        console.log(`[RAG] Detached background batch indexer spawned (PID: ${child.pid}) for project ${projectId}`)
+      }
+    } catch (cacheErr) {
+      console.warn('[RAG] Background indexing trigger warning:', cacheErr)
+    }
 
     // RAJ-759: always respond as JSON, never a request-derived content type.
     return NextResponse.json(responsePayload, {
@@ -278,26 +362,73 @@ export function parseWhatsAppChat(text: string): WhatsAppMessage[] {
 
   // Enhanced WhatsApp chat parsing with multiple format support
   const patterns = [
-    // [MM/DD/YY, HH:MM:SS AM/PM] Sender: Message
-    /^\[(\d{1,2}\/\d{1,2}\/\d{2,4},?\s*\d{1,2}:\d{2}:?\d{0,2}(?:\s*[APap][Mm])?)\]\s*([^:]+):\s*(.+)$/,
-    // MM/DD/YY, HH:MM AM/PM - Sender: Message
-    /^(\d{1,2}\/\d{1,2}\/\d{2,4},?\s*\d{1,2}:\d{2}(?:\s*[APap][Mm])?)\s*-\s*([^:]+):\s*(.+)$/,
-    // DD/MM/YYYY, HH:MM - Sender: Message (European format)
-    /^(\d{1,2}\/\d{1,2}\/\d{4},?\s*\d{1,2}:\d{2})\s*-\s*([^:]+):\s*(.+)$/,
+    // [MM/DD/YY, HH:MM:SS AM/PM] Sender: Message or [DD.MM.YYYY, HH:MM:SS]
+    /^\[(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s*\d{1,2}:\d{2}:?\d{0,2}(?:\s*[APap][Mm])?)\]\s*([^:]+):\s*(.+)$/,
+    // MM/DD/YY, HH:MM AM/PM - Sender: Message or DD/MM/YYYY, HH:MM - Sender: Message
+    /^(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s*\d{1,2}:\d{2}(?::\d{2})?(?:\s*[APap][Mm])?)\s*-\s*([^:]+):\s*(.+)$/,
+    // [DD/MM/YYYY, HH:MM] Sender: Message
+    /^\[(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s*\d{1,2}:\d{2})\]\s*([^:]+):\s*(.+)$/,
+    // DD.MM.YYYY, HH:MM - Sender: Message
+    /^(\d{1,2}\.\d{1,2}\.\d{2,4},?\s*\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*([^:]+):\s*(.+)$/,
   ]
 
-  for (const line of lines) {
+  const sysPatterns = [
+    /^\[(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s*\d{1,2}:\d{2}:?\d{0,2}(?:\s*[APap][Mm])?)\]\s*([^:]+)$/,
+    /^(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4},?\s*\d{1,2}:\d{2}(?::\d{2})?(?:\s*[APap][Mm])?)\s*-\s*([^:]+)$/,
+  ]
+
+  let currentMsg: WhatsAppMessage | null = null
+
+  for (const rawLine of lines) {
+    const line = rawLine
+      .replace(/[\u200e\u200f\u202a-\u202e\u200b\u2060\u00ad\ufeff]/g, '')
+      .replace(/[\u202f\u00a0]/g, ' ')
+      .trim()
+    if (!line) continue
+
+    let matched = false
     for (const pattern of patterns) {
       const match = line.match(pattern)
       if (match) {
-        messages.push({
+        if (currentMsg) {
+          messages.push(currentMsg)
+        }
+        currentMsg = {
           timestamp: match[1],
           sender: match[2].trim(),
           message: match[3].trim(),
-        })
+        }
+        matched = true
         break
       }
     }
+
+    if (!matched) {
+      for (const sysPattern of sysPatterns) {
+        const sysMatch = line.match(sysPattern)
+        if (sysMatch) {
+          if (currentMsg) {
+            messages.push(currentMsg)
+          }
+          currentMsg = {
+            timestamp: sysMatch[1],
+            sender: 'System',
+            message: sysMatch[2].trim(),
+          }
+          matched = true
+          break
+        }
+      }
+    }
+
+    if (!matched && currentMsg) {
+      // Multi-line continuation
+      currentMsg.message += '\n' + line
+    }
+  }
+
+  if (currentMsg) {
+    messages.push(currentMsg)
   }
 
   return messages
@@ -306,7 +437,7 @@ export function parseWhatsAppChat(text: string): WhatsAppMessage[] {
 export function generateComprehensiveAnalysis(
   messages: WhatsAppMessage[]
 ): ProcessingResult {
-  const participants = Array.from(new Set(messages.map((m) => m.sender)))
+  const participants = Array.from(new Set(messages.map((m) => m.sender))).filter((s) => s !== 'System')
 
   // O(n) single-pass sender counting (was O(n²) with filter per participant)
   const senderCountMap = new Map<string, number>()

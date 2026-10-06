@@ -48,3 +48,22 @@ logs
 # RAJ-782: vendored package build output is committed deliberately so Cloud Build
 # needs no external registry; its node_modules never should be.
 vendor/*/node_modules/
+
+# Local review and verification artifacts
+/work/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# Local credentials — never commit (live VERCEL_OIDC_TOKEN lands in .env.vercel.tmp)
+.env.vercel.tmp
+.env.local.patch
+
+# Local runtime state and ad-hoc review outputs
+/data.db
+/outputs/
+/test-output.txt
+
+# Cross-project symlinks resolved on the developer machine only
+/decision_provider
+/shared/

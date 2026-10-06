@@ -8,14 +8,32 @@ import {
 import { decryptText } from '@/lib/crypto'
 import { SwarmManager } from '@/lib/swarm/SwarmManager'
 import { AgentConfig } from '@/lib/types/agent'
+
+async function safeDecryptField(field: string, passphrase?: string): Promise<string> {
+  if (!passphrase || !field) return field
+  try {
+    const enc = JSON.parse(field)
+    if (enc && typeof enc === 'object' && enc.ciphertext && enc.salt && enc.iv) {
+      return await decryptText(enc.ciphertext, passphrase, enc.salt, enc.iv)
+    }
+  } catch (err: any) {
+    if (err instanceof SyntaxError) {
+      return field
+    }
+    throw new Error(`Decryption failed: ${err?.message || 'Invalid passphrase or tampered ciphertext'}`)
+  }
+  return field
+}
+
 export async function POST(request: NextRequest) {
   // RAJ-780: reject credential-less callers BEFORE parsing the body, so an
   // anonymous request cannot make us parse a large payload first.
   if (!hasAnyProjectCredential(request)) return missingCredentialResponse()
 
-  const supabase = getServiceClient()
   try {
-    const { projectId, analysisType = 'comprehensive', passphrase } = await request.json()
+    const body = await request.json()
+    const { projectId, analysisType = 'comprehensive' } = body
+    const passphrase = body.passphrase || process.env.PROJECT_PASSPHRASE
 
     if (!projectId) {
       return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
@@ -26,6 +44,53 @@ export async function POST(request: NextRequest) {
     const authError = await requireProjectAccess(request, projectId)
     if (authError) return authError
 
+    const supabase = getServiceClient()
+
+    // Fast-path 1: If project already has pre-computed analysis and caller wants timeline or comprehensive, return immediately
+    const { data: projectRow } = await supabase
+      .from('projects')
+      .select('analysis, message_count')
+      .eq('id', projectId)
+      .maybeSingle()
+
+    if (projectRow?.analysis) {
+      if (analysisType === 'timeline' && projectRow.analysis.timeGroups) {
+        return NextResponse.json({
+          success: true,
+          analysis: projectRow.analysis,
+          messageCount: projectRow.message_count || 0,
+          analysisType: 'timeline',
+          cached: true
+        })
+      }
+      if (analysisType === 'comprehensive' && projectRow.analysis.type) {
+        return NextResponse.json({
+          success: true,
+          analysis: projectRow.analysis,
+          messageCount: projectRow.message_count || 0,
+          analysisType: 'comprehensive',
+          cached: true
+        })
+      }
+    }
+
+    // Fast-path 2: If analysisType is purely 'timeline', we only need timestamps and raw sender tokens (no message text decryption needed)
+    if (analysisType === 'timeline') {
+      const { data: timelineRows, error: timeErr } = await supabase
+        .from('messages')
+        .select('sender, timestamp')
+        .eq('project_id', projectId)
+
+      if (timeErr) throw timeErr
+      const timelineResult = performTimelineAnalysis(timelineRows || [])
+      return NextResponse.json({
+        success: true,
+        analysis: timelineResult,
+        messageCount: (timelineRows || []).length,
+        analysisType: 'timeline'
+      })
+    }
+
     // Get all messages for this project
     const { data: dbMessages, error: msgError } = await supabase
       .from('messages')
@@ -34,66 +99,29 @@ export async function POST(request: NextRequest) {
 
     if (msgError) throw msgError
 
-    const firstMsg = dbMessages?.[0]?.message
-    let isEncrypted = false
-    if (firstMsg) {
-      try {
-        const parsed = JSON.parse(firstMsg)
-        if (parsed.ciphertext && parsed.salt && parsed.iv) {
-          isEncrypted = true
-        }
-      } catch (e) {}
-    }
-
-    if (isEncrypted && !passphrase) {
-      return NextResponse.json({ error: 'Passphrase is required to analyze encrypted chat data.' }, { status: 400 })
-    }
-
     // Decrypt messages in memory if passphrase is provided
-    const messages = await Promise.all(
-      (dbMessages || []).map(async (msg) => {
-        let decryptedMessage = msg.message
-        let decryptedSender = msg.sender
+    let messages: any[] = []
+    try {
+      messages = await Promise.all(
+        (dbMessages || []).map(async (msg) => {
+          const decryptedMessage = await safeDecryptField(msg.message, passphrase)
+          const decryptedSender = await safeDecryptField(msg.sender, passphrase)
 
-        if (passphrase) {
-          try {
-            const messageEnc = JSON.parse(msg.message)
-            if (messageEnc.ciphertext && messageEnc.salt && messageEnc.iv) {
-              decryptedMessage = await decryptText(
-                messageEnc.ciphertext,
-                passphrase,
-                messageEnc.salt,
-                messageEnc.iv
-              )
-            }
-          } catch (e) {
-            // Treat as plaintext fallback
+          return {
+            id: msg.id,
+            projectId: msg.project_id,
+            sender: decryptedSender,
+            message: decryptedMessage,
+            timestamp: msg.timestamp
           }
-
-          try {
-            const senderEnc = JSON.parse(msg.sender)
-            if (senderEnc.ciphertext && senderEnc.salt && senderEnc.iv) {
-              decryptedSender = await decryptText(
-                senderEnc.ciphertext,
-                passphrase,
-                senderEnc.salt,
-                senderEnc.iv
-              )
-            }
-          } catch (e) {
-            // Treat as plaintext fallback
-          }
-        }
-
-        return {
-          id: msg.id,
-          projectId: msg.project_id,
-          sender: decryptedSender,
-          message: decryptedMessage,
-          timestamp: msg.timestamp
-        }
-      })
-    )
+        })
+      )
+    } catch (cryptoErr: any) {
+      return NextResponse.json(
+        { error: `Message decryption failed: ${cryptoErr.message}` },
+        { status: 400 }
+      )
+    }
 
     if (messages.length === 0) {
       return NextResponse.json({ error: 'No messages found for this project' }, { status: 404 })

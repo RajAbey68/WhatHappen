@@ -140,7 +140,8 @@ describe('RAJ-747 — short-lived project tokens', () => {
   it('rejects tampered/garbage tokens', () => {
     expect(verifyProjectToken('garbage', VALID_PROJECT_ID)).toBe(false)
     const { token } = issueProjectToken(VALID_PROJECT_ID)
-    expect(verifyProjectToken(token.slice(0, -1) + '0', VALID_PROJECT_ID)).toBe(false)
+    const tampered = token.endsWith('0') ? token.slice(0, -1) + '1' : token.slice(0, -1) + '0'
+    expect(verifyProjectToken(tampered, VALID_PROJECT_ID)).toBe(false)
   })
 })
 

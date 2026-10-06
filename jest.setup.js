@@ -35,6 +35,41 @@ if (typeof Blob !== 'undefined' && !Blob.prototype.stream) {
   }
 }
 
+// Polyfill crypto and TextEncoder/TextDecoder in Jest/jsdom environment
+const nodeCrypto = require('crypto')
+if (typeof global.crypto === 'undefined' || !global.crypto.subtle) {
+  global.crypto = nodeCrypto.webcrypto || nodeCrypto
+}
+if (typeof window !== 'undefined' && (!window.crypto || !window.crypto.subtle)) {
+  try {
+    Object.defineProperty(window, 'crypto', {
+      value: nodeCrypto.webcrypto || nodeCrypto,
+      writable: true,
+      configurable: true,
+    })
+  } catch {
+    window.crypto = nodeCrypto.webcrypto || nodeCrypto
+  }
+}
+if (typeof global.TextEncoder === 'undefined') {
+  global.TextEncoder = require('util').TextEncoder
+}
+if (typeof global.TextDecoder === 'undefined') {
+  global.TextDecoder = require('util').TextDecoder
+}
+
+// jsdom does not implement fetch. Components that call fetch on mount would
+// otherwise throw ReferenceError and abort the whole render.
+if (typeof global.fetch === 'undefined') {
+  global.fetch = jest.fn(async () => ({
+    ok: false,
+    status: 0,
+    headers: new Map(),
+    json: async () => ({}),
+    text: async () => '',
+  }))
+}
+
 // Mock next/server for API route testing
 jest.mock('next/server', () => ({
   NextRequest: class {

@@ -1,7 +1,7 @@
 /**
  * GET /api/auth/challenge?projectId=<uuid>  (RAJ-747 rework)
  *
- * Issues a single-use, 60s nonce that the client must sign with
+ * Issues a signed, 15s nonce (process-local replay protection) that the client must sign with
  * HMAC-SHA256(sha256(passphrase), nonce) and present to POST /api/project-token.
  *
  * Fails closed when WHATSAPP_PASSPHRASE_HASH is not provisioned.
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     // Fail closed: an unprovisioned server must not hand out challenges that
     // could never be verified (and must not silently degrade to "no auth").
-    if (!getConfiguredPassphraseHash() && !isAuthBypassed()) {
+    if (!getConfiguredPassphraseHash(projectId) && !isAuthBypassed()) {
       return NextResponse.json(
         { error: 'Passphrase verification is not configured on the server' },
         { status: 401, headers: { 'Content-Type': 'application/json' } }

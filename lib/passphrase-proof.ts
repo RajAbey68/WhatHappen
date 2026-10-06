@@ -1,39 +1,11 @@
-/**
- * Server-side passphrase-proof primitives (RAJ-747 rework).
- *
- * THREAT MODEL
- * ------------
- * WhatHappen is zero-knowledge: the passphrase is the client-side AES-GCM
- * decryption key and MUST NOT be sent to the server. Before this rework the
- * `/api/project-token` endpoint minted a project token for ANY caller who knew
- * a project UUID, which meant the token was not evidence of anything and the
- * whole authorization model collapsed.
- *
- * FIX: challenge/response proof of passphrase knowledge.
- *
- *   1. Operator provisions `WHATSAPP_PASSPHRASE_HASH` = sha256(passphrase), hex.
- *      This is derived from the SAME passphrase the client types for decryption.
- *      It is a verifier, not the passphrase: the server still cannot decrypt
- *      any chat content with it, so zero-knowledge of the plaintext is kept.
- *
- *      *** NEW REQUIRED ENV VAR — must be provisioned before deploy. ***
- *      Generate with:  printf '%s' "$PASSPHRASE" | shasum -a 256
- *
- *   2. `GET /api/auth/challenge?projectId=<uuid>` issues a stateless signed
- *      challenge token (no server-side state — works on Vercel serverless).
- *
- *   3. `POST /api/project-token` receives
- *      response = HMAC-SHA256(key = WHATSAPP_PASSPHRASE_HASH, msg = nonce)
- *      and compares it timing-safely against its own computation.
- *
- * Fails CLOSED: if `WHATSAPP_PASSPHRASE_HASH` is unset, no challenge is issued
- * and no token is minted (401), except in an explicitly bypassed local/dev
- * context (see `isAuthBypassed`).
+/** Challenge proofs authorize access without sending raw passphrases in requests.
+ * The trusted backend separately holds archive decryption keys and intentionally
+ * exports plaintext to authorized callers; this is not a zero-knowledge service.
  */
 import crypto from 'crypto'
 
-/** Challenge token lifetime: deliberately short so a captured challenge is near-useless. */
-export const CHALLENGE_TTL_MS = 60_000
+/** Challenge token lifetime: deliberately short (15s) so a captured challenge is near-useless (P1 remediation). */
+export const CHALLENGE_TTL_MS = 15_000
 
 /** Hex sha256 of an arbitrary string (mirrors the client's Web Crypto digest). */
 export function sha256Hex(value: string): string {
@@ -49,10 +21,26 @@ export function computeProof(passphraseHashHex: string, nonce: string): string {
 }
 
 /** Configured verifier, or null when the server has not been provisioned. */
-export function getConfiguredPassphraseHash(): string | null {
-  const v = process.env.WHATSAPP_PASSPHRASE_HASH
-  if (!v || typeof v !== 'string' || v.trim() === '') return null
-  return v.trim().toLowerCase()
+export function getConfiguredPassphraseHash(projectId?: string): string | null {
+  // Opt-in scoped configuration. Once enabled, unmapped projects fail closed
+  // unless explicitly listed for the legacy shared verifier.
+  const scoped = process.env.PROJECT_PASSPHRASE_HASHES
+  if (scoped) {
+    try {
+      const hashes = JSON.parse(scoped)
+      const value = projectId && Object.prototype.hasOwnProperty.call(hashes, projectId) ? hashes[projectId] : null
+      if (value != null) return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value) ? value.toLowerCase() : null
+      const legacy = (process.env.LEGACY_PASSPHRASE_PROJECT_IDS || '').split(',').map(v => v.trim())
+      if (!projectId || !legacy.includes(projectId)) return null
+    } catch { return null }
+  }
+  const value = process.env.WHATSAPP_PASSPHRASE_HASH?.trim()
+  return value && /^[a-f0-9]{64}$/i.test(value) ? value.toLowerCase() : null
+}
+
+export function getConfiguredPassphraseHashes(projectId?: string): string[] {
+  const primary = getConfiguredPassphraseHash(projectId)
+  return primary ? [primary] : []
 }
 
 /** Constant-time string comparison that never throws on length mismatch. */
@@ -84,7 +72,7 @@ interface ChallengePayload {
  * Returns a compact token: base64url(payload).base64url(signature).
  */
 function signChallenge(payload: ChallengePayload): string {
-  const key = getConfiguredPassphraseHash()
+  const key = getConfiguredPassphraseHash(payload.projectId)
   if (!key) throw new Error('WHATSAPP_PASSPHRASE_HASH not configured')
 
   const payloadB64 = Buffer.from(JSON.stringify(payload), 'utf8')
@@ -100,8 +88,8 @@ function signChallenge(payload: ChallengePayload): string {
  * Verify a challenge token's signature and expiry. Returns the payload if
  * valid, or null if tampered, expired, or signed with a different key.
  */
-function verifyChallenge(token: string): ChallengePayload | null {
-  const key = getConfiguredPassphraseHash()
+function verifyChallenge(token: string, projectId: string): ChallengePayload | null {
+  const key = getConfiguredPassphraseHash(projectId)
   if (!key) return null
 
   const parts = token.split('.')
@@ -118,21 +106,28 @@ function verifyChallenge(token: string): ChallengePayload | null {
     const payload: ChallengePayload = JSON.parse(
       Buffer.from(payloadB64, 'base64url').toString('utf8')
     )
-    if (payload.expiresAt <= Date.now()) return null
+    if (!Number.isFinite(payload.expiresAt) || payload.expiresAt <= Date.now() || typeof payload.nonce !== 'string') return null
     return payload
   } catch {
     return null
   }
 }
 
+// In-memory single-use consumed nonce store with TTL pruning
+const consumedNonces = new Map<string, number>()
+
+function pruneExpiredNonces(): void {
+  const now = Date.now()
+  consumedNonces.forEach((expiresAt, nonce) => {
+    if (expiresAt <= now) {
+      consumedNonces.delete(nonce)
+    }
+  })
+}
+
 /**
  * Issue a stateless challenge: returns a signed token that encodes the nonce,
- * project ID, and expiry. No server-side state is stored — the token itself
- * is the single-use credential.
- *
- * Re-use is prevented by the 60s TTL + HMAC binding. An attacker who can
- * observe the token already has network access to the challenge endpoint.
- * True single-use enforcement would require a consumed-token store (Redis).
+ * project ID, and expiry.
  */
 export function issueChallenge(
   projectId: string,
@@ -148,20 +143,32 @@ export function issueChallenge(
 }
 
 /**
- * Consume a challenge: verifies the token signature, checks expiry, and
- * confirms it was issued for the given project. Returns false for
- * tampered/expired/mismatched tokens.
+ * Consume a challenge: verifies the token signature, checks expiry,
+ * confirms project binding, and enforces single use within this server process.
+ * Multi-instance replay prevention requires a shared nonce store; expiry and
+ * signatures are stateless, but this replay cache is deliberately process-local.
+ * Returns false for tampered, expired, mismatched, or already-consumed tokens.
  */
 export function consumeChallenge(token: unknown, projectId: string): boolean {
   if (typeof token !== 'string' || token.length === 0) return false
 
-  const payload = verifyChallenge(token)
+  const payload = verifyChallenge(token, projectId)
   if (!payload) return false
 
-  return payload.projectId === projectId
+  if (payload.projectId !== projectId) return false
+
+  // Replay protection: enforce single-use consumption
+  if (consumedNonces.has(payload.nonce)) {
+    return false
+  }
+
+  pruneExpiredNonces()
+  consumedNonces.set(payload.nonce, payload.expiresAt)
+
+  return true
 }
 
-/** Test/maintenance helper — no-op now (stateless). */
+/** Test helper — resets the in-memory consumed nonces store. */
 export function _resetChallenges(): void {
-  // No-op: challenges are stateless signed tokens, no in-memory store to clear.
+  consumedNonces.clear()
 }

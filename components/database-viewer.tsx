@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,28 +8,56 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Download, Search, RefreshCw, Database, Trash2, Eye } from 'lucide-react'
+import { Download, Search, RefreshCw, Database, Trash2, Eye, ArrowUpDown, ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
 interface DatabaseViewerProps {
   data?: any
+  isDecrypting?: boolean
+  decryptProgress?: { current: number; total: number }
 }
 
-export function DatabaseViewer({ data }: DatabaseViewerProps) {
+export function DatabaseViewer({ data, isDecrypting, decryptProgress }: DatabaseViewerProps) {
   const [searchTerm, setSearchTerm] = useState('')
-  const [filteredData, setFilteredData] = useState<any[]>([])
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc') // Most recent first by default
   const [isLoading, setIsLoading] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({})
 
+  // Pagination state to keep the DOM lightweight and prevent UI freeze
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
+
+  // Reset pagination when search term or sort order changes
   useEffect(() => {
-    if (data?.messages) {
-      const filtered = data.messages.filter((message: any) =>
-        message.message?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        message.sender?.toLowerCase().includes(searchTerm.toLowerCase())
+    setCurrentPage(1)
+  }, [searchTerm, sortOrder])
+
+  const filteredData = useMemo(() => {
+    if (!data?.messages || !Array.isArray(data.messages)) return []
+    const term = searchTerm.trim().toLowerCase()
+    let list = data.messages
+    if (term) {
+      list = list.filter((message: any) =>
+        (typeof message.message === 'string' && message.message.toLowerCase().includes(term)) ||
+        (typeof message.sender === 'string' && message.sender.toLowerCase().includes(term))
       )
-      setFilteredData(filtered)
     }
-  }, [data, searchTerm])
+
+    return [...list].sort((a: any, b: any) => {
+      const timeA = new Date(a.timestamp || 0).getTime()
+      const timeB = new Date(b.timestamp || 0).getTime()
+      return sortOrder === 'desc' ? timeB - timeA : timeA - timeB
+    })
+  }, [data?.messages, searchTerm, sortOrder])
+
+  // Robust participant list derivation (from analysis or unique message senders)
+  const effectiveParticipants = (data?.analysis?.participants && data.analysis.participants.length > 0)
+    ? data.analysis.participants
+    : Array.from(new Set((data?.messages || []).map((m: any) => m.sender).filter(Boolean)))
+
+  // Slice paginated items
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize))
+  const paginatedData = filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const handleExportData = async (format: 'json' | 'csv') => {
     if (!data) {
@@ -124,6 +152,38 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
   }
 
   if (!data) {
+    if (isDecrypting) {
+      return (
+        <Card className="rounded-2xl border-blue-900/40 bg-slate-900/60 shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-blue-400" />
+              Database Viewer
+            </CardTitle>
+            <CardDescription>
+              Decrypting your private chat archive client-side using your archive key...
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center py-12 space-y-4">
+              <RefreshCw className="h-12 w-12 mx-auto text-blue-400 animate-spin" />
+              <div className="text-lg font-semibold text-slate-200">
+                Decrypting Messages...
+              </div>
+              {decryptProgress && decryptProgress.total > 0 && (
+                <p className="text-sm text-blue-300 font-mono">
+                  {decryptProgress.current.toLocaleString()} / {decryptProgress.total.toLocaleString()} messages decrypted
+                </p>
+              )}
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                Processing in non-blocking background batches to keep your browser responsive.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )
+    }
+
     return (
       <Card>
         <CardHeader>
@@ -200,7 +260,7 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
             <CardTitle className="text-sm font-medium">Participants</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{data.analysis?.participants?.length || 0}</div>
+            <div className="text-2xl font-bold">{effectiveParticipants.length}</div>
           </CardContent>
         </Card>
         
@@ -264,7 +324,23 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Timestamp</TableHead>
+                      <TableHead 
+                        className="cursor-pointer select-none hover:text-slate-900 transition-colors"
+                        onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                        title={`Click to sort (${sortOrder === 'desc' ? 'Newest first' : 'Oldest first'})`}
+                      >
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          <span>Timestamp</span>
+                          {sortOrder === 'desc' ? (
+                            <ArrowDown className="h-3.5 w-3.5 text-blue-600" />
+                          ) : (
+                            <ArrowUp className="h-3.5 w-3.5 text-blue-600" />
+                          )}
+                          <span className="text-[10px] font-normal text-muted-foreground ml-1">
+                            ({sortOrder === 'desc' ? 'Newest' : 'Oldest'})
+                          </span>
+                        </div>
+                      </TableHead>
                       <TableHead>Sender</TableHead>
                       <TableHead>Message</TableHead>
                       <TableHead>Type</TableHead>
@@ -272,7 +348,7 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredData.map((message, index) => (
+                    {paginatedData.map((message, index) => (
                       <TableRow key={index}>
                         <TableCell className="font-mono text-xs">
                           {formatTimestamp(message.timestamp)}
@@ -301,6 +377,62 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
                   </TableBody>
                 </Table>
               </ScrollArea>
+
+              {/* Pagination Controls */}
+              {filteredData.length > 0 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100 mt-2">
+                  <div className="text-xs text-muted-foreground">
+                    Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, filteredData.length)} of {filteredData.length.toLocaleString()} messages
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setCurrentPage(1)}
+                        disabled={currentPage === 1}
+                        title="First Page"
+                      >
+                        <ChevronsLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                        disabled={currentPage === 1}
+                        title="Previous Page"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="text-xs px-2 font-medium">
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={currentPage === totalPages}
+                        title="Next Page"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={currentPage === totalPages}
+                        title="Last Page"
+                      >
+                        <ChevronsRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -347,7 +479,7 @@ export function DatabaseViewer({ data }: DatabaseViewerProps) {
                     <div><strong>Total Messages:</strong> {data.totalMessages || 0}</div>
                     <div><strong>Text Messages:</strong> {data.analysis?.textMessages || 0}</div>
                     <div><strong>Media Messages:</strong> {data.analysis?.mediaMessages || 0}</div>
-                    <div><strong>Participants:</strong> {data.analysis?.participants?.length || 0}</div>
+                    <div><strong>Participants:</strong> {effectiveParticipants.length}</div>
                   </div>
                 </div>
               </div>
