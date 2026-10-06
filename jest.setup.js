@@ -58,6 +58,18 @@ if (typeof global.TextDecoder === 'undefined') {
   global.TextDecoder = require('util').TextDecoder
 }
 
+// jsdom does not implement fetch. Components that call fetch on mount would
+// otherwise throw ReferenceError and abort the whole render.
+if (typeof global.fetch === 'undefined') {
+  global.fetch = jest.fn(async () => ({
+    ok: false,
+    status: 0,
+    headers: new Map(),
+    json: async () => ({}),
+    text: async () => '',
+  }))
+}
+
 // Mock next/server for API route testing
 jest.mock('next/server', () => ({
   NextRequest: class {

@@ -45,6 +45,8 @@
     "src/__tests__",
     "jest.setup.ts",
     "vendor",
-    "work"
+    "work",
+    "decision_provider",
+    "shared"
   ]
 }

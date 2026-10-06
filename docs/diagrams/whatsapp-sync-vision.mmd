@@ -1,0 +1,44 @@
+flowchart LR
+  subgraph phones["WhatsApp numbers"]
+    LK["LK +94 71 173 0345<br/>front door"]
+    UKW["UK work +44 7359 857860<br/>sync line"]
+    UKT["UK +44 7733 393956<br/>trade inquiries"]
+  end
+
+  subgraph baileys["Baileys sessions (one number = one live session)"]
+    direction TB
+    WTD["WhatToDo<br/>WhatsAppChannel"]
+    CORE["baileys-core<br/>session manager"]
+  end
+
+  subgraph happen["WhatHappen (Hermes-Dev :3000)"]
+    direction TB
+    WORKER["live-sync worker<br/>PM2"]
+    BUF[("live_buffer<br/>+ sync_state")]
+    SYNCAPI["POST /whatsapp-sync<br/>flush ≤100/chat"]
+    HANDOFF["POST /whatsapp-handoff<br/>takeover / release"]
+    EXPORT["POST /whatsapp-export<br/>zip / json / csv"]
+    OUTBOX[("outbox")]
+    MSG[("messages<br/>idempotent upsert")]
+  end
+
+  subgraph ui["Dashboard (Upload tab)"]
+    SYNCBTN["Sync button"]
+    TOGGLE["Handoff toggle"]
+    SENDBOX["Send box"]
+  end
+
+  LK <--> WTD
+  UKW <--> CORE
+  CORE -->|"inbound msg<br/>wa_<id>"| WORKER
+  WORKER -->|"upsert buffer<br/>+ heartbeat"| BUF
+  WTD -->|"pause / resume"| HANDOFF
+  HANDOFF -->|"PUT pause/resume :4000"| WTD
+  TOGGLE --> HANDOFF
+  SYNCBTN --> SYNCAPI
+  SYNCAPI -->|"flush"| MSG
+  BUF --> SYNCAPI
+  MSG --> EXPORT
+  SENDBOX -->|"queue"| OUTBOX
+  OUTBOX -->|"poll + send"| WORKER
+  UKT -.->|"deep links only<br/>no session"| ui

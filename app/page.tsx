@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { ProjectSelector } from '@/components/project-selector'
 import { FileUpload } from '@/components/file-upload'
+import { WhatsAppLiveSync } from '@/components/whatsapp-live-sync'
 import { AIChatInterface } from '@/components/ai-chat-interface'
 import { DatabaseViewer } from '@/components/database-viewer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -733,11 +734,12 @@ export default function Home() {
 
               {/* Upload & Process Tab */}
               <TabsContent value="upload" className="space-y-6">
-                <FileUpload 
+                <FileUpload
                   onFileProcessed={handleFileProcessed}
                   projectId={selectedProject.id}
                   passphrase={passphrase}
                 />
+                <WhatsAppLiveSync selectedProject={selectedProject} />
               </TabsContent>
 
               {/* Chat Reader Tab */}

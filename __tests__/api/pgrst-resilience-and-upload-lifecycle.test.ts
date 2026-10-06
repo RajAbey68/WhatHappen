@@ -74,6 +74,7 @@ jest.mock('../../lib/auth', () => ({
       let filterCol = ''
       let filterVal = ''
       let updatePayload: any = null
+      let pendingResult: { data: any; error: any } | null = null
 
       const builder: any = {
         select: (_cols?: string) => builder,
@@ -105,6 +106,33 @@ jest.mock('../../lib/auth', () => ({
             }
           }
           return { data: arr, error: null }
+        },
+        // Emulate PostgREST upsert(): honours onConflict + ignoreDuplicates so
+        // re-uploads converge instead of duplicating (mirrors messages, sources).
+        upsert: (records: any, opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => {
+          const arr = Array.isArray(records) ? records : [records]
+          const conflict = String(opts?.onConflict || '')
+            .split(',')
+            .map((c) => c.trim())
+            .filter(Boolean)
+          if (table === 'messages') {
+            for (const r of arr) {
+              const dupIdx = conflict.length
+                ? mockDb.messages.findIndex((m) => conflict.every((c) => m[c] !== undefined && m[c] === r[c]))
+                : -1
+              if (dupIdx >= 0) {
+                if (opts?.ignoreDuplicates) continue
+                mockDb.messages[dupIdx] = { ...mockDb.messages[dupIdx], ...r }
+              } else {
+                mockDb.messages.push(r)
+              }
+            }
+          }
+          pendingResult =
+            table === 'sources'
+              ? { data: arr.map((r: any) => ({ id: r.id || `src_${r.remote_jid}`, remote_jid: r.remote_jid })), error: null }
+              : { data: arr, error: null }
+          return builder
         },
         // Emulate realistic PostgREST .maybeSingle() behavior: returns null when 0 rows match
         maybeSingle: async () => {
@@ -152,10 +180,10 @@ jest.mock('../../lib/auth', () => ({
         },
         // Make builder awaitable/thenable
         then: (onfulfilled: any, onrejected: any) => {
-          return Promise.resolve({ data: null, error: null }).then(onfulfilled, onrejected)
+          return Promise.resolve(pendingResult || { data: null, error: null }).then(onfulfilled, onrejected)
         },
         catch: (onrejected: any) => {
-          return Promise.resolve({ data: null, error: null }).catch(onrejected)
+          return Promise.resolve(pendingResult || { data: null, error: null }).catch(onrejected)
         },
       }
 

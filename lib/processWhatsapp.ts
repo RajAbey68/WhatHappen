@@ -35,7 +35,7 @@ const MAX_MESSAGE_LENGTH = 20000
  */
 function sanitizeIncomingMessage(
   raw: any
-): { sender: string; message: string; timestamp: string; remote_jid?: string; receiving_session_id?: string; is_group?: boolean; group_name?: string } | null {
+): { sender: string; message: string; timestamp: string; remote_jid?: string; receiving_session_id?: string; is_group?: boolean; group_name?: string; message_id?: string } | null {
   if (!raw || typeof raw !== 'object') return null
   if (typeof raw.sender !== 'string' || raw.sender.length === 0) return null
   if (typeof raw.message !== 'string') return null
@@ -51,7 +51,18 @@ function sanitizeIncomingMessage(
     receiving_session_id: typeof raw.receiving_session_id === 'string' ? raw.receiving_session_id.slice(0, MAX_SENDER_LENGTH) : undefined,
     is_group: typeof raw.is_group === 'boolean' ? raw.is_group : undefined,
     group_name: typeof raw.group_name === 'string' ? raw.group_name.slice(0, MAX_SENDER_LENGTH) : undefined,
+    message_id: typeof raw.message_id === 'string' && raw.message_id.length > 0 ? raw.message_id.slice(0, 128) : undefined,
   }
+}
+
+function deterministicMessageId(m: { sender: string; message: string; timestamp: string; remote_jid?: string }): string {
+  // Legacy file-upload path has no stable provider ID — hash the natural key so
+  // re-uploads upsert instead of duplicating (idempotent live + file ingest).
+  const { createHash } = require('crypto') as typeof import('crypto')
+  return 'legacy_' + createHash('sha256')
+    .update([m.sender, m.timestamp, m.remote_jid ?? '', m.message].join('|'))
+    .digest('hex')
+    .slice(0, 32)
 }
 
 export interface WhatsAppMessage {
@@ -62,6 +73,7 @@ export interface WhatsAppMessage {
   receiving_session_id?: string
   is_group?: boolean
   group_name?: string
+  message_id?: string
 }
 
 export interface ProcessingResult {
@@ -223,14 +235,18 @@ export async function processWhatsappCompletion(
           })
         }
 
+        const messageId = clean.message_id ?? deterministicMessageId(clean)
+        const occurredAt = safeParseTimestamp(clean.timestamp) ?? null
         messagesToInsert.push({
           project_id: projectId,
           sender: clean.sender,
           message: clean.message,
           timestamp: clean.timestamp,
+          occurred_at: occurredAt,
           processed: true,
           remote_jid: clean.remote_jid,
           receiving_session_id: clean.receiving_session_id,
+          message_id: messageId,
         })
       }
 
@@ -255,10 +271,13 @@ export async function processWhatsappCompletion(
         }
       }
 
-      // Insert in batches of INSERT_BATCH_SIZE
+      // Idempotent upsert in batches of INSERT_BATCH_SIZE — live Baileys sync
+      // and re-uploads converge instead of duplicating (unique project_id+message_id).
       for (let i = 0; i < messagesToInsert.length; i += INSERT_BATCH_SIZE) {
         const batch = messagesToInsert.slice(i, i + INSERT_BATCH_SIZE)
-        const { error: batchError } = await supabase.from('messages').insert(batch)
+        const { error: batchError } = await supabase
+          .from('messages')
+          .upsert(batch, { onConflict: 'project_id,message_id', ignoreDuplicates: true })
 
         if (batchError) throw batchError
       }
